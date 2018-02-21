@@ -139,5 +139,8 @@ main(int argc, char **argv)
   gups = ((double)updates) / (secs * 1.0e9);
   printf("GUPS = %.10f\n", gups);
 
+  free(field);
+  free(indices);
+
   return 0;
 }
