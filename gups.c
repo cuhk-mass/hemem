@@ -20,23 +20,39 @@
 #include <assert.h>
 #include <sys/time.h>
 #include <math.h>
+#include <pthread.h>
 
-unsigned long *indices;
+struct thread_data {
+  unsigned long *indices;
+  void *field;
+  unsigned long *field64;
+};
 
-#define GET_NEXT_INDEX(i,size) indices[i]
+struct thread_data* td;
+
+struct args {
+  int tid;
+  struct thread_data* td;
+  unsigned long iters;
+  unsigned long size;
+};
+
+#define GET_NEXT_INDEX(tid, i, size) td[tid].indices[i]
 
 /* GUPS for 64-bit wide data, serial */
 void
-gups64(unsigned long *field, unsigned long iters, unsigned long size)
+*gups64(void *arguments)
 {
+  struct args *args = (struct args*)arguments;
+  unsigned long *field = args->td->field64;
   unsigned long data;
   unsigned long i;
   unsigned long long index;
 
-  for (i = 0; i < iters; i++) {
-    index = GET_NEXT_INDEX(i, size);
+  for (i = 0; i < args->iters; i++) {
+    index = GET_NEXT_INDEX(args->tid, i, args->size);
     data = field[index];
-    data = data + ((unsigned long)iters);
+    data = data + ((unsigned long)(args->iters));
     field[index] = data;
   }
 }
@@ -68,11 +84,10 @@ elapsed(struct timeval *starttime, struct timeval *endtime)
 
 #ifdef UNIFORM_RANDOM
 void
-calc_indices(unsigned long updates, unsigned long nelems)
+calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems)
 {
   unsigned int i;
 
-  indices = (unsigned long*)malloc(updates * sizeof(unsigned long));
   if (!indices) {
     printf("Error: couldn't malloc space for array of indices\n");
     assert(indices != NULL);
@@ -170,15 +185,11 @@ nextValue(unsigned long itemcount)
 }
 
 void 
-calc_indices(unsigned long updates, unsigned long nelems)
+calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems)
 {
   unsigned int i;
-  indices = (unsigned long*)malloc(updates * sizeof(unsigned long));
-  if (!indices) {
-    printf("Error: couldn't malloc space for array of indices\n");
-    assert(indices != NULL);
-  }
-
+  assert(indices != NULL);
+  
   // init zipfian distrobution variables
   min = 0;
   max = nelems - 1;
@@ -197,7 +208,7 @@ calc_indices(unsigned long updates, unsigned long nelems)
 
   for (i = 0; i < updates; i++) {
     unsigned long ret = nextValue(nelems);
-    ret = min + fnvhash64(ret) % itemcount; //TODO: fnvhash64
+    ret = min + fnvhash64(ret) % itemcount;
     lastVal = ret;
     indices[i] = ret;
   }
@@ -207,21 +218,23 @@ calc_indices(unsigned long updates, unsigned long nelems)
 int
 main(int argc, char **argv)
 {
+  int threads;
   unsigned long updates, expt;
   unsigned long size, elt_size, nelems;
-  void *field;
-  unsigned long *field64;
   struct timeval starttime, stoptime;
   double secs, gups;
 
-  if (argc != 3) {
-    printf("Usage: %s [updates] [exponent]\n", argv[0]);
+  if (argc != 4) {
+    printf("Usage: %s [threads] [updates per thread] [exponent]\n", argv[0]);
     return 0;
   }
+
+  threads = atoi(argv[1]);
+  td = (struct thread_data*)malloc(threads * sizeof(struct thread_data)); 
   
-  updates = atol(argv[1]);
+  updates = atol(argv[2]);
   updates -= updates % 256;
-  expt = atoi(argv[2]);
+  expt = atoi(argv[3]);
   assert(expt > 8);
   assert(updates > 0 && (updates % 256 == 0));
   size = (unsigned long)(1) << expt;
@@ -229,38 +242,60 @@ main(int argc, char **argv)
   assert(size > 0 && (size % 256 == 0));
 
   printf("%lu updates, ", updates);
-  printf("field of 2^%lu (%lu) bytes.\n", expt, size);
+  printf("%d fields of 2^%lu (%lu) bytes. (%lu bytes total)\n", threads, expt, 
+		  size, size*threads);
 
-  field = malloc(size);
-  if (field == NULL) {
-    printf("Error: Failed to malloc %lu bytes.\n", size);
-    assert(field != NULL);
+  int i;
+  printf("initializing thread data\n");
+  gettimeofday(&starttime, NULL);
+  for (i = 0; i < threads; i++) {
+    td[i].field = malloc(size);
+    if (td[i].field == NULL) {
+      printf("Error: Failed to malloc %lu bytes.\n", size);
+      assert(td[i].field != NULL);
+    }
+
+    td[i].field64 = (unsigned long*)td[i].field;
+    elt_size = sizeof(unsigned long);
+
+    //printf("Element size is %lu bytes.\n", elt_size);
+    nelems = size / elt_size;
+    //printf("Field is %lu data elements starting at 0x%08lx.\n", nelems,
+    //        (unsigned long)td[i].field);
+
+    td[i].indices = (unsigned long*)malloc(updates * sizeof(unsigned long));
+    //printf("Calculating indices.\n");
+    calc_indices(td[i].indices, updates, nelems);
   }
-
-  field64 = (unsigned long*)field;
-  assert(sizeof(unsigned long) == 8);
-  elt_size = sizeof(unsigned long);
-
-  printf("Element size is %lu bytes.\n", elt_size);
-  nelems = size / elt_size;
-  printf("Field is %lu data elements starting at 0x%08lx.\n", nelems,
-	  (unsigned long) field);
-
-  printf("Calculating indices.\n");
-  calc_indices (updates, nelems);
+  gettimeofday(&stoptime, NULL);
+  secs = elapsed(&starttime, &stoptime);
+  printf("Initialization time: %.4f seconds.\n", secs);
 
   printf("Timing.\n");
+  pthread_t t[threads];
   gettimeofday(&starttime, NULL);
-  gups64(field64, updates, nelems);
+  for (i = 0; i < threads; i++) {
+    struct args a;
+    a.tid = i;
+    a.td = &td[i];
+    a.iters = updates;
+    a.size = nelems;
+    int r = pthread_create(&t[i], NULL, gups64, (void*)&a);
+    assert(r == 0);
+  }
+
+  for (i = 0; i < threads; i++) {
+    int r = pthread_join(t[i], NULL);
+    assert(r == 0);
+  }
   gettimeofday(&stoptime, NULL);
 
-  secs = elapsed (&starttime, &stoptime);
+  secs = elapsed(&starttime, &stoptime);
   printf("Elapsed time: %.4f seconds.\n", secs);
-  gups = ((double)updates) / (secs * 1.0e9);
+  gups = threads * ((double)updates) / (secs * 1.0e9);
   printf("GUPS = %.10f\n", gups);
 
-  free(field);
-  free(indices);
+  free(td);
 
   return 0;
 }
