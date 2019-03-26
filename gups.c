@@ -20,12 +20,12 @@
 #include <assert.h>
 #include <sys/time.h>
 #include <math.h>
+#include <string.h>
 #include <pthread.h>
 
 struct thread_data {
   unsigned long *indices;
   void *field;
-  unsigned long *field64;
 };
 
 struct thread_data* td;
@@ -35,25 +35,50 @@ struct args {
   struct thread_data* td;
   unsigned long iters;
   unsigned long size;
+  unsigned long elt_size;
 };
 
 #define GET_NEXT_INDEX(tid, i, size) td[tid].indices[i]
 
+
+static void my_memset(volatile void *s, int c, size_t n)
+{
+  assert(n % sizeof(unsigned long) == 0);
+//  assert(c == 0);
+  volatile unsigned long *s64 = s;
+
+  for(size_t i = 0; i < n / sizeof(unsigned long); i++) {
+    s64[i] = c;
+  }
+}
+
+static void my_memcpy(volatile void *dest, const void *src, size_t n)
+{
+  assert(n % sizeof(unsigned long) == 0);
+  volatile unsigned long *dest64 = dest;
+  const unsigned long *src64 = src;
+
+  for(size_t i = 0; i < n / sizeof(unsigned long); i++) {
+    dest64[i] = src64[i];
+  }
+}
+
 /* GUPS for 64-bit wide data, serial */
 void
-*gups64(void *arguments)
+*do_gups(void *arguments)
 {
   struct args *args = (struct args*)arguments;
-  unsigned long *field = args->td->field64;
-  unsigned long data;
+  char *field = (char*)(args->td->field);
   unsigned long i;
   unsigned long long index;
+  unsigned long elt_size = args->elt_size;
+  char data[elt_size];
 
   for (i = 0; i < args->iters; i++) {
     index = GET_NEXT_INDEX(args->tid, i, args->size);
-    data = field[index];
-    data = data + ((unsigned long)(args->iters));
-    field[index] = data;
+    my_memcpy(data, &field[index * elt_size], elt_size);
+    my_memset(data, i, elt_size);
+    my_memcpy(&field[index * elt_size], data, elt_size);
   }
 }
 
@@ -224,8 +249,12 @@ main(int argc, char **argv)
   struct timeval starttime, stoptime;
   double secs, gups;
 
-  if (argc != 4) {
-    printf("Usage: %s [threads] [updates per thread] [exponent]\n", argv[0]);
+  if (argc != 5) {
+    printf("Usage: %s [threads] [updates per thread] [exponent] [data size (bytes)]\n", argv[0]);
+    printf("  threads\t\t\tnumber of threads to launch\n");
+    printf("  updates per thread\t\tnumber of updates per thread\n");
+    printf("  exponent\t\t\tlog size of array of each thread\n");
+    printf("  data size\t\t\tsize of data in array (in bytes)\n");
     return 0;
   }
 
@@ -240,10 +269,12 @@ main(int argc, char **argv)
   size = (unsigned long)(1) << expt;
   size -= (size % 256);
   assert(size > 0 && (size % 256 == 0));
+  elt_size = atoi(argv[4]);
 
   printf("%lu updates, ", updates);
   printf("%d fields of 2^%lu (%lu) bytes. (%lu bytes total)\n", threads, expt, 
 		  size, size*threads);
+  printf("%d byte element size (%d elements per array)\n", elt_size, size / elt_size);
 
   int i;
   printf("initializing thread data\n");
@@ -254,9 +285,6 @@ main(int argc, char **argv)
       printf("Error: Failed to malloc %lu bytes.\n", size);
       assert(td[i].field != NULL);
     }
-
-    td[i].field64 = (unsigned long*)td[i].field;
-    elt_size = sizeof(unsigned long);
 
     //printf("Element size is %lu bytes.\n", elt_size);
     nelems = size / elt_size;
@@ -280,7 +308,8 @@ main(int argc, char **argv)
     a.td = &td[i];
     a.iters = updates;
     a.size = nelems;
-    int r = pthread_create(&t[i], NULL, gups64, (void*)&a);
+    a.elt_size = elt_size;
+    int r = pthread_create(&t[i], NULL, do_gups, (void*)&a);
     assert(r == 0);
   }
 
