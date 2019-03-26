@@ -295,6 +295,10 @@ main(int argc, char **argv)
   gups = threads * ((double)updates) / (secs * 1.0e9);
   printf("GUPS = %.10f\n", gups);
 
+  for (i = 0; i < threads; i++) {
+    free(td[i].field);
+    free(td[i].indices);
+  }
   free(td);
 
   return 0;
