@@ -22,6 +22,7 @@
 #include <math.h>
 #include <string.h>
 #include <pthread.h>
+#include <sys/mman.h>
 
 struct thread_data {
   unsigned long *indices;
@@ -76,9 +77,8 @@ void
 
   for (i = 0; i < args->iters; i++) {
     index = GET_NEXT_INDEX(args->tid, i, args->size);
-    my_memcpy(data, &field[index * elt_size], elt_size);
-    my_memset(data, i, elt_size);
-    my_memcpy(&field[index * elt_size], data, elt_size);
+    memset(data, i, elt_size);
+    memcpy(&field[index * elt_size], data, elt_size);
   }
 }
 
@@ -253,7 +253,7 @@ main(int argc, char **argv)
     printf("Usage: %s [threads] [updates per thread] [exponent] [data size (bytes)]\n", argv[0]);
     printf("  threads\t\t\tnumber of threads to launch\n");
     printf("  updates per thread\t\tnumber of updates per thread\n");
-    printf("  exponent\t\t\tlog size of array of each thread\n");
+    printf("  exponent\t\t\tlog size of region\n");
     printf("  data size\t\t\tsize of data in array (in bytes)\n");
     return 0;
   }
@@ -271,28 +271,26 @@ main(int argc, char **argv)
   assert(size > 0 && (size % 256 == 0));
   elt_size = atoi(argv[4]);
 
-  printf("%lu updates, ", updates);
-  printf("%d fields of 2^%lu (%lu) bytes. (%lu bytes total)\n", threads, expt, 
-		  size, size*threads);
-  printf("%d byte element size (%d elements per array)\n", elt_size, size / elt_size);
+  printf("%lu updates per thread\n", updates);
+  printf("field of 2^%lu (%lu) bytes\n", expt, size);
+  printf("%d byte element size (%d elements total)\n", elt_size, size / elt_size);
 
   int i;
+  void *p;
+  p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, -1, 0);
+  if (p == NULL) {
+    printf("Error: Failed to map region.\n");
+    assert(p != NULL);
+  }
+
+  nelems = (size / threads) / elt_size; // number of elements per thread
+
   printf("initializing thread data\n");
   gettimeofday(&starttime, NULL);
   for (i = 0; i < threads; i++) {
-    td[i].field = malloc(size);
-    if (td[i].field == NULL) {
-      printf("Error: Failed to malloc %lu bytes.\n", size);
-      assert(td[i].field != NULL);
-    }
-
-    //printf("Element size is %lu bytes.\n", elt_size);
-    nelems = size / elt_size;
-    //printf("Field is %lu data elements starting at 0x%08lx.\n", nelems,
-    //        (unsigned long)td[i].field);
-
+    td[i].field = p + (i * nelems * elt_size);
+    //printf("thread %d start address: %llu\n", i, (unsigned long)td[i].field);
     td[i].indices = (unsigned long*)malloc(updates * sizeof(unsigned long));
-    //printf("Calculating indices.\n");
     calc_indices(td[i].indices, updates, nelems);
   }
   gettimeofday(&stoptime, NULL);
@@ -325,10 +323,10 @@ main(int argc, char **argv)
   printf("GUPS = %.10f\n", gups);
 
   for (i = 0; i < threads; i++) {
-    free(td[i].field);
     free(td[i].indices);
   }
   free(td);
+  munmap(p, size);
 
   return 0;
 }
