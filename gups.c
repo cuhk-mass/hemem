@@ -23,6 +23,10 @@
 #include <string.h>
 #include <pthread.h>
 #include <sys/mman.h>
+#include <libpmem.h>
+
+
+#define PATH "/mnt/pmem12/"
 
 struct thread_data {
   unsigned long *indices;
@@ -208,13 +212,16 @@ main(int argc, char **argv)
   unsigned long size, elt_size, nelems;
   struct timeval starttime, stoptime;
   double secs, gups;
+  int dram = 0, base = 0;
 
-  if (argc != 5) {
-    printf("Usage: %s [threads] [updates per thread] [exponent] [data size (bytes)]\n", argv[0]);
+  if (argc != 7) {
+    printf("Usage: %s [threads] [updates per thread] [exponent] [data size (bytes)] [DRAM/NVM] [base/huge]\n", argv[0]);
     printf("  threads\t\t\tnumber of threads to launch\n");
     printf("  updates per thread\t\tnumber of updates per thread\n");
     printf("  exponent\t\t\tlog size of region\n");
     printf("  data size\t\t\tsize of data in array (in bytes)\n");
+    printf("  DRAM/NVM\t\t\twhether the region is in DRAM or NVM\n");
+    printf("  base/huge\t\t\twhether to map the region with base or huge pages\n");
     return 0;
   }
 
@@ -230,14 +237,47 @@ main(int argc, char **argv)
   size -= (size % 256);
   assert(size > 0 && (size % 256 == 0));
   elt_size = atoi(argv[4]);
+  
+  if (!strcmp("DRAM", argv[5])) {
+    dram = 1;
+  }
+
+  if (!strcmp("base", argv[6])) {
+    base = 1;
+  }
 
   printf("%lu updates per thread\n", updates);
   printf("field of 2^%lu (%lu) bytes\n", expt, size);
   printf("%d byte element size (%d elements total)\n", elt_size, size / elt_size);
 
+  if (dram) {
+    printf("Mapping in DRAM ");
+  }
+  else {
+    printf("Mapping in NVM ");
+  }
+
+  if (base) {
+    printf("with base pages\n");
+  }
+  else {
+    printf("with huge pages\n");
+  }
+
   int i;
   void *p;
-  p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, -1, 0);
+  if (dram && base) {
+    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, -1, 0);
+    printf("dram base\n");
+  }
+  else if (dram && !base) {
+    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE | MAP_HUGETLB, -1, 0);
+    printf("dram huge\n");
+  }
+  else {
+    p = pmem_map_file(PATH, size, PMEM_FILE_CREATE | PMEM_FILE_TMPFILE, 0644, NULL, NULL);
+    printf("nvm\n");
+  }
   if (p == NULL) {
     printf("Error: Failed to map region.\n");
     assert(p != NULL);
@@ -286,7 +326,12 @@ main(int argc, char **argv)
     free(td[i].indices);
   }
   free(td);
-  munmap(p, size);
 
+  if (dram) {
+    munmap(p, size);
+  }
+  else {
+    pmem_unmap(p, size);
+  }
   return 0;
 }
