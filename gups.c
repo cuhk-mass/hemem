@@ -41,30 +41,6 @@ struct args {
 
 #define GET_NEXT_INDEX(tid, i, size) td[tid].indices[i]
 
-
-static void my_memset(volatile void *s, int c, size_t n)
-{
-  assert(n % sizeof(unsigned long) == 0);
-//  assert(c == 0);
-  volatile unsigned long *s64 = s;
-
-  for(size_t i = 0; i < n / sizeof(unsigned long); i++) {
-    s64[i] = c;
-  }
-}
-
-static void my_memcpy(volatile void *dest, const void *src, size_t n)
-{
-  assert(n % sizeof(unsigned long) == 0);
-  volatile unsigned long *dest64 = dest;
-  const unsigned long *src64 = src;
-
-  for(size_t i = 0; i < n / sizeof(unsigned long); i++) {
-    dest64[i] = src64[i];
-  }
-}
-
-/* GUPS for 64-bit wide data, serial */
 void
 *do_gups(void *arguments)
 {
@@ -107,21 +83,6 @@ elapsed(struct timeval *starttime, struct timeval *endtime)
   return tv_to_double(diff);
 }
 
-#ifdef UNIFORM_RANDOM
-void
-calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems)
-{
-  unsigned int i;
-
-  if (!indices) {
-    printf("Error: couldn't malloc space for array of indices\n");
-    assert(indices != NULL);
-  }
-  for (i = 0; i < updates; i++) {
-    indices[i] = random() % nelems;
-  }
-}
-#else
 const double ZETAN = 26.46902820178302;
 const double ZIPFIAN_CONSTANT = 0.99;
 unsigned long min, max, itemcount;
@@ -238,7 +199,6 @@ calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems
     indices[i] = ret;
   }
 }
-#endif
 
 int
 main(int argc, char **argv)
