@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
+#include <unistd.h>
 #include <sys/time.h>
 #include <math.h>
 #include <string.h>
@@ -43,6 +44,39 @@ struct args {
   unsigned long size;
   unsigned long elt_size;
 };
+
+struct remap_args {
+  void* field;
+  int nvm_to_dram;
+};
+
+void *do_remap(void* remap_arguments)
+{
+    struct remap_args *re = (struct remap_args*)remap_arguments;
+    void* field = re->field;
+    int nvm_to_dram = re->nvm_to_dram;
+
+    assert(field != NULL);
+
+    //TODO: figure out how to remap
+    // Design:
+    // wait for ~1 second
+    // remap region 
+    //   TODO: figure out if this will pause other threads accessing region
+    //   use current pointer as remap hint pointer
+    //   TODO: will hint pointer be honored?
+
+    sleep(1);
+
+    if (nvm_to_dram) {
+        // moving field from nvm to dram
+        printf("Moving region from NVM to DRAM\n");
+    }
+    else {
+        // moving field frm dram to nvm
+        printf("Moving region from DRAM to NVM\n");
+    }
+}
 
 #define GET_NEXT_INDEX(tid, i, size) td[tid].indices[i]
 
@@ -215,15 +249,17 @@ main(int argc, char **argv)
   double secs, gups;
   int dram = 0, base = 0;
   VMEM *vmp;
+  int remap = 0;
 
-  if (argc != 7) {
-    printf("Usage: %s [threads] [updates per thread] [exponent] [data size (bytes)] [DRAM/NVM] [base/huge]\n", argv[0]);
+  if (argc != 8) {
+    printf("Usage: %s [threads] [updates per thread] [exponent] [data size (bytes)] [DRAM/NVM] [base/huge] [noremap/remap]\n", argv[0]);
     printf("  threads\t\t\tnumber of threads to launch\n");
     printf("  updates per thread\t\tnumber of updates per thread\n");
     printf("  exponent\t\t\tlog size of region\n");
     printf("  data size\t\t\tsize of data in array (in bytes)\n");
     printf("  DRAM/NVM\t\t\twhether the region is in DRAM or NVM\n");
     printf("  base/huge\t\t\twhether to map the region with base or huge pages\n");
+    printf("  nremap/remap\t\t\twhether to remap the region when accessing\n");
     return 0;
   }
 
@@ -251,6 +287,10 @@ main(int argc, char **argv)
 
   if (!strcmp("base", argv[6])) {
     base = 1;
+  }
+
+  if (!strcmp("remap", argv[7])) {
+    remap = 1;
   }
 
   printf("%lu updates per thread\n", updates);
@@ -309,7 +349,7 @@ main(int argc, char **argv)
   printf("Initialization time: %.4f seconds.\n", secs);
 
   printf("Timing.\n");
-  pthread_t t[threads];
+  pthread_t t[(remap ? threads + 1 : threads)];
   gettimeofday(&starttime, NULL);
   for (i = 0; i < threads; i++) {
     struct args a;
@@ -322,8 +362,21 @@ main(int argc, char **argv)
     assert(r == 0);
   }
 
+  if (remap) {
+    struct remap_args re;
+    re.field = p;
+    re.nvm_to_dram = !dram;
+    int r = pthread_create(&t[threads], NULL, do_remap, (void*)&re);
+    assert(r == 0);
+  }
+
   for (i = 0; i < threads; i++) {
     int r = pthread_join(t[i], NULL);
+    assert(r == 0);
+  }
+
+  if (remap) {
+    int r = pthread_join(t[threads], NULL);
     assert(r == 0);
   }
   gettimeofday(&stoptime, NULL);
