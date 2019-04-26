@@ -24,6 +24,7 @@
 #include <pthread.h>
 #include <sys/mman.h>
 #include <libpmem.h>
+#include <libvmem.h>
 
 
 #define PATH "/mnt/pmem12/"
@@ -213,6 +214,7 @@ main(int argc, char **argv)
   struct timeval starttime, stoptime;
   double secs, gups;
   int dram = 0, base = 0;
+  VMEM *vmp;
 
   if (argc != 7) {
     printf("Usage: %s [threads] [updates per thread] [exponent] [data size (bytes)] [DRAM/NVM] [base/huge]\n", argv[0]);
@@ -237,6 +239,11 @@ main(int argc, char **argv)
   size -= (size % 256);
   assert(size > 0 && (size % 256 == 0));
   elt_size = atoi(argv[4]);
+ 
+  if ((vmp = vmem_create("/mnt/pmem12", (1024*1024*1024))) == NULL) {
+    perror("vmem_create");
+    exit(1);
+  }
   
   if (!strcmp("DRAM", argv[5])) {
     dram = 1;
@@ -267,16 +274,16 @@ main(int argc, char **argv)
   int i;
   void *p;
   if (dram && base) {
-    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, -1, 0);
-    printf("dram base\n");
+    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    //printf("dram base\n");
   }
   else if (dram && !base) {
-    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE | MAP_HUGETLB, -1, 0);
-    printf("dram huge\n");
+    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
+    //printf("dram huge\n");
   }
   else {
     p = pmem_map_file(PATH, size, PMEM_FILE_CREATE | PMEM_FILE_TMPFILE, 0644, NULL, NULL);
-    printf("nvm\n");
+    //printf("nvm\n");
   }
   if (p == NULL) {
     printf("Error: Failed to map region.\n");
@@ -290,7 +297,11 @@ main(int argc, char **argv)
   for (i = 0; i < threads; i++) {
     td[i].field = p + (i * nelems * elt_size);
     //printf("thread %d start address: %llu\n", i, (unsigned long)td[i].field);
-    td[i].indices = (unsigned long*)malloc(updates * sizeof(unsigned long));
+    td[i].indices = (unsigned long*)vmem_malloc(vmp, updates * sizeof(unsigned long));
+    if (td[i].indices == NULL) {
+        perror("vmem_malloc");
+	exit(1);
+    }
     calc_indices(td[i].indices, updates, nelems);
   }
   gettimeofday(&stoptime, NULL);
@@ -323,7 +334,7 @@ main(int argc, char **argv)
   printf("GUPS = %.10f\n", gups);
 
   for (i = 0; i < threads; i++) {
-    free(td[i].indices);
+    vmem_free(vmp, td[i].indices);
   }
   free(td);
 
