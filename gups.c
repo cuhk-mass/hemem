@@ -108,7 +108,7 @@ void *do_remap(void *args)
         printf("Moving region from DRAM to NVM\n");
 
 	// mapping devdax NVM with base pages does not seem to be possible
-        ptr = mmap(field, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_HUGETLB | MAP_FIXED, fd, 0);
+        ptr = mmap(field, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, fd, 0);
 
 	if (ptr == NULL || ptr == MAP_FAILED) {
           perror("mmap");
@@ -119,6 +119,8 @@ void *do_remap(void *args)
           printf("new mapping is at different virtual address than old mapping!\n");
 	}
     }
+
+    printf("region moved\n");
 }
 
 #define GET_NEXT_INDEX(tid, i, size) td[tid].indices[i]
@@ -375,7 +377,7 @@ main(int argc, char **argv)
   }
   else {
     // mapping devdax mode NVM with base pages does not seem to be possible
-    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_HUGETLB, fd, 0);
+    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, fd, 0);
   }
 
   if (p == NULL || p == MAP_FAILED) {
