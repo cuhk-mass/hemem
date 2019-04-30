@@ -15,11 +15,17 @@
  *
  * =====================================================================================
  */
+
+#define _GNU_SOURCE
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
 #include <unistd.h>
 #include <sys/time.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <math.h>
 #include <string.h>
 #include <pthread.h>
@@ -28,7 +34,7 @@
 #include <libvmem.h>
 
 
-#define PATH "/mnt/pmem12/"
+#define PATH "/dev/dax0.0"
 
 struct thread_data {
   unsigned long *indices;
@@ -46,17 +52,26 @@ struct args {
 };
 
 struct remap_args {
-  void* field;
+  void* region;
+  unsigned long region_size;
+  int nvm_fd;
+  int base_pages;
   int nvm_to_dram;
 };
 
-void *do_remap(void* remap_arguments)
+void *do_remap(void *args)
 {
-    struct remap_args *re = (struct remap_args*)remap_arguments;
-    void* field = re->field;
+    printf("do_remap entered\n");
+    struct remap_args *re = (struct remap_args*)args;
+    void* field = re->region;
+    unsigned long size = re->region_size;
+    int fd = re->nvm_fd;
+    int base = re->base_pages;
     int nvm_to_dram = re->nvm_to_dram;
+    void *ptr = NULL;
 
     assert(field != NULL);
+    printf("do_remap:\tfield: 0x%x\tfd: %d\tbase: %d\tsize: %llu\tnvm_to_dram: %d\n",field, fd, base, size, nvm_to_dram);
 
     //TODO: figure out how to remap
     // Design:
@@ -66,15 +81,43 @@ void *do_remap(void* remap_arguments)
     //   use current pointer as remap hint pointer
     //   TODO: will hint pointer be honored?
 
+    printf("sleeping for one second\n");
     sleep(1);
+    printf("about to remap\n");
 
     if (nvm_to_dram) {
         // moving field from nvm to dram
         printf("Moving region from NVM to DRAM\n");
+	if (base) { 
+          ptr = mmap(field, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS| MAP_FIXED, -1, 0);
+        }
+	else {
+          ptr = mmap(field, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS| MAP_FIXED | MAP_HUGETLB, -1, 0);
+	}
+        if (ptr == NULL || ptr == MAP_FAILED) {
+          perror("mmap");
+	  assert(0);
+	}
+
+	if (ptr != field) {
+          printf("new mapping is at different virtual address than old mapping!\n");
+	}
     }
     else {
         // moving field frm dram to nvm
         printf("Moving region from DRAM to NVM\n");
+
+	// mapping devdax NVM with base pages does not seem to be possible
+        ptr = mmap(field, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_HUGETLB | MAP_FIXED, fd, 0);
+
+	if (ptr == NULL || ptr == MAP_FAILED) {
+          perror("mmap");
+	  assert(0);
+	}
+
+	if (ptr != field) {
+          printf("new mapping is at different virtual address than old mapping!\n");
+	}
     }
 }
 
@@ -83,6 +126,7 @@ void *do_remap(void* remap_arguments)
 void
 *do_gups(void *arguments)
 {
+  printf("do_gups entered\n");
   struct args *args = (struct args*)arguments;
   char *field = (char*)(args->td->field);
   unsigned long i;
@@ -250,6 +294,7 @@ main(int argc, char **argv)
   int dram = 0, base = 0;
   VMEM *vmp;
   int remap = 0;
+  int fd = 0;
 
   if (argc != 8) {
     printf("Usage: %s [threads] [updates per thread] [exponent] [data size (bytes)] [DRAM/NVM] [base/huge] [noremap/remap]\n", argv[0]);
@@ -293,7 +338,7 @@ main(int argc, char **argv)
     remap = 1;
   }
 
-  printf("%lu updates per thread\n", updates);
+  printf("%lu updates per thread (%d threads)\n", updates, threads);
   printf("field of 2^%lu (%lu) bytes\n", expt, size);
   printf("%d byte element size (%d elements total)\n", elt_size, size / elt_size);
 
@@ -311,24 +356,33 @@ main(int argc, char **argv)
     printf("with huge pages\n");
   }
 
+  fd = open(PATH, O_RDWR);
+  if (fd < 0) {
+    perror("open");
+  }
+  assert(fd >= 0);
+  printf("NVM fd: %d\n", fd);
+
   int i;
   void *p;
-  if (dram && base) {
-    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    //printf("dram base\n");
-  }
-  else if (dram && !base) {
-    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
-    //printf("dram huge\n");
+  if (dram) {
+    if (base) {
+      p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    }
+    else {
+      p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
+    }
   }
   else {
-    p = pmem_map_file(PATH, size, PMEM_FILE_CREATE | PMEM_FILE_TMPFILE, 0644, NULL, NULL);
-    //printf("nvm\n");
+    // mapping devdax mode NVM with base pages does not seem to be possible
+    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_HUGETLB, fd, 0);
   }
-  if (p == NULL) {
-    printf("Error: Failed to map region.\n");
-    assert(p != NULL);
-  }
+
+  if (p == NULL || p == MAP_FAILED) {
+    perror("mmap");
+  }  
+  assert(p != NULL && p != MAP_FAILED);
+  printf("Field addr: 0x%x\n", p);
 
   nelems = (size / threads) / elt_size; // number of elements per thread
 
@@ -349,34 +403,45 @@ main(int argc, char **argv)
   printf("Initialization time: %.4f seconds.\n", secs);
 
   printf("Timing.\n");
-  pthread_t t[(remap ? threads + 1 : threads)];
+  pthread_t t[threads];
+  pthread_t remap_thread;
   gettimeofday(&starttime, NULL);
+  
+  struct args **as = (struct args**)malloc(threads * sizeof(struct args*));
+  // spawn worker threads
   for (i = 0; i < threads; i++) {
-    struct args a;
-    a.tid = i;
-    a.td = &td[i];
-    a.iters = updates;
-    a.size = nelems;
-    a.elt_size = elt_size;
-    int r = pthread_create(&t[i], NULL, do_gups, (void*)&a);
+    as[i] = (struct args*)malloc(sizeof(struct args));
+    as[i]->tid = i;
+    as[i]->td = &td[i];
+    as[i]->iters = updates;
+    as[i]->size = nelems;
+    as[i]->elt_size = elt_size;
+    int r = pthread_create(&t[i], NULL, do_gups, (void*)as[i]);
     assert(r == 0);
   }
 
+  // spawn remap thread (if remapping)
   if (remap) {
-    struct remap_args re;
-    re.field = p;
-    re.nvm_to_dram = !dram;
-    int r = pthread_create(&t[threads], NULL, do_remap, (void*)&re);
+    struct remap_args *re = (struct remap_args*)malloc(sizeof(struct remap_args));
+    re->region = p;
+    re->nvm_fd = fd;
+    re->base_pages = base;
+    re->region_size = size;
+    re->nvm_to_dram = !dram;
+    printf("field: 0x%x\tfd: %d\tbase: %d\tsize: %llu\tnvm_to_dram: %d\n", re->region, re->nvm_fd, re->base_pages, re->region_size, re->nvm_to_dram);
+    int r = pthread_create(&remap_thread, NULL, do_remap, (void*)re);
     assert(r == 0);
   }
 
+  // wait for worker threads
   for (i = 0; i < threads; i++) {
     int r = pthread_join(t[i], NULL);
     assert(r == 0);
   }
 
+  // wait for remap thread (if remapping)
   if (remap) {
-    int r = pthread_join(t[threads], NULL);
+    int r = pthread_join(remap_thread, NULL);
     assert(r == 0);
   }
   gettimeofday(&stoptime, NULL);
@@ -391,11 +456,7 @@ main(int argc, char **argv)
   }
   free(td);
 
-  if (dram) {
-    munmap(p, size);
-  }
-  else {
-    pmem_unmap(p, size);
-  }
+  munmap(p, size);
+
   return 0;
 }
