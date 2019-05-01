@@ -61,7 +61,7 @@ struct remap_args {
 
 void *do_remap(void *args)
 {
-    printf("do_remap entered\n");
+    //printf("do_remap entered\n");
     struct remap_args *re = (struct remap_args*)args;
     void* field = re->region;
     unsigned long size = re->region_size;
@@ -71,7 +71,7 @@ void *do_remap(void *args)
     void *ptr = NULL;
 
     assert(field != NULL);
-    printf("do_remap:\tfield: 0x%x\tfd: %d\tbase: %d\tsize: %llu\tnvm_to_dram: %d\n",field, fd, base, size, nvm_to_dram);
+    //printf("do_remap:\tfield: 0x%x\tfd: %d\tbase: %d\tsize: %llu\tnvm_to_dram: %d\n",field, fd, base, size, nvm_to_dram);
 
     //TODO: figure out how to remap
     // Design:
@@ -81,18 +81,18 @@ void *do_remap(void *args)
     //   use current pointer as remap hint pointer
     //   TODO: will hint pointer be honored?
 
-    printf("sleeping for one second\n");
+    //printf("sleeping for one second\n");
     sleep(1);
-    printf("about to remap\n");
+    //printf("about to remap\n");
 
     if (nvm_to_dram) {
         // moving field from nvm to dram
         printf("Moving region from NVM to DRAM\n");
 	if (base) { 
-          ptr = mmap(field, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS| MAP_FIXED, -1, 0);
+          ptr = mmap(field, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_ANONYMOUS| MAP_FIXED, -1, 0);
         }
 	else {
-          ptr = mmap(field, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS| MAP_FIXED | MAP_HUGETLB, -1, 0);
+          ptr = mmap(field, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_ANONYMOUS| MAP_FIXED | MAP_HUGETLB, -1, 0);
 	}
         if (ptr == NULL || ptr == MAP_FAILED) {
           perror("mmap");
@@ -128,7 +128,7 @@ void *do_remap(void *args)
 void
 *do_gups(void *arguments)
 {
-  printf("do_gups entered\n");
+  //printf("do_gups entered\n");
   struct args *args = (struct args*)arguments;
   char *field = (char*)(args->td->field);
   unsigned long i;
@@ -363,16 +363,16 @@ main(int argc, char **argv)
     perror("open");
   }
   assert(fd >= 0);
-  printf("NVM fd: %d\n", fd);
+  //printf("NVM fd: %d\n", fd);
 
   int i;
   void *p;
   if (dram) {
     if (base) {
-      p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+      p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_ANONYMOUS, -1, 0);
     }
     else {
-      p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
+      p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
     }
   }
   else {
@@ -384,7 +384,7 @@ main(int argc, char **argv)
     perror("mmap");
   }  
   assert(p != NULL && p != MAP_FAILED);
-  printf("Field addr: 0x%x\n", p);
+  //printf("Field addr: 0x%x\n", p);
 
   nelems = (size / threads) / elt_size; // number of elements per thread
 
@@ -430,7 +430,7 @@ main(int argc, char **argv)
     re->base_pages = base;
     re->region_size = size;
     re->nvm_to_dram = !dram;
-    printf("field: 0x%x\tfd: %d\tbase: %d\tsize: %llu\tnvm_to_dram: %d\n", re->region, re->nvm_fd, re->base_pages, re->region_size, re->nvm_to_dram);
+    //printf("field: 0x%x\tfd: %d\tbase: %d\tsize: %llu\tnvm_to_dram: %d\n", re->region, re->nvm_fd, re->base_pages, re->region_size, re->nvm_to_dram);
     int r = pthread_create(&remap_thread, NULL, do_remap, (void*)re);
     assert(r == 0);
   }
