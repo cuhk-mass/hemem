@@ -77,15 +77,17 @@ void *do_remap(void *args)
     //TODO: figure out how to remap
     // Design:
     // wait for ~1 second
-    // remap region 
-    //   TODO: figure out if this will pause other threads accessing region
-    //   use current pointer as remap hint pointer
-    //   TODO: will hint pointer be honored?
+    // change protection on region to read-only
+    //   TODO: how to handle faults caused by this? userfaultfd?
+    // copy data to new physical address
+    //   TODO: is this possible from userspace? mremap, userfaultfd, move_pages
+    // keep virtual address the same, ideally
+    //   just change virtual-to-physical mapping -- possible from userspace?
+    // use huge pages (for now) for NVM due to devdax requirments
+    //   keep huge page when moving to DRAM? When does it make sense to break up?
 
-    //printf("sleeping for one second\n");
     sleep(1);
-    //printf("about to remap\n");
-
+    
     printf("Changing protection to read only\n");
     int ret = mprotect(field, size, PROT_READ);
    
@@ -97,38 +99,12 @@ void *do_remap(void *args)
     printf("Protection changed\n");
 
     if (nvm_to_dram) {
-        // moving field from nvm to dram
+        // move region from nvm to dram
         printf("Moving region from NVM to DRAM\n");
-	if (base) { 
-          ptr = mmap(field, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_ANONYMOUS| MAP_FIXED, -1, 0);
-        }
-	else {
-          ptr = mmap(field, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_ANONYMOUS| MAP_FIXED | MAP_HUGETLB, -1, 0);
-	}
-        if (ptr == NULL || ptr == MAP_FAILED) {
-          perror("mmap");
-	  assert(0);
-	}
-
-	if (ptr != field) {
-          printf("new mapping is at different virtual address than old mapping!\n");
-	}
     }
     else {
-        // moving field frm dram to nvm
+        // move region frm dram to nvm
         printf("Moving region from DRAM to NVM\n");
-
-	// mapping devdax NVM with base pages does not seem to be possible
-        ptr = mmap(field, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, fd, 0);
-
-	if (ptr == NULL || ptr == MAP_FAILED) {
-          perror("mmap");
-	  assert(0);
-	}
-
-	if (ptr != field) {
-          printf("new mapping is at different virtual address than old mapping!\n");
-	}
     }
 
     printf("region moved\n");
