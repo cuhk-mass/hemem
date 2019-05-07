@@ -62,52 +62,52 @@ struct remap_args {
 
 void *do_remap(void *args)
 {
-    //printf("do_remap entered\n");
-    struct remap_args *re = (struct remap_args*)args;
-    void* field = re->region;
-    unsigned long size = re->region_size;
-    int fd = re->nvm_fd;
-    int base = re->base_pages;
-    int nvm_to_dram = re->nvm_to_dram;
-    void *ptr = NULL;
+  //printf("do_remap entered\n");
+  struct remap_args *re = (struct remap_args*)args;
+  void* field = re->region;
+  unsigned long size = re->region_size;
+  int fd = re->nvm_fd;
+  int base = re->base_pages;
+  int nvm_to_dram = re->nvm_to_dram;
+  void *ptr = NULL;
 
-    assert(field != NULL);
-    //printf("do_remap:\tfield: 0x%x\tfd: %d\tbase: %d\tsize: %llu\tnvm_to_dram: %d\n",field, fd, base, size, nvm_to_dram);
+  assert(field != NULL);
+  //printf("do_remap:\tfield: 0x%x\tfd: %d\tbase: %d\tsize: %llu\tnvm_to_dram: %d\n",field, fd, base, size, nvm_to_dram);
 
-    //TODO: figure out how to remap
-    // Design:
-    // wait for ~1 second
-    // change protection on region to read-only
-    //   TODO: how to handle faults caused by this? userfaultfd?
-    // copy data to new physical address
-    //   TODO: is this possible from userspace? mremap, userfaultfd, move_pages
-    // keep virtual address the same, ideally
-    //   just change virtual-to-physical mapping -- possible from userspace?
-    // use huge pages (for now) for NVM due to devdax requirments
-    //   keep huge page when moving to DRAM? When does it make sense to break up?
+  //TODO: figure out how to remap
+  // Design:
+  // wait for ~1 second
+  // change protection on region to read-only
+  //   how to handle faults caused by this? userfaultfd?
+  // copy data to new physical address
+  //   is this possible from userspace? mremap, userfaultfd, move_pages
+  // keep virtual address the same, ideally
+  //   just change virtual-to-physical mapping -- possible from userspace?
+  // use huge pages (for now) for NVM due to devdax requirments
+  //   keep huge page when moving to DRAM? When does it make sense to break up?
 
-    sleep(1);
-    
-    printf("Changing protection to read only\n");
-    int ret = mprotect(field, size, PROT_READ);
-   
-    if (ret < 0) {
-      perror("mprotect");
-      assert(0);
-    }
+  sleep(1);
+  
+  printf("Changing protection to read only\n");
+  int ret = mprotect(field, size, PROT_READ);
+  
+  if (ret < 0) {
+    perror("mprotect");
+    assert(0);
+  }
 
-    printf("Protection changed\n");
+  printf("Protection changed\n");
 
-    if (nvm_to_dram) {
-        // move region from nvm to dram
-        printf("Moving region from NVM to DRAM\n");
-    }
-    else {
-        // move region frm dram to nvm
-        printf("Moving region from DRAM to NVM\n");
-    }
+  if (nvm_to_dram) {
+    // move region from nvm to dram
+    printf("Moving region from NVM to DRAM\n");
+  }
+  else {
+    // move region frm dram to nvm
+    printf("Moving region from DRAM to NVM\n");
+  }
 
-    printf("region moved\n");
+  printf("region moved\n");
 }
 
 #define GET_NEXT_INDEX(tid, i, size) td[tid].indices[i]
@@ -176,7 +176,7 @@ main(int argc, char **argv)
     printf("  data size\t\t\tsize of data in array (in bytes)\n");
     printf("  DRAM/NVM\t\t\twhether the region is in DRAM or NVM\n");
     printf("  base/huge\t\t\twhether to map the region with base or huge pages\n");
-    printf("  nremap/remap\t\t\twhether to remap the region when accessing\n");
+    printf("  noremap/remap\t\t\twhether to remap the region when accessing\n");
     return 0;
   }
 
@@ -238,6 +238,7 @@ main(int argc, char **argv)
   int i;
   void *p;
   if (dram) {
+    // we take into account base vs. huge pages for DRAM but not NVM
     if (base) {
       p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_ANONYMOUS, -1, 0);
     }
@@ -265,8 +266,8 @@ main(int argc, char **argv)
     //printf("thread %d start address: %llu\n", i, (unsigned long)td[i].field);
     td[i].indices = (unsigned long*)vmem_malloc(vmp, updates * sizeof(unsigned long));
     if (td[i].indices == NULL) {
-        perror("vmem_malloc");
-	exit(1);
+      perror("vmem_malloc");
+      exit(1);
     }
     calc_indices(td[i].indices, updates, nelems);
   }
@@ -280,7 +281,7 @@ main(int argc, char **argv)
   gettimeofday(&starttime, NULL);
   
   struct args **as = (struct args**)malloc(threads * sizeof(struct args*));
-  // spawn worker threads
+  // spawn gups worker threads
   for (i = 0; i < threads; i++) {
     as[i] = (struct args*)malloc(sizeof(struct args));
     as[i]->tid = i;
