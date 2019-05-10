@@ -115,15 +115,16 @@ void *do_remap(void *args)
 
     memcpy(ptr, field, HUGEPAGE_SIZE);
 
-    //int ret = munmap(field, HUGEPAGE_SIZE);
-    //if (ret < 0) {
-      //perror("munmap");
-      //assert(0);
-    //}
+    int ret = munmap(field, HUGEPAGE_SIZE);
+    if (ret < 0) {
+      perror("munmap");
+      assert(0);
+    }
 
     void *newptr = mremap(ptr, HUGEPAGE_SIZE, HUGEPAGE_SIZE, MREMAP_FIXED | MREMAP_MAYMOVE, field);
     if (newptr == MAP_FAILED) {
       perror("mremap");
+      printf("old addr: 0x%x\told size: %u\tnew size: %u\tnew addr: 0x%x\tret: 0x%x\n", ptr, HUGEPAGE_SIZE, HUGEPAGE_SIZE, field, newptr);
       assert(0);
     }
 
@@ -144,15 +145,16 @@ void *do_remap(void *args)
     
     memcpy(ptr, field, HUGEPAGE_SIZE);
 
-    //int ret = munmap(field, HUGEPAGE_SIZE);
-    //if (ret < 0) {
-      //perror("munmap");
-      //assert(0);
-    //}
+    int ret = munmap(field, HUGEPAGE_SIZE);
+    if (ret < 0) {
+      perror("munmap");
+      assert(0);
+    }
 
     void *newptr = mremap(ptr, HUGEPAGE_SIZE, HUGEPAGE_SIZE, MREMAP_FIXED | MREMAP_MAYMOVE, field);
     if (newptr == MAP_FAILED) {
       perror("mremap");
+      printf("old addr: 0x%x\told size: %u\tnew size: %u\tnew addr: 0x%x\tret: 0x%x\n", ptr, HUGEPAGE_SIZE, HUGEPAGE_SIZE, field, newptr);
       assert(0);
     }
 
