@@ -100,65 +100,67 @@ void *do_remap(void *args)
 
   //printf("Protection changed\n");
 
+  size_t move_size = size;
+
   if (nvm_to_dram) {
     // move region from nvm to dram
     printf("Moving region from NVM to DRAM\n");
 
-    ptr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
+    ptr = mmap(NULL, move_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
     if (ptr == MAP_FAILED) {
       perror("mmap");
       assert(0);
     }
 
-    printf("new range: 0x%x - 0x%x\n", ptr, ptr + HUGEPAGE_SIZE);
-    printf("old range: 0x%x - 0x%x\n", field, field + HUGEPAGE_SIZE);
+    printf("new range: 0x%x - 0x%x\n", ptr, ptr + move_size);
+    printf("old range: 0x%x - 0x%x\n", field, field + move_size);
 
-    memcpy(ptr, field, HUGEPAGE_SIZE);
+    memcpy(ptr, field, move_size);
 
-    int ret = munmap(field, HUGEPAGE_SIZE);
+    int ret = munmap(field, move_size);
     if (ret < 0) {
       perror("munmap");
       assert(0);
     }
 
-    void *newptr = mremap(ptr, HUGEPAGE_SIZE, HUGEPAGE_SIZE, MREMAP_FIXED | MREMAP_MAYMOVE, field);
+    void *newptr = mremap(ptr, move_size, move_size, MREMAP_FIXED | MREMAP_MAYMOVE, field);
     if (newptr == MAP_FAILED) {
       perror("mremap");
-      printf("old addr: 0x%x\told size: %u\tnew size: %u\tnew addr: 0x%x\tret: 0x%x\n", ptr, HUGEPAGE_SIZE, HUGEPAGE_SIZE, field, newptr);
+      printf("old addr: 0x%x\told size: %u\tnew size: %u\tnew addr: 0x%x\tret: 0x%x\n", ptr, move_size, move_size, field, newptr);
       assert(0);
     }
 
-    printf("after remap: 0x%x - 0x%x\n", newptr, newptr + HUGEPAGE_SIZE);
+    printf("after remap: 0x%x - 0x%x\n", newptr, newptr + move_size);
   }
   else {
     // move region frm dram to nvm
     printf("Moving region from DRAM to NVM\n");
 
-    ptr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, fd, 0);
+    ptr = mmap(NULL, move_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, fd, 0);
     if (ptr == MAP_FAILED) {
       perror("mmap");
       assert(0);
     }
 
-    printf("new range: 0x%x - 0x%x\n", ptr, ptr + HUGEPAGE_SIZE);
-    printf("old range: 0x%x - 0x%x\n", field, field + HUGEPAGE_SIZE);
+    printf("new range: 0x%x - 0x%x\n", ptr, ptr + move_size);
+    printf("old range: 0x%x - 0x%x\n", field, field + move_size);
     
-    memcpy(ptr, field, HUGEPAGE_SIZE);
+    memcpy(ptr, field, move_size);
 
-    int ret = munmap(field, HUGEPAGE_SIZE);
+    int ret = munmap(field, move_size);
     if (ret < 0) {
       perror("munmap");
       assert(0);
     }
 
-    void *newptr = mremap(ptr, HUGEPAGE_SIZE, HUGEPAGE_SIZE, MREMAP_FIXED | MREMAP_MAYMOVE, field);
+    void *newptr = mremap(ptr, move_size, move_size, MREMAP_FIXED | MREMAP_MAYMOVE, field);
     if (newptr == MAP_FAILED) {
       perror("mremap");
-      printf("old addr: 0x%x\told size: %u\tnew size: %u\tnew addr: 0x%x\tret: 0x%x\n", ptr, HUGEPAGE_SIZE, HUGEPAGE_SIZE, field, newptr);
+      printf("old addr: 0x%x\told size: %u\tnew size: %u\tnew addr: 0x%x\tret: 0x%x\n", ptr, move_size, move_size, field, newptr);
       assert(0);
     }
 
-    printf("after remap: 0x%x - 0x%x\n", newptr, newptr + HUGEPAGE_SIZE);
+    printf("after remap: 0x%x - 0x%x\n", newptr, newptr + move_size);
   }
 
   printf("region moved\n");
