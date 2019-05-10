@@ -35,6 +35,8 @@
 
 #define PATH "/dev/dax0.0"
 
+#define HUGEPAGE_SIZE 2097152
+
 extern void calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems);
 
 struct thread_data {
@@ -88,23 +90,64 @@ void *do_remap(void *args)
 
   sleep(1);
   
-  printf("Changing protection to read only\n");
-  int ret = mprotect(field, size, PROT_READ);
+  //printf("Changing protection to read only\n");
+  //int ret = mprotect(field, size, PROT_READ);
   
-  if (ret < 0) {
-    perror("mprotect");
-    assert(0);
-  }
+  //if (ret < 0) {
+    //perror("mprotect");
+    //assert(0);
+  //}
 
-  printf("Protection changed\n");
+  //printf("Protection changed\n");
 
   if (nvm_to_dram) {
     // move region from nvm to dram
     printf("Moving region from NVM to DRAM\n");
+
+    ptr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_SHARED | MAP_POPULATE | MAP_HUGETLB, -1, 0);
+    if (ptr == MAP_FAILED) {
+      perror("mmap");
+      assert(0);
+    }
+
+    memcpy(ptr, field, HUGEPAGE_SIZE);
+
+    int ret = munmap(field, HUGEPAGE_SIZE);
+    if (ret < 0) {
+      perror("munmap");
+      assert(0);
+    }
+
+    void *newptr = mremap(ptr, HUGEPAGE_SIZE, HUGEPAGE_SIZE, MREMAP_FIXED | MREMAP_MAYMOVE, field);
+    if (newptr == MAP_FAILED) {
+      perror("mremap");
+      assert(0);
+    }
+
   }
   else {
     // move region frm dram to nvm
     printf("Moving region from DRAM to NVM\n");
+
+    ptr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, fd, 0);
+    if (ptr == MAP_FAILED) {
+      perror("mmap");
+      assert(0);
+    }
+
+    memcpy(ptr, field, HUGEPAGE_SIZE);
+
+    int ret = munmap(field, HUGEPAGE_SIZE);
+    if (ret < 0) {
+      perror("munmap");
+      assert(0);
+    }
+
+    void *newptr = mremap(ptr, HUGEPAGE_SIZE, HUGEPAGE_SIZE, MREMAP_FIXED | MREMAP_MAYMOVE, field);
+    if (newptr == MAP_FAILED) {
+      perror("mremap");
+      assert(0);
+    }
   }
 
   printf("region moved\n");
@@ -133,7 +176,7 @@ void
 /* Returns the number of seconds encoded in T, a "struct timeval". */
 #define tv_to_double(t) (t.tv_sec + (t.tv_usec / 1000000.0))
 
-/* Useful for doing arithmetic on struct timevals. */
+/* Useful for doing arithmetic on struct timevals. M*/
 void
 timeDiff(struct timeval *d, struct timeval *a, struct timeval *b)
 {
