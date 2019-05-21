@@ -106,14 +106,15 @@ void *do_remap(void *args)
     // move region from nvm to dram
     printf("Moving region from NVM to DRAM\n");
 
-    ptr = mmap(NULL, move_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
+    // can't use huge pages? mremap doesn't seem to support it :(
+    ptr = mmap(NULL, move_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_ANONYMOUS, -1, 0);
     if (ptr == MAP_FAILED) {
       perror("mmap");
       assert(0);
     }
 
-    printf("new range: 0x%x - 0x%x\n", ptr, ptr + move_size);
-    printf("old range: 0x%x - 0x%x\n", field, field + move_size);
+    printf("new range: 0x%llx - 0x%llx\n", ptr, ptr + move_size);
+    printf("old range: 0x%llx - 0x%llx\n", field, field + move_size);
 
     memcpy(ptr, field, move_size);
 
@@ -126,11 +127,11 @@ void *do_remap(void *args)
     void *newptr = mremap(ptr, move_size, move_size, MREMAP_FIXED | MREMAP_MAYMOVE, field);
     if (newptr == MAP_FAILED) {
       perror("mremap");
-      printf("old addr: 0x%x\told size: %u\tnew size: %u\tnew addr: 0x%x\tret: 0x%x\n", ptr, move_size, move_size, field, newptr);
+      printf("old addr: 0x%llx\told size: %u\tnew size: %u\tnew addr: 0x%llx\tret: 0x%x\n", ptr, move_size, move_size, field, newptr);
       assert(0);
     }
 
-    printf("after remap: 0x%x - 0x%x\n", newptr, newptr + move_size);
+    printf("after remap: 0x%llx - 0x%llx\n", newptr, newptr + move_size);
   }
   else {
     // move region frm dram to nvm
@@ -142,8 +143,8 @@ void *do_remap(void *args)
       assert(0);
     }
 
-    printf("new range: 0x%x - 0x%x\n", ptr, ptr + move_size);
-    printf("old range: 0x%x - 0x%x\n", field, field + move_size);
+    printf("new range: 0x%llx - 0x%llx\n", ptr, ptr + move_size);
+    printf("old range: 0x%llx - 0x%llx\n", field, field + move_size);
     
     memcpy(ptr, field, move_size);
 
@@ -156,11 +157,11 @@ void *do_remap(void *args)
     void *newptr = mremap(ptr, move_size, move_size, MREMAP_FIXED | MREMAP_MAYMOVE, field);
     if (newptr == MAP_FAILED) {
       perror("mremap");
-      printf("old addr: 0x%x\told size: %u\tnew size: %u\tnew addr: 0x%x\tret: 0x%x\n", ptr, move_size, move_size, field, newptr);
+      printf("old addr: 0x%llx\told size: %u\tnew size: %u\tnew addr: 0x%llx\tret: 0x%x\n", ptr, move_size, move_size, field, newptr);
       assert(0);
     }
 
-    printf("after remap: 0x%x - 0x%x\n", newptr, newptr + move_size);
+    printf("after remap: 0x%llx - 0x%llx\n", newptr, newptr + move_size);
   }
 
   printf("region moved\n");
