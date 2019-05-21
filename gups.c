@@ -62,6 +62,33 @@ struct remap_args {
   int nvm_to_dram;
 };
 
+/* Returns the number of seconds encoded in T, a "struct timeval". */
+#define tv_to_double(t) (t.tv_sec + (t.tv_usec / 1000000.0))
+
+/* Useful for doing arithmetic on struct timevals. M*/
+void
+timeDiff(struct timeval *d, struct timeval *a, struct timeval *b)
+{
+  d->tv_sec = a->tv_sec - b->tv_sec;
+  d->tv_usec = a->tv_usec - b->tv_usec;
+  if (d->tv_usec < 0) {
+    d->tv_sec -= 1;
+    d->tv_usec += 1000000;
+  }
+}
+
+
+/* Return the no. of elapsed seconds between Starttime and Endtime. */
+double
+elapsed(struct timeval *starttime, struct timeval *endtime)
+{
+  struct timeval diff;
+
+  timeDiff(&diff, endtime, starttime);
+  return tv_to_double(diff);
+}
+
+
 void *do_remap(void *args)
 {
   //printf("do_remap entered\n");
@@ -72,6 +99,7 @@ void *do_remap(void *args)
   int base = re->base_pages;
   int nvm_to_dram = re->nvm_to_dram;
   void *ptr = NULL;
+  struct timeval start, end;
 
   assert(field != NULL);
   //printf("do_remap:\tfield: 0x%x\tfd: %d\tbase: %d\tsize: %llu\tnvm_to_dram: %d\n",field, fd, base, size, nvm_to_dram);
@@ -107,16 +135,22 @@ void *do_remap(void *args)
     printf("Moving region from NVM to DRAM\n");
 
     // can't use huge pages? mremap doesn't seem to support it :(
+    gettimeofday(&start, NULL);
     ptr = mmap(NULL, move_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_ANONYMOUS, -1, 0);
     if (ptr == MAP_FAILED) {
       perror("mmap");
       assert(0);
     }
+    gettimeofday(&end, NULL);
+    printf("Mmap took %.4f seconds\n", elapsed(&start, &end));
 
     printf("new range: 0x%llx - 0x%llx\n", ptr, ptr + move_size);
     printf("old range: 0x%llx - 0x%llx\n", field, field + move_size);
 
+    gettimeofday(&start, NULL);
     memcpy(ptr, field, move_size);
+    gettimeofday(&end, NULL);
+    printf("copy took %.4f seconds\n", elapsed(&start, &end));
 
     int ret = munmap(field, move_size);
     if (ret < 0) {
@@ -137,16 +171,22 @@ void *do_remap(void *args)
     // move region frm dram to nvm
     printf("Moving region from DRAM to NVM\n");
 
+    gettimeofday(&start, NULL);
     ptr = mmap(NULL, move_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, fd, 0);
     if (ptr == MAP_FAILED) {
       perror("mmap");
       assert(0);
     }
+    gettimeofday(&end, NULL);
+    printf("Mmap took %.4f seconds\n", elapsed(&start, &end));
 
     printf("new range: 0x%llx - 0x%llx\n", ptr, ptr + move_size);
     printf("old range: 0x%llx - 0x%llx\n", field, field + move_size);
-    
+   
+    gettimeofday(&start, NULL); 
     memcpy(ptr, field, move_size);
+    gettimeofday(&end, NULL);
+    printf("copy took %.4f seconds\n", elapsed(&start, &end));
 
     int ret = munmap(field, move_size);
     if (ret < 0) {
@@ -166,6 +206,7 @@ void *do_remap(void *args)
 
   printf("region moved\n");
 }
+
 
 #define GET_NEXT_INDEX(tid, i, size) td[tid].indices[i]
 
@@ -187,30 +228,6 @@ void
   }
 }
 
-/* Returns the number of seconds encoded in T, a "struct timeval". */
-#define tv_to_double(t) (t.tv_sec + (t.tv_usec / 1000000.0))
-
-/* Useful for doing arithmetic on struct timevals. M*/
-void
-timeDiff(struct timeval *d, struct timeval *a, struct timeval *b)
-{
-  d->tv_sec = a->tv_sec - b->tv_sec;
-  d->tv_usec = a->tv_usec - b->tv_usec;
-  if (d->tv_usec < 0) {
-    d->tv_sec -= 1;
-    d->tv_usec += 1000000;
-  }
-}
-
-/* Return the no. of elapsed seconds between Starttime and Endtime. */
-double
-elapsed(struct timeval *starttime, struct timeval *endtime)
-{
-  struct timeval diff;
-
-  timeDiff(&diff, endtime, starttime);
-  return tv_to_double(diff);
-}
 
 int
 main(int argc, char **argv)
@@ -224,6 +241,8 @@ main(int argc, char **argv)
   VMEM *vmp;
   int remap = 0;
   int fd = 0;
+
+  struct timeval start, end;
 
   if (argc != 8) {
     printf("Usage: %s [threads] [updates per thread] [exponent] [data size (bytes)] [DRAM/NVM] [base/huge] [noremap/remap]\n", argv[0]);
@@ -297,13 +316,16 @@ main(int argc, char **argv)
   if (dram) {
     // we take into account base vs. huge pages for DRAM but not NVM
     if (base) {
+      gettimeofday(&starttime, NULL);
       p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_ANONYMOUS, -1, 0);
     }
     else {
+      gettimeofday(&starttime, NULL);
       p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
     }
   }
   else {
+    gettimeofday(&starttime, NULL);
     // mapping devdax mode NVM with base pages does not seem to be possible
     p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, fd, 0);
   }
@@ -312,6 +334,8 @@ main(int argc, char **argv)
     perror("mmap");
   }  
   assert(p != NULL && p != MAP_FAILED);
+  gettimeofday(&stoptime, NULL);
+  printf("Init mmap took %.4f seconds\n", elapsed(&starttime, &stoptime));
   //printf("Field addr: 0x%x\n", p);
 
   nelems = (size / threads) / elt_size; // number of elements per thread
