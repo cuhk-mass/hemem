@@ -32,6 +32,10 @@
 #include <sys/mman.h>
 #include <libpmem.h>
 #include <libvmem.h>
+#include <linux/userfaultfd.h>
+#include <poll.h>
+#include <sys/syscall.h>
+#include <sys/ioctl.h>
 
 #define DRAMPATH "/dev/dax0.0"
 #define NVMPATH "/dev/dax1.0"
@@ -90,8 +94,45 @@ elapsed(struct timeval *starttime, struct timeval *endtime)
   return tv_to_double(diff);
 }
 
+void 
+*handle_fault(void* arg)
+{
+  static struct uffd_msg msg;
+  long uffd = (long)arg;
+  ssize_t nread;
 
-void *do_remap(void *args)
+  //TODO: handle write protection fault (if possible)
+  for (;;) {
+    struct pollfd pollfd;
+    int nready;
+    pollfd.fd = uffd;
+    pollfd.events = POLLIN;
+
+    nready = poll(&pollfd, 1, -1);
+
+    if (nready == -1) {
+        perror("poll");
+	assert(0);
+    }
+
+    nread = read(uffd, &msg, sizeof(msg));
+    if (nread == 0) {
+      printf("EOF on userfaultfd\n");
+      assert(0);
+    }
+
+    if (nread < 0) {
+      perror("read");
+      assert(0);
+    }
+
+    //TODO: check page fault event, handle it
+  }
+}
+
+
+void 
+*do_remap(void *args)
 {
   //printf("do_remap entered\n");
   struct remap_args *re = (struct remap_args*)args;
@@ -103,6 +144,7 @@ void *do_remap(void *args)
   int nvm_to_dram = re->nvm_to_dram;
   void *ptr = NULL;
   struct timeval start, end;
+  int ret = 0;
 
   assert(field != NULL);
   //printf("do_remap:\tfield: 0x%x\tfd: %d\tbase: %d\tsize: %llu\tnvm_to_dram: %d\n",field, fd, base, size, nvm_to_dram);
@@ -121,13 +163,13 @@ void *do_remap(void *args)
 
   sleep(1);
   
-  //printf("Changing protection to read only\n");
-  //int ret = mprotect(field, size, PROT_READ);
+  printf("Changing protection to read only\n");
+  ret = mprotect(field, size, PROT_READ);
   
-  //if (ret < 0) {
-    //perror("mprotect");
-    //assert(0);
-  //}
+  if (ret < 0) {
+    perror("mprotect");
+    assert(0);
+  }
 
   //printf("Protection changed\n");
 
@@ -172,7 +214,7 @@ void *do_remap(void *args)
     printf("after remap: 0x%llx - 0x%llx\n", newptr, newptr + move_size);
   }
   else {
-    // move region frm dram to nvm
+    // move region from dram to nvm
     printf("Moving region from DRAM to NVM\n");
 
     gettimeofday(&start, NULL);
@@ -186,8 +228,8 @@ void *do_remap(void *args)
 
     printf("new range: 0x%llx - 0x%llx\n", ptr, ptr + move_size);
     printf("old range: 0x%llx - 0x%llx\n", field, field + move_size);
-   
-    gettimeofday(&start, NULL); 
+
+    gettimeofday(&start, NULL);
     memcpy(ptr, field, move_size);
     gettimeofday(&end, NULL);
     printf("copy took %.4f seconds\n", elapsed(&start, &end));
@@ -246,6 +288,9 @@ main(int argc, char **argv)
   VMEM *vmp;
   int remap = 0;
   int dramfd = 0, nvmfd = 0;
+  long uffd;
+  struct uffdio_api uffdio_api;
+  struct uffdio_register uffdio_register;
 
   struct timeval start, end;
 
@@ -348,9 +393,40 @@ main(int argc, char **argv)
 
   gettimeofday(&stoptime, NULL);
   printf("Init mmap took %.4f seconds\n", elapsed(&starttime, &stoptime));
+  printf("Region address: 0x%llx\t size: %lld\n", p, size);
   //printf("Field addr: 0x%x\n", p);
 
   nelems = (size / threads) / elt_size; // number of elements per thread
+
+  uffd = syscall(__NR_userfaultfd, O_CLOEXEC | O_NONBLOCK);
+  if (uffd == -1) {
+    perror("uffd");
+    assert(0);
+  }
+
+  uffdio_api.api = UFFD_API;
+  uffdio_api.features = 0;
+  if (ioctl(uffd, UFFDIO_API, &uffdio_api) == -1) {
+    perror("ioctl uffdio_api");
+    assert(0);
+  }
+
+  uffdio_register.range.start = (unsigned long)p;
+  uffdio_register.range.len = size;
+  uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING;
+  uffdio_register.ioctls = 0;
+  if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
+    perror("ioctl uffdio_register");
+    assert(0);
+  }
+
+
+  pthread_t fault_thread;
+  int s = pthread_create(&fault_thread, NULL, handle_fault, (void*)uffd);
+  if (s != 0) {
+    perror("pthread_create");
+    assert(0);
+  }
 
   printf("initializing thread data\n");
   gettimeofday(&starttime, NULL);
