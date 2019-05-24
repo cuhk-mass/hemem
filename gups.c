@@ -33,33 +33,35 @@
 #include <libpmem.h>
 #include <libvmem.h>
 
-#define PATH "/dev/dax0.0"
+#define DRAMPATH "/dev/dax0.0"
+#define NVMPATH "/dev/dax1.0"
 
 #define HUGEPAGE_SIZE 2097152
 
 extern void calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems);
 
 struct thread_data {
-  unsigned long *indices;
-  void *field;
+  unsigned long *indices;       // array of indices to access
+  void *field;                  // pointer to start of thread's region
 };
 
 struct thread_data* td;
 
 struct args {
-  int tid;
-  struct thread_data* td;
-  unsigned long iters;
-  unsigned long size;
-  unsigned long elt_size;
+  int tid;                      // thread id
+  struct thread_data* td;       // thread data for thread
+  unsigned long iters;          // iterations to perform
+  unsigned long size;           // size of region
+  unsigned long elt_size;       // size of elements
 };
 
 struct remap_args {
-  void* region;
-  unsigned long region_size;
-  int nvm_fd;
-  int base_pages;
-  int nvm_to_dram;
+  void* region;	                // ptr to region
+  unsigned long region_size;    // size of region
+  int dram_fd;                  // fd for dram devdax file
+  int nvm_fd;                   // fd for nvm devdax file
+  int base_pages;               // use base pages or not
+  int nvm_to_dram;              // remap nvm to dram or dram to nvm
 };
 
 /* Returns the number of seconds encoded in T, a "struct timeval". */
@@ -95,7 +97,8 @@ void *do_remap(void *args)
   struct remap_args *re = (struct remap_args*)args;
   void* field = re->region;
   unsigned long size = re->region_size;
-  int fd = re->nvm_fd;
+  int dramfd = re->dram_fd;
+  int nvmfd = re->nvm_fd;
   int base = re->base_pages;
   int nvm_to_dram = re->nvm_to_dram;
   void *ptr = NULL;
@@ -136,9 +139,9 @@ void *do_remap(void *args)
 
     // can't use huge pages? mremap doesn't seem to support it :(
     gettimeofday(&start, NULL);
-    ptr = mmap(NULL, move_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_ANONYMOUS, -1, 0);
+    ptr = mmap(NULL, move_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
     if (ptr == MAP_FAILED) {
-      perror("mmap");
+      perror("temp mmap");
       assert(0);
     }
     gettimeofday(&end, NULL);
@@ -152,18 +155,19 @@ void *do_remap(void *args)
     gettimeofday(&end, NULL);
     printf("copy took %.4f seconds\n", elapsed(&start, &end));
 
-    int ret = munmap(field, move_size);
-    if (ret < 0) {
-      perror("munmap");
+    //int ret = munmap(field, move_size);
+    //if (ret < 0) {
+      //perror("munmap");
+      //assert(0);
+    //}
+
+    void *newptr = mmap(field, move_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, 0);
+    if (newptr == MAP_FAILED) {
+      perror("remap mmap");
       assert(0);
     }
 
-    void *newptr = mremap(ptr, move_size, move_size, MREMAP_FIXED | MREMAP_MAYMOVE, field);
-    if (newptr == MAP_FAILED) {
-      perror("mremap");
-      printf("old addr: 0x%llx\told size: %u\tnew size: %u\tnew addr: 0x%llx\tret: 0x%x\n", ptr, move_size, move_size, field, newptr);
-      assert(0);
-    }
+    munmap(ptr, move_size);
 
     printf("after remap: 0x%llx - 0x%llx\n", newptr, newptr + move_size);
   }
@@ -172,9 +176,9 @@ void *do_remap(void *args)
     printf("Moving region from DRAM to NVM\n");
 
     gettimeofday(&start, NULL);
-    ptr = mmap(NULL, move_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, fd, 0);
+    ptr = mmap(NULL, move_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
     if (ptr == MAP_FAILED) {
-      perror("mmap");
+      perror("temp mmap");
       assert(0);
     }
     gettimeofday(&end, NULL);
@@ -188,18 +192,19 @@ void *do_remap(void *args)
     gettimeofday(&end, NULL);
     printf("copy took %.4f seconds\n", elapsed(&start, &end));
 
-    int ret = munmap(field, move_size);
-    if (ret < 0) {
-      perror("munmap");
+    //int ret = munmap(field, move_size);
+    //if (ret < 0) {
+      //perror("munmap");
+      //assert(0);
+    //}
+
+    void *newptr = mmap(field, move_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, 0);
+    if (newptr == MAP_FAILED) {
+      perror("remap mmap");
       assert(0);
     }
 
-    void *newptr = mremap(ptr, move_size, move_size, MREMAP_FIXED | MREMAP_MAYMOVE, field);
-    if (newptr == MAP_FAILED) {
-      perror("mremap");
-      printf("old addr: 0x%llx\told size: %u\tnew size: %u\tnew addr: 0x%llx\tret: 0x%x\n", ptr, move_size, move_size, field, newptr);
-      assert(0);
-    }
+    munmap(ptr, move_size);
 
     printf("after remap: 0x%llx - 0x%llx\n", newptr, newptr + move_size);
   }
@@ -240,7 +245,7 @@ main(int argc, char **argv)
   int dram = 0, base = 0;
   VMEM *vmp;
   int remap = 0;
-  int fd = 0;
+  int dramfd = 0, nvmfd = 0;
 
   struct timeval start, end;
 
@@ -304,12 +309,18 @@ main(int argc, char **argv)
     printf("with huge pages\n");
   }
 
-  fd = open(PATH, O_RDWR);
-  if (fd < 0) {
-    perror("open");
+  dramfd = open(DRAMPATH, O_RDWR);
+  if (dramfd < 0) {
+    perror("dram open");
   }
-  assert(fd >= 0);
-  //printf("NVM fd: %d\n", fd);
+  assert(dramfd >= 0);
+
+  nvmfd = open(NVMPATH, O_RDWR);
+  if (nvmfd < 0) {
+    perror("nvm open");
+  }
+  assert(nvmfd >= 0);
+  //printf("DRAM fd: %d\tNVM fd: %d\n", dramfd, nvmfd);
 
   int i;
   void *p;
@@ -317,23 +328,24 @@ main(int argc, char **argv)
     // we take into account base vs. huge pages for DRAM but not NVM
     if (base) {
       gettimeofday(&starttime, NULL);
-      p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_ANONYMOUS, -1, 0);
+      p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
     }
     else {
       gettimeofday(&starttime, NULL);
-      p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
+      p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_HUGETLB, dramfd, 0);
     }
   }
   else {
     gettimeofday(&starttime, NULL);
     // mapping devdax mode NVM with base pages does not seem to be possible
-    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, fd, 0);
+    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
   }
 
   if (p == NULL || p == MAP_FAILED) {
     perror("mmap");
   }  
   assert(p != NULL && p != MAP_FAILED);
+
   gettimeofday(&stoptime, NULL);
   printf("Init mmap took %.4f seconds\n", elapsed(&starttime, &stoptime));
   //printf("Field addr: 0x%x\n", p);
@@ -352,6 +364,7 @@ main(int argc, char **argv)
     }
     calc_indices(td[i].indices, updates, nelems);
   }
+  
   gettimeofday(&stoptime, NULL);
   secs = elapsed(&starttime, &stoptime);
   printf("Initialization time: %.4f seconds.\n", secs);
@@ -378,11 +391,12 @@ main(int argc, char **argv)
   if (remap) {
     struct remap_args *re = (struct remap_args*)malloc(sizeof(struct remap_args));
     re->region = p;
-    re->nvm_fd = fd;
+    re->dram_fd = dramfd;
+    re->nvm_fd = nvmfd;
     re->base_pages = base;
     re->region_size = size;
     re->nvm_to_dram = !dram;
-    //printf("field: 0x%x\tfd: %d\tbase: %d\tsize: %llu\tnvm_to_dram: %d\n", re->region, re->nvm_fd, re->base_pages, re->region_size, re->nvm_to_dram);
+    //printf("field: 0x%x\tdramfd: %d\tnvmfd: %d\tbase: %d\tsize: %llu\tnvm_to_dram: %d\n", re->region, re->dram_fd, re->nvm_fd, re->base_pages, re->region_size, re->nvm_to_dram);
     int r = pthread_create(&remap_thread, NULL, do_remap, (void*)re);
     assert(r == 0);
   }
@@ -410,6 +424,8 @@ main(int argc, char **argv)
   }
   free(td);
 
+  close(nvmfd);
+  close(dramfd);
   munmap(p, size);
 
   return 0;
