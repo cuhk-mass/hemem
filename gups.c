@@ -145,6 +145,7 @@ void
   void *ptr = NULL;
   struct timeval start, end;
   int ret = 0;
+  void *newptr;
 
   assert(field != NULL);
   //printf("do_remap:\tfield: 0x%x\tfd: %d\tbase: %d\tsize: %llu\tnvm_to_dram: %d\n",field, fd, base, size, nvm_to_dram);
@@ -179,13 +180,15 @@ void
     // move region from nvm to dram
     printf("Moving region from NVM to DRAM\n");
 
-    // can't use huge pages? mremap doesn't seem to support it :(
+    // devdax doesn't seem to like huge page flag 
     gettimeofday(&start, NULL);
     ptr = mmap(NULL, move_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
+
     if (ptr == MAP_FAILED) {
       perror("temp mmap");
       assert(0);
     }
+
     gettimeofday(&end, NULL);
     printf("Mmap took %.4f seconds\n", elapsed(&start, &end));
 
@@ -203,7 +206,8 @@ void
       //assert(0);
     //}
 
-    void *newptr = mmap(field, move_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, 0);
+    newptr = mmap(field, move_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, 0);
+
     if (newptr == MAP_FAILED) {
       perror("remap mmap");
       assert(0);
@@ -240,7 +244,8 @@ void
       //assert(0);
     //}
 
-    void *newptr = mmap(field, move_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, 0);
+    newptr = mmap(field, move_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, 0);
+
     if (newptr == MAP_FAILED) {
       perror("remap mmap");
       assert(0);
@@ -370,19 +375,13 @@ main(int argc, char **argv)
   int i;
   void *p;
   if (dram) {
-    // we take into account base vs. huge pages for DRAM but not NVM
-    if (base) {
-      gettimeofday(&starttime, NULL);
-      p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
-    }
-    else {
-      gettimeofday(&starttime, NULL);
-      p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_HUGETLB, dramfd, 0);
-    }
+    // devdax doesn't like huge page flag
+    gettimeofday(&starttime, NULL);
+    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
   }
   else {
     gettimeofday(&starttime, NULL);
-    // mapping devdax mode NVM with base pages does not seem to be possible
+    // devdax doesn't like huge page flag
     p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
   }
 
@@ -405,7 +404,7 @@ main(int argc, char **argv)
   }
 
   uffdio_api.api = UFFD_API;
-  uffdio_api.features = 0;
+  uffdio_api.features = UFFD_FEATURE_MISSING_SHMEM;
   if (ioctl(uffd, UFFDIO_API, &uffdio_api) == -1) {
     perror("ioctl uffdio_api");
     assert(0);
@@ -420,6 +419,7 @@ main(int argc, char **argv)
     assert(0);
   }
 
+  printf("Set up userfault success\n");
 
   pthread_t fault_thread;
   int s = pthread_create(&fault_thread, NULL, handle_fault, (void*)uffd);
