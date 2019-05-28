@@ -397,14 +397,15 @@ main(int argc, char **argv)
 
   nelems = (size / threads) / elt_size; // number of elements per thread
 
-  uffd = syscall(__NR_userfaultfd, O_CLOEXEC | O_NONBLOCK);
+   uffd = syscall(__NR_userfaultfd, O_CLOEXEC | O_NONBLOCK);
   if (uffd == -1) {
     perror("uffd");
     assert(0);
   }
 
   uffdio_api.api = UFFD_API;
-  uffdio_api.features = UFFD_FEATURE_MISSING_SHMEM;
+  uffdio_api.features = UFFD_FEATURE_MISSING_SHMEM | UFFD_FEATURE_MISSING_HUGETLBFS;
+  uffdio_api.ioctls = 0;
   if (ioctl(uffd, UFFDIO_API, &uffdio_api) == -1) {
     perror("ioctl uffdio_api");
     assert(0);
