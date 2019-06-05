@@ -60,6 +60,7 @@ struct args {
 };
 
 struct remap_args {
+  long uffd;                    // userfault fd (for write protection)
   void* region;	                // ptr to region
   unsigned long region_size;    // size of region
   int dram_fd;                  // fd for dram devdax file
@@ -101,6 +102,7 @@ void
   long uffd = (long)arg;
   ssize_t nread;
 
+  printf("fault handler entered\n");
   //TODO: handle write protection fault (if possible)
   for (;;) {
     struct pollfd pollfd;
@@ -136,6 +138,7 @@ void
 {
   //printf("do_remap entered\n");
   struct remap_args *re = (struct remap_args*)args;
+  long uffd = re->uffd;
   void* field = re->region;
   unsigned long size = re->region_size;
   int dramfd = re->dram_fd;
@@ -146,6 +149,7 @@ void
   struct timeval start, end;
   int ret = 0;
   void *newptr;
+  struct uffdio_writeprotect wp;
 
   assert(field != NULL);
   //printf("do_remap:\tfield: 0x%x\tfd: %d\tbase: %d\tsize: %llu\tnvm_to_dram: %d\n",field, fd, base, size, nvm_to_dram);
@@ -163,16 +167,19 @@ void
   //   keep huge page when moving to DRAM? When does it make sense to break up?
 
   sleep(1);
-  
+ 
   printf("Changing protection to read only\n");
-  ret = mprotect(field, size, PROT_READ);
+  wp.range.start = (unsigned long)field;
+  wp.range.len = size;
+  wp.mode = UFFDIO_WRITEPROTECT_MODE_WP;
+  ret = ioctl(uffd, UFFDIO_WRITEPROTECT, &wp);
   
   if (ret < 0) {
-    perror("mprotect");
+    perror("uffdio writeprotect");
     assert(0);
   }
 
-  //printf("Protection changed\n");
+  printf("Protection changed\n");
 
   size_t move_size = size;
 
@@ -377,7 +384,7 @@ main(int argc, char **argv)
   if (dram) {
     // devdax doesn't like huge page flag
     gettimeofday(&starttime, NULL);
-    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
+    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_POPULATE | MAP_ANONYMOUS, -1, 0);
   }
   else {
     gettimeofday(&starttime, NULL);
@@ -397,7 +404,7 @@ main(int argc, char **argv)
 
   nelems = (size / threads) / elt_size; // number of elements per thread
 
-   uffd = syscall(__NR_userfaultfd, O_CLOEXEC | O_NONBLOCK);
+  uffd = syscall(__NR_userfaultfd, O_CLOEXEC | O_NONBLOCK);
   if (uffd == -1) {
     perror("uffd");
     assert(0);
@@ -413,7 +420,7 @@ main(int argc, char **argv)
 
   uffdio_register.range.start = (unsigned long)p;
   uffdio_register.range.len = size;
-  uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING;
+  uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
   uffdio_register.ioctls = 0;
   if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
     perror("ioctl uffdio_register");
@@ -467,6 +474,7 @@ main(int argc, char **argv)
   // spawn remap thread (if remapping)
   if (remap) {
     struct remap_args *re = (struct remap_args*)malloc(sizeof(struct remap_args));
+    re->uffd = uffd;
     re->region = p;
     re->dram_fd = dramfd;
     re->nvm_fd = nvmfd;
