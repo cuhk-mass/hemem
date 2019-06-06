@@ -36,6 +36,7 @@
 #include <poll.h>
 #include <sys/syscall.h>
 #include <sys/ioctl.h>
+#include <errno.h>
 
 #define DRAMPATH "/dev/dax0.0"
 #define NVMPATH "/dev/dax1.0"
@@ -101,20 +102,39 @@ void
   static struct uffd_msg msg;
   long uffd = (long)arg;
   ssize_t nread;
+  unsigned long fault_addr;
+  unsigned long fault_flags;
 
   printf("fault handler entered\n");
   //TODO: handle write protection fault (if possible)
   for (;;) {
     struct pollfd pollfd;
-    int nready;
+    int pollres;
     pollfd.fd = uffd;
     pollfd.events = POLLIN;
 
-    nready = poll(&pollfd, 1, -1);
+    pollres = poll(&pollfd, 1, -1);
 
-    if (nready == -1) {
-        perror("poll");
-	assert(0);
+    switch (pollres) {
+    case -1:
+      perror("poll");
+      assert(0);
+    case 0:
+      continue;
+    case 1:
+      break;
+    default:
+      printf("unexpected poll result\n");
+      assert(0);
+    }
+
+    if (pollfd.revents & POLLERR) {
+      printf("pollerr\n");
+      assert(0);
+    }
+
+    if (!pollfd.revents & POLLIN) {
+      continue;
     }
 
     nread = read(uffd, &msg, sizeof(msg));
@@ -124,11 +144,30 @@ void
     }
 
     if (nread < 0) {
+      if (errno == EAGAIN) {
+        continue;
+      }
       perror("read");
       assert(0);
     }
 
+    if (nread != sizeof(msg)) {
+      printf("invalid msg size\n");
+      assert(0);
+    }
+
     //TODO: check page fault event, handle it
+    if (msg.event & UFFD_EVENT_PAGEFAULT) {
+      //TODO: handle missing page fault (will this ever happen?)
+      //TODO: handle wp page fault -- how?
+      fault_addr = msg.arg.pagefault.address;
+      fault_flags = msg.arg.pagefault.flags;
+
+      if (fault_flags & UFFD_PAGEFAULT_FLAG_WP) {
+        printf("received a write-protection fault at addr 0x%lld\n", fault_addr);
+      }
+    }
+
   }
 }
 
@@ -411,7 +450,7 @@ main(int argc, char **argv)
   }
 
   uffdio_api.api = UFFD_API;
-  uffdio_api.features = UFFD_FEATURE_MISSING_SHMEM | UFFD_FEATURE_MISSING_HUGETLBFS;
+  uffdio_api.features = UFFD_FEATURE_PAGEFAULT_FLAG_WP |  UFFD_FEATURE_MISSING_SHMEM | UFFD_FEATURE_MISSING_HUGETLBFS;
   uffdio_api.ioctls = 0;
   if (ioctl(uffd, UFFDIO_API, &uffdio_api) == -1) {
     perror("ioctl uffdio_api");
