@@ -166,8 +166,17 @@ void
       if (fault_flags & UFFD_PAGEFAULT_FLAG_WP) {
         printf("received a write-protection fault at addr 0x%lld\n", fault_addr);
       }
-    }
+      else {
+        if (fault_flags & UFFD_PAGEFAULT_FLAG_WRITE) {
+          printf("received a page missing write fault at addr 0x%lld\n", fault_addr);
+        }
+        else {
+          printf("received a page missing read fault at addr 0x%lld\n", fault_addr);
+        }
 
+
+      }
+    }
   }
 }
 
@@ -206,7 +215,7 @@ void
   //   keep huge page when moving to DRAM? When does it make sense to break up?
 
   sleep(1);
- 
+ /* 
   printf("Changing protection to read only\n");
   wp.range.start = (unsigned long)field;
   wp.range.len = size;
@@ -219,7 +228,7 @@ void
   }
 
   printf("Protection changed\n");
-
+*/
   size_t move_size = size;
 
   if (nvm_to_dram) {
@@ -423,12 +432,12 @@ main(int argc, char **argv)
   if (dram) {
     // devdax doesn't like huge page flag
     gettimeofday(&starttime, NULL);
-    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_POPULATE | MAP_ANONYMOUS, -1, 0);
+    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, dramfd, 0);
   }
   else {
     gettimeofday(&starttime, NULL);
     // devdax doesn't like huge page flag
-    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
+    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, nvmfd, 0);
   }
 
   if (p == NULL || p == MAP_FAILED) {
@@ -459,7 +468,7 @@ main(int argc, char **argv)
 
   uffdio_register.range.start = (unsigned long)p;
   uffdio_register.range.len = size;
-  uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
+  uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING;
   uffdio_register.ioctls = 0;
   if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
     perror("ioctl uffdio_register");
