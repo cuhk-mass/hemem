@@ -174,7 +174,6 @@ void
           printf("received a page missing read fault at addr 0x%lld\n", fault_addr);
         }
 
-
       }
     }
   }
@@ -432,12 +431,12 @@ main(int argc, char **argv)
   if (dram) {
     // devdax doesn't like huge page flag
     gettimeofday(&starttime, NULL);
-    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, dramfd, 0);
+    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
   }
   else {
     gettimeofday(&starttime, NULL);
     // devdax doesn't like huge page flag
-    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, nvmfd, 0);
+    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
   }
 
   if (p == NULL || p == MAP_FAILED) {
