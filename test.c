@@ -20,6 +20,7 @@
 #define MMAP_LEN	(2 * 1024 * 1024)
 
 static int dfd = -1;
+static int nfd = -1;
 static void *addr = NULL;
 
 static void *fault_handler_thread(void *arg)
@@ -30,12 +31,12 @@ static void *fault_handler_thread(void *arg)
   struct uffdio_register uffdio_register;
 
   sleep(4);
-  
+
   // Move to DRAM -- Unmap
   int r = munmap(addr, MMAP_LEN);
   assert(r == 0);
   addr = mmap(addr, MMAP_LEN, PROT_READ | PROT_WRITE,
-	      MAP_SHARED | MAP_FIXED, dfd, 0);
+	      MAP_SHARED | MAP_FIXED, nfd, 0);
   if(addr == MAP_FAILED) {
     perror("mmap");
   }
@@ -76,12 +77,12 @@ static void *fault_handler_thread(void *arg)
 
     // Map the NVM page read-only for copying
     void *oldaddr = mmap(NULL, MMAP_LEN, PROT_READ,
-    		MAP_SHARED | MAP_POPULATE, dfd, 0);
+    		MAP_SHARED | MAP_POPULATE, nfd, 0);
     assert(oldaddr != MAP_FAILED);
 
     // Map some DRAM
     void *newaddr = mmap(NULL, MMAP_LEN, PROT_READ | PROT_WRITE,
-    		MAP_SHARED | MAP_POPULATE, dfd, MMAP_LEN);
+    		MAP_SHARED | MAP_POPULATE, dfd, 0);
     assert(newaddr != MAP_FAILED);
 
     // Copy from NVM to DRAM
@@ -94,7 +95,7 @@ static void *fault_handler_thread(void *arg)
     
     // Overmap the faulting page -- atomic?
     addr = mmap(addr, MMAP_LEN, PROT_READ | PROT_WRITE,
-		MAP_SHARED | MAP_POPULATE | MAP_FIXED, dfd, MMAP_LEN);
+		MAP_SHARED | MAP_POPULATE | MAP_FIXED, dfd, 0);
     assert(addr != MAP_FAILED);
     
     // Continue the faulting thread
@@ -128,8 +129,12 @@ int main(int argc, char *argv[])
   dfd = open("/dev/dax0.0", O_RDWR);
   /* dfd = open("/dev/zero", O_RDWR); */
   assert(dfd != -1);
+
+  nfd = open("/dev/dax1.0", O_RDWR);
+  assert(nfd != -1);
+
   addr = mmap(NULL, MMAP_LEN, PROT_READ | PROT_WRITE,
-	      MAP_SHARED | MAP_POPULATE, dfd, 0);
+	      MAP_SHARED | MAP_POPULATE, nfd, 0);
   if(addr == MAP_FAILED) {
     perror("mmap");
   }
@@ -147,7 +152,7 @@ int main(int argc, char *argv[])
 
   /* r = mprotect(addr, MMAP_LEN, PROT_READ); */
   /* assert(r == 0); */
-  for(int i = 0; i < 20; i++) {
+  for(int i = 0; i < 10; i++) {
     sleep(1);
     printf("p = %d\n", p[0]);
     p[0]++;

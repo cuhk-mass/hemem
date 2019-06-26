@@ -120,8 +120,24 @@ void
   void* newptr;
   struct uffdio_range range;
   int ret;
+  void* zero_page;
 
   printf("fault handler entered\n");
+
+  if (nvm_to_dram) {
+    zero_page = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
+  }
+  else {
+    zero_page = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
+  }
+
+  if (zero_page == MAP_FAILED) {
+    perror("mmap zero page");
+    assert(0);
+  }
+
+  memset(zero_page, 0, HUGEPAGE_SIZE);
+
   //TODO: handle write protection fault (if possible)
   for (;;) {
     struct pollfd pollfd;
@@ -182,7 +198,7 @@ void
       // allign faulting address to page boundry
       // huge page boundry in this case due to dax allignment
       page_boundry = fault_addr & ~(HUGEPAGE_SIZE - 1);
-      printf("page boundry is 0x%lld\n", page_boundry);
+      //printf("page boundry is 0x%lld\n", page_boundry);
 
       if (fault_flags & UFFD_PAGEFAULT_FLAG_WP) {
         // if it is a write protection falut, it is because the remapper thread
@@ -225,21 +241,40 @@ void
       }
       else {
         // if the fault is one of the page missing cases, then this is our first access
-	// to the page. Since we turn swapping off and (as far as I am aware) userfaultfd
-	// prevents the OS from doing its own page management things to the region, it
-        // can only be the page missing case. Mapping a zero page should then do the trick
+        // to the page. Since we turn swapping off and (as far as I am aware) userfaultfd
+        // prevents the OS from doing its own page management things to the region, it
+        // can only be the first touch case. Mapping a zero page should then do the trick
+ 
+/*       
         if (fault_flags & UFFD_PAGEFAULT_FLAG_WRITE) {
           printf("received a page missing write fault at addr 0x%lld\n", fault_addr);
         }
         else {
           printf("received a page missing read fault at addr 0x%lld\n", fault_addr);
         }
+*/
+	if (nvm_to_dram) {
+          newptr = mmap((void*)page_boundry, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, 0);
+        }
+	else {
+          newptr = mmap((void*)page_boundry, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, 0);
+	}
 
-	memset((void*)page_boundry, 0, HUGEPAGE_SIZE);
+	if (newptr == MAP_FAILED) {
+          perror("mmap");
+	  assert(0);
+	}
+	if (newptr != (void*)page_boundry) {
+          printf("mapped address is not same as faulting address\n");
+	}
+
+	memcpy(newptr, zero_page, HUGEPAGE_SIZE);
+
+	munmap(tmp_page, HUGEPAGE_SIZE);
       }
 
       // wake the faulting thread
-      range.start = page_boundry;
+      range.start = fault_addr;
       range.len = HUGEPAGE_SIZE;
 
       ret = ioctl(uffd, UFFDIO_WAKE, &range);
@@ -460,7 +495,12 @@ main(int argc, char **argv)
   printf("Set up userfault success\n");
 
   pthread_t fault_thread;
-  int s = pthread_create(&fault_thread, NULL, handle_fault, (void*)uffd);
+  struct fault_args *fa = malloc(sizeof(struct fault_args));
+  fa->uffd = uffd;
+  fa->nvm_fd = nvmfd;
+  fa->dram_fd = dramfd;
+  fa->nvm_to_dram = !dram;
+  int s = pthread_create(&fault_thread, NULL, handle_fault, (void*)fa);
   if (s != 0) {
     perror("pthread_create");
     assert(0);
