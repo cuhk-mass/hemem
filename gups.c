@@ -116,7 +116,8 @@ void
   unsigned long fault_addr;
   unsigned long fault_flags;
   unsigned long page_boundry;
-  void* tmp_page;
+  void* old_addr;
+  void* new_addr;
   void* newptr;
   struct uffdio_range range;
   int ret;
@@ -136,7 +137,7 @@ void
     assert(0);
   }
 
-  memset(zero_page, 0, HUGEPAGE_SIZE);
+  memset(zero_page, '0', HUGEPAGE_SIZE);
 
   //TODO: handle write protection fault (if possible)
   for (;;) {
@@ -207,20 +208,26 @@ void
 	printf("received a write-protection fault at addr 0x%lld\n", fault_addr);
 	
         if (nvm_to_dram) {
-          // map page from dram
-          tmp_page = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
+          old_addr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
+          new_addr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
 	}
 	else {
-          tmp_page = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
+          old_addr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
+          new_addr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
 	}
 
-	if (tmp_page == MAP_FAILED) {
-          perror("tmp page mmap");
+	if (old_addr == MAP_FAILED) {
+          perror("old addr mmap");
+	  assert(0);
+	}
+
+	if (new_addr == MAP_FAILED) {
+          perror("new addr mmap");
 	  assert(0);
 	}
 
 	// copy page from faulting location to temp location
-	memcpy(tmp_page, (void*)page_boundry, HUGEPAGE_SIZE);
+	memcpy(new_addr, old_addr, HUGEPAGE_SIZE);
 
 	if (nvm_to_dram) {
           newptr = mmap((void*)page_boundry, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, 0);
@@ -237,7 +244,8 @@ void
           printf("mapped address is not same as faulting address\n");
 	}
 
-	munmap(tmp_page, HUGEPAGE_SIZE);
+	munmap(old_addr, HUGEPAGE_SIZE);
+	munmap(new_addr, HUGEPAGE_SIZE);
       }
       else {
         // if the fault is one of the page missing cases, then this is our first access
@@ -245,18 +253,24 @@ void
         // prevents the OS from doing its own page management things to the region, it
         // can only be the first touch case. Mapping a zero page should then do the trick
  
-/*       
-        if (fault_flags & UFFD_PAGEFAULT_FLAG_WRITE) {
-          printf("received a page missing write fault at addr 0x%lld\n", fault_addr);
-        }
-        else {
-          printf("received a page missing read fault at addr 0x%lld\n", fault_addr);
-        }
-*/
+	if (nvm_to_dram) {
+          new_addr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
+	}
+	else {
+          new_addr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
+	}
+
+	if (new_addr == MAP_FAILED) {
+          perror("mmap");
+	  assert(0);
+	}
+
+	memcpy(new_addr, zero_page, HUGEPAGE_SIZE);
+
 	if (nvm_to_dram) {
           newptr = mmap((void*)page_boundry, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, 0);
         }
-	else {
+        else {
           newptr = mmap((void*)page_boundry, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, 0);
 	}
 
@@ -268,13 +282,11 @@ void
           printf("mapped address is not same as faulting address\n");
 	}
 
-	memcpy(newptr, zero_page, HUGEPAGE_SIZE);
-
-	munmap(tmp_page, HUGEPAGE_SIZE);
+	munmap(new_addr, HUGEPAGE_SIZE);
       }
 
       // wake the faulting thread
-      range.start = fault_addr;
+      range.start = page_boundry;
       range.len = HUGEPAGE_SIZE;
 
       ret = ioctl(uffd, UFFDIO_WAKE, &range);
@@ -442,7 +454,7 @@ main(int argc, char **argv)
     perror("nvm open");
   }
   assert(nvmfd >= 0);
-  //printf("DRAM fd: %d\tNVM fd: %d\n", dramfd, nvmfd);
+  //printf("DRAM fd: %d\nNVM fd: %d\n", dramfd, nvmfd);
 
   int i;
   void *p;
