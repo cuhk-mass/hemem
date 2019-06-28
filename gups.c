@@ -137,7 +137,7 @@ void
     assert(0);
   }
 
-  memset(zero_page, '0', HUGEPAGE_SIZE);
+  memset(zero_page, 0, HUGEPAGE_SIZE);
 
   //TODO: handle write protection fault (if possible)
   for (;;) {
@@ -497,7 +497,7 @@ main(int argc, char **argv)
 
   uffdio_register.range.start = (unsigned long)p;
   uffdio_register.range.len = size;
-  uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING;
+  uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
   uffdio_register.ioctls = 0;
   if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
     perror("ioctl uffdio_register");
