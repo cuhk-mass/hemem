@@ -60,21 +60,13 @@ struct args {
   unsigned long elt_size;       // size of elements
 };
 
-struct remap_args {
-  long uffd;                    // userfault fd (for write protection)
-  void* region;	                // ptr to region
-  unsigned long region_size;    // size of region
-  int dram_fd;                  // fd for dram devdax file
-  int nvm_fd;                   // fd for nvm devdax file
-  int base_pages;               // use base pages or not
-  int nvm_to_dram;              // remap nvm to dram or dram to nvm
-};
-
 struct fault_args {
   long uffd;                    // userfault fd
   int dram_fd;                  // fd for dram devdax file
   int nvm_fd;                   // fd for nvm devdax file
   int nvm_to_dram;              // remap nvm to dram or dram to nvm
+  unsigned long size;           // size of region
+  void* field;                  // region ptr
 };
 
 /* Returns the number of seconds encoded in T, a "struct timeval". */
@@ -112,6 +104,8 @@ void
   int dramfd = fa->dram_fd;
   int nvmfd = fa->nvm_fd;
   int nvm_to_dram = fa->nvm_to_dram;
+  unsigned long size = fa->size;
+  void* field = fa->field;
   ssize_t nread;
   unsigned long fault_addr;
   unsigned long fault_flags;
@@ -121,23 +115,29 @@ void
   void* newptr;
   struct uffdio_range range;
   int ret;
-  void* zero_page;
-
+ 
   printf("fault handler entered\n");
+  sleep(3);
 
+  printf("unmapping hugepage region\n");
+  ret = munmap(field, size);
+  if (ret < 0) {
+    perror("munmap");
+    assert(0);
+  }
   if (nvm_to_dram) {
-    zero_page = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
+    field = mmap(field, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, nvmfd, 0);
   }
   else {
-    zero_page = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
+    field = mmap(field, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, dramfd, 0);
   }
-
-  if (zero_page == MAP_FAILED) {
-    perror("mmap zero page");
+  if (newptr == MAP_FAILED) {
+    perror("mmap");
     assert(0);
   }
 
-  memset(zero_page, 0, HUGEPAGE_SIZE);
+  printf("remapped without MAP_POPULATE\n");
+
 
   //TODO: handle write protection fault (if possible)
   for (;;) {
@@ -191,7 +191,7 @@ void
 
     //TODO: check page fault event, handle it
     if (msg.event & UFFD_EVENT_PAGEFAULT) {
-      //TODO: handle missing page fault (will this ever happen?)
+    //TODO: handle missing page fault (will this ever happen?)
       //TODO: handle wp page fault -- how?
       fault_addr = (unsigned long)msg.arg.pagefault.address;
       fault_flags = msg.arg.pagefault.flags;
@@ -202,7 +202,7 @@ void
       //printf("page boundry is 0x%lld\n", page_boundry);
 
       if (fault_flags & UFFD_PAGEFAULT_FLAG_WP) {
-        // if it is a write protection falut, it is because the remapper thread
+/*      // if it is a write protection falut, it is because the remapper thread
 	// flagged the page as ready to move by write-protecting it, so this is
 	// the case where we migrate the page
 	printf("received a write-protection fault at addr 0x%lld\n", fault_addr);
@@ -246,57 +246,18 @@ void
 
 	munmap(old_addr, HUGEPAGE_SIZE);
 	munmap(new_addr, HUGEPAGE_SIZE);
+*/
       }
       else {
-/*      // if the fault is one of the page missing cases, then this is our first access
-        // to the page. Since we turn swapping off and (as far as I am aware) userfaultfd
-        // prevents the OS from doing its own page management things to the region, it
-        // can only be the first touch case. Mapping a zero page should then do the trick
- 
-	if (nvm_to_dram) {
-          new_addr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
-	  //printf("allocate temp page in nvm\n");
-	}
-	else {
-          new_addr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
-	  //printf("allocate temp page in dram\n");
-	}
-
-	if (new_addr == MAP_FAILED) {
-          perror("mmap");
-	  assert(0);
-	}
-
-	memcpy(new_addr, zero_page, HUGEPAGE_SIZE);
-
-	if (nvm_to_dram) {
-          newptr = mmap((void*)page_boundry, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, 0);
-	  //printf("map page in nvm\n");
-        }
-        else {
-          newptr = mmap((void*)page_boundry, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, 0);
-	  //printf("map page in dram\n");
-	}
-
-	if (newptr == MAP_FAILED) {
-          perror("mmap");
-	  assert(0);
-	}
-	if (newptr != (void*)page_boundry) {
-          printf("mapped address is not same as faulting address\n");
-	}
-
-	munmap(new_addr, HUGEPAGE_SIZE);
-*/
 	printf("received a missing fault at addr 0x%lld\n", fault_addr);
 	
         if (nvm_to_dram) {
-          old_addr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
-          new_addr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
+          old_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
+          new_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
 	}
 	else {
-          old_addr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
-          new_addr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
+          old_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
+          new_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
 	}
 
 	if (old_addr == MAP_FAILED) {
@@ -310,13 +271,13 @@ void
 	}
 
 	// copy page from faulting location to temp location
-	memcpy(new_addr, old_addr, HUGEPAGE_SIZE);
+	memcpy(new_addr, old_addr, size);
 
 	if (nvm_to_dram) {
-          newptr = mmap((void*)page_boundry, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, 0);
+          newptr = mmap((void*)page_boundry, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, 0);
         }
         else {
-          newptr = mmap((void*)page_boundry, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, 0);
+          newptr = mmap((void*)page_boundry, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, 0);
 	}
 
 	if (newptr == MAP_FAILED) {
@@ -327,14 +288,14 @@ void
           printf("mapped address is not same as faulting address\n");
 	}
 
-	munmap(old_addr, HUGEPAGE_SIZE);
-	munmap(new_addr, HUGEPAGE_SIZE);
+	munmap(old_addr, size);
+	munmap(new_addr, size);
 
       }
 
       // wake the faulting thread
       range.start = page_boundry;
-      range.len = HUGEPAGE_SIZE;
+      range.len = size;
 
       ret = ioctl(uffd, UFFDIO_WAKE, &range);
 
@@ -345,70 +306,6 @@ void
     }
   }
 }
-
-
-void 
-*do_remap(void *args)
-{
-  //printf("do_remap entered\n");
-  struct remap_args *re = (struct remap_args*)args;
-  long uffd = re->uffd;
-  void* field = re->region;
-  unsigned long size = re->region_size;
-  int dramfd = re->dram_fd;
-  int nvmfd = re->nvm_fd;
-  int base = re->base_pages;
-  int nvm_to_dram = re->nvm_to_dram;
-  void *ptr = NULL;
-  struct timeval start, end;
-  int ret = 0;
-  void *newptr;
-  struct uffdio_writeprotect wp;
-  void* wp_ptr;
-
-  printf("field: 0x%llx\tsize: %lld\n", field, size);
-  assert(field != NULL);
-  //printf("do_remap:\tfield: 0x%x\tfd: %d\tbase: %d\tsize: %llu\tnvm_to_dram: %d\n",field, fd, base, size, nvm_to_dram);
-
-  // go through region hugepage-by-hugepage, marking as write protected
-  // the fault handling thread will do the actual migration
-  for (wp_ptr = field; wp_ptr < field + size; wp_ptr += HUGEPAGE_SIZE) {
-    sleep(1);
-
-    printf("unmapping hugepage region\n");
-    munmap(wp_ptr, HUGEPAGE_SIZE);
-    if (nvm_to_dram) {
-      newptr = mmap(wp_ptr, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, nvmfd, 0);
-    }
-    else {
-      newptr = mmap(wp_ptr, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, dramfd, 0);
-    }
-    if (newptr == MAP_FAILED) {
-      perror("mmap");
-      assert(0);
-    }
-
-    printf("remapped without MAP_POPULATE\n");
-
-/*  printf("Changing protection to read only\n");
-    wp.range.start = (unsigned long)wp_ptr;
-    wp.range.len = size;
-    wp.mode = UFFDIO_WRITEPROTECT_MODE_WP;
-    ret = ioctl(uffd, UFFDIO_WRITEPROTECT, &wp);
-
-    printf("uffd writeprotect region: 0x%llx with length %lld\n", wp.range.start, wp.range.len);
-  
-    if (ret < 0) {
-      perror("uffdio writeprotect");
-      assert(0);
-    }
-
-    printf("Protection changed\n");
-*/
-  }
-
-}
-
 
 #define GET_NEXT_INDEX(tid, i, size) td[tid].indices[i]
 
@@ -577,18 +474,6 @@ main(int argc, char **argv)
   int has_userfault_register_wp = (uffdio_register.ioctls & UFFDIO_REGISTER) ? 1 : 0;
   printf("has userfault register wp: %d\n", has_userfault_register_wp);
 
-  pthread_t fault_thread;
-  struct fault_args *fa = malloc(sizeof(struct fault_args));
-  fa->uffd = uffd;
-  fa->nvm_fd = nvmfd;
-  fa->dram_fd = dramfd;
-  fa->nvm_to_dram = !dram;
-  int s = pthread_create(&fault_thread, NULL, handle_fault, (void*)fa);
-  if (s != 0) {
-    perror("pthread_create");
-    assert(0);
-  }
-
   printf("initializing thread data\n");
   gettimeofday(&starttime, NULL);
   for (i = 0; i < threads; i++) {
@@ -624,19 +509,21 @@ main(int argc, char **argv)
     assert(r == 0);
   }
 
-  // spawn remap thread (if remapping)
+
   if (remap) {
-    struct remap_args *re = (struct remap_args*)malloc(sizeof(struct remap_args));
-    re->uffd = uffd;
-    re->region = p;
-    re->dram_fd = dramfd;
-    re->nvm_fd = nvmfd;
-    re->base_pages = base;
-    re->region_size = size;
-    re->nvm_to_dram = !dram;
-    //printf("field: 0x%x\tdramfd: %d\tnvmfd: %d\tbase: %d\tsize: %llu\tnvm_to_dram: %d\n", re->region, re->dram_fd, re->nvm_fd, re->base_pages, re->region_size, re->nvm_to_dram);
-    int r = pthread_create(&remap_thread, NULL, do_remap, (void*)re);
-    assert(r == 0);
+    pthread_t fault_thread;
+    struct fault_args *fa = malloc(sizeof(struct fault_args));
+    fa->uffd = uffd;
+    fa->nvm_fd = nvmfd;
+    fa->dram_fd = dramfd;
+    fa->nvm_to_dram = !dram;
+    fa->size = size;
+    fa->field = p;
+    int r = pthread_create(&remap_thread, NULL, handle_fault, (void*)fa);
+    if (r != 0) {
+      perror("pthread_create");
+      assert(0);
+    }
   }
 
   // wait for worker threads
@@ -645,11 +532,11 @@ main(int argc, char **argv)
     assert(r == 0);
   }
 
-  // wait for remap thread (if remapping)
   if (remap) {
     int r = pthread_join(remap_thread, NULL);
     assert(r == 0);
   }
+
   gettimeofday(&stoptime, NULL);
 
   secs = elapsed(&starttime, &stoptime);
