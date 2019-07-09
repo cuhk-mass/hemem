@@ -39,7 +39,7 @@
 #include <errno.h>
 
 #define DRAMPATH "/dev/dax0.0"
-#define NVMPATH "/dev/dax1.0"
+#define NVMPATH "/dev/dax1.1"
 
 #define HUGEPAGE_SIZE 2 * (1024 * 1024)
 
@@ -248,16 +248,18 @@ void
 	munmap(new_addr, HUGEPAGE_SIZE);
       }
       else {
-        // if the fault is one of the page missing cases, then this is our first access
+/*      // if the fault is one of the page missing cases, then this is our first access
         // to the page. Since we turn swapping off and (as far as I am aware) userfaultfd
         // prevents the OS from doing its own page management things to the region, it
         // can only be the first touch case. Mapping a zero page should then do the trick
  
 	if (nvm_to_dram) {
           new_addr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
+	  //printf("allocate temp page in nvm\n");
 	}
 	else {
           new_addr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
+	  //printf("allocate temp page in dram\n");
 	}
 
 	if (new_addr == MAP_FAILED) {
@@ -269,9 +271,11 @@ void
 
 	if (nvm_to_dram) {
           newptr = mmap((void*)page_boundry, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, 0);
+	  //printf("map page in nvm\n");
         }
         else {
           newptr = mmap((void*)page_boundry, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, 0);
+	  //printf("map page in dram\n");
 	}
 
 	if (newptr == MAP_FAILED) {
@@ -283,6 +287,49 @@ void
 	}
 
 	munmap(new_addr, HUGEPAGE_SIZE);
+*/
+	printf("received a missing fault at addr 0x%lld\n", fault_addr);
+	
+        if (nvm_to_dram) {
+          old_addr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
+          new_addr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
+	}
+	else {
+          old_addr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
+          new_addr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
+	}
+
+	if (old_addr == MAP_FAILED) {
+          perror("old addr mmap");
+	  assert(0);
+	}
+
+	if (new_addr == MAP_FAILED) {
+          perror("new addr mmap");
+	  assert(0);
+	}
+
+	// copy page from faulting location to temp location
+	memcpy(new_addr, old_addr, HUGEPAGE_SIZE);
+
+	if (nvm_to_dram) {
+          newptr = mmap((void*)page_boundry, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, 0);
+        }
+        else {
+          newptr = mmap((void*)page_boundry, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, 0);
+	}
+
+	if (newptr == MAP_FAILED) {
+          perror("mmap");
+	  assert(0);
+	}
+	if (newptr != (void*)page_boundry) {
+          printf("mapped address is not same as faulting address\n");
+	}
+
+	munmap(old_addr, HUGEPAGE_SIZE);
+	munmap(new_addr, HUGEPAGE_SIZE);
+
       }
 
       // wake the faulting thread
@@ -319,6 +366,7 @@ void
   struct uffdio_writeprotect wp;
   void* wp_ptr;
 
+  printf("field: 0x%llx\tsize: %lld\n", field, size);
   assert(field != NULL);
   //printf("do_remap:\tfield: 0x%x\tfd: %d\tbase: %d\tsize: %llu\tnvm_to_dram: %d\n",field, fd, base, size, nvm_to_dram);
 
@@ -327,11 +375,28 @@ void
   for (wp_ptr = field; wp_ptr < field + size; wp_ptr += HUGEPAGE_SIZE) {
     sleep(1);
 
-    printf("Changing protection to read only\n");
+    printf("unmapping hugepage region\n");
+    munmap(wp_ptr, HUGEPAGE_SIZE);
+    if (nvm_to_dram) {
+      newptr = mmap(wp_ptr, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, nvmfd, 0);
+    }
+    else {
+      newptr = mmap(wp_ptr, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, dramfd, 0);
+    }
+    if (newptr == MAP_FAILED) {
+      perror("mmap");
+      assert(0);
+    }
+
+    printf("remapped without MAP_POPULATE\n");
+
+/*  printf("Changing protection to read only\n");
     wp.range.start = (unsigned long)wp_ptr;
-    wp.range.len = HUGEPAGE_SIZE;
+    wp.range.len = size;
     wp.mode = UFFDIO_WRITEPROTECT_MODE_WP;
     ret = ioctl(uffd, UFFDIO_WRITEPROTECT, &wp);
+
+    printf("uffd writeprotect region: 0x%llx with length %lld\n", wp.range.start, wp.range.len);
   
     if (ret < 0) {
       perror("uffdio writeprotect");
@@ -339,6 +404,7 @@ void
     }
 
     printf("Protection changed\n");
+*/
   }
 
 }
@@ -461,12 +527,12 @@ main(int argc, char **argv)
   if (dram) {
     // devdax doesn't like huge page flag
     gettimeofday(&starttime, NULL);
-    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, dramfd, 0);
+    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
   }
   else {
     gettimeofday(&starttime, NULL);
     // devdax doesn't like huge page flag
-    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, nvmfd, 0);
+    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
   }
 
   if (p == NULL || p == MAP_FAILED) {
@@ -504,7 +570,12 @@ main(int argc, char **argv)
     assert(0);
   }
 
+  printf("uffd registered region: 0x%llx with length %lld\t size: %lld\n", uffdio_register.range.start, uffdio_register.range.len, size);
+
   printf("Set up userfault success\n");
+
+  int has_userfault_register_wp = (uffdio_register.ioctls & UFFDIO_REGISTER) ? 1 : 0;
+  printf("has userfault register wp: %d\n", has_userfault_register_wp);
 
   pthread_t fault_thread;
   struct fault_args *fa = malloc(sizeof(struct fault_args));
