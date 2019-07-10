@@ -39,7 +39,7 @@
 #include <errno.h>
 
 #define DRAMPATH "/dev/dax0.0"
-#define NVMPATH "/dev/dax1.1"
+#define NVMPATH "/dev/dax1.0"
 
 #define HUGEPAGE_SIZE 2 * (1024 * 1024)
 
@@ -115,6 +115,7 @@ void
   void* newptr;
   struct uffdio_range range;
   int ret;
+  struct uffdio_register uffdio_register;
  
   printf("fault handler entered\n");
   sleep(3);
@@ -131,13 +132,28 @@ void
   else {
     field = mmap(field, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, dramfd, 0);
   }
-  if (newptr == MAP_FAILED) {
+  if (field == MAP_FAILED) {
     perror("mmap");
     assert(0);
   }
-
+  
   printf("remapped without MAP_POPULATE\n");
 
+  uffdio_register.range.start = (unsigned long)field;
+  uffdio_register.range.len = size;
+  uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
+  uffdio_register.ioctls = 0;
+  if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
+    perror("ioctl uffdio_register");
+    assert(0);
+  }
+
+  printf("uffd registered region: 0x%llx with length %lld\n", uffdio_register.range.start, uffdio_register.range.len);
+
+  printf("Set up userfault success\n");
+
+  int has_userfault_register_wp = (uffdio_register.ioctls & UFFDIO_REGISTER) ? 1 : 0;
+  printf("has userfault register wp: %d\n", has_userfault_register_wp);
 
   //TODO: handle write protection fault (if possible)
   for (;;) {
@@ -198,55 +214,11 @@ void
 
       // allign faulting address to page boundry
       // huge page boundry in this case due to dax allignment
-      page_boundry = fault_addr & ~(HUGEPAGE_SIZE - 1);
+      page_boundry = fault_addr;// & ~(HUGEPAGE_SIZE - 1);
       //printf("page boundry is 0x%lld\n", page_boundry);
 
       if (fault_flags & UFFD_PAGEFAULT_FLAG_WP) {
-/*      // if it is a write protection falut, it is because the remapper thread
-	// flagged the page as ready to move by write-protecting it, so this is
-	// the case where we migrate the page
-	printf("received a write-protection fault at addr 0x%lld\n", fault_addr);
-	
-        if (nvm_to_dram) {
-          old_addr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
-          new_addr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
-	}
-	else {
-          old_addr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
-          new_addr = mmap(NULL, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
-	}
-
-	if (old_addr == MAP_FAILED) {
-          perror("old addr mmap");
-	  assert(0);
-	}
-
-	if (new_addr == MAP_FAILED) {
-          perror("new addr mmap");
-	  assert(0);
-	}
-
-	// copy page from faulting location to temp location
-	memcpy(new_addr, old_addr, HUGEPAGE_SIZE);
-
-	if (nvm_to_dram) {
-          newptr = mmap((void*)page_boundry, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, 0);
-        }
-        else {
-          newptr = mmap((void*)page_boundry, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, 0);
-	}
-
-	if (newptr == MAP_FAILED) {
-          perror("mmap");
-	  assert(0);
-	}
-	if (newptr != (void*)page_boundry) {
-          printf("mapped address is not same as faulting address\n");
-	}
-
-	munmap(old_addr, HUGEPAGE_SIZE);
-	munmap(new_addr, HUGEPAGE_SIZE);
-*/
+        //TODO: implement write protection for dax files
       }
       else {
 	printf("received a missing fault at addr 0x%lld\n", fault_addr);
@@ -304,6 +276,9 @@ void
 	assert(0);
       }
     }
+    else if (msg.event & UFFD_EVENT_UNMAP) {
+      printf("received an unmap event\n");
+    }
   }
 }
 
@@ -342,7 +317,6 @@ main(int argc, char **argv)
   int dramfd = 0, nvmfd = 0;
   long uffd;
   struct uffdio_api uffdio_api;
-  struct uffdio_register uffdio_register;
 
   struct timeval start, end;
 
@@ -451,28 +425,12 @@ main(int argc, char **argv)
   }
 
   uffdio_api.api = UFFD_API;
-  uffdio_api.features = UFFD_FEATURE_PAGEFAULT_FLAG_WP |  UFFD_FEATURE_MISSING_SHMEM | UFFD_FEATURE_MISSING_HUGETLBFS;
+  uffdio_api.features = UFFD_FEATURE_PAGEFAULT_FLAG_WP |  UFFD_FEATURE_MISSING_SHMEM | UFFD_FEATURE_MISSING_HUGETLBFS | UFFD_FEATURE_EVENT_UNMAP | UFFD_FEATURE_EVENT_REMOVE | UFFD_FEATURE_EVENT_REMAP;
   uffdio_api.ioctls = 0;
   if (ioctl(uffd, UFFDIO_API, &uffdio_api) == -1) {
     perror("ioctl uffdio_api");
     assert(0);
   }
-
-  uffdio_register.range.start = (unsigned long)p;
-  uffdio_register.range.len = size;
-  uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
-  uffdio_register.ioctls = 0;
-  if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
-    perror("ioctl uffdio_register");
-    assert(0);
-  }
-
-  printf("uffd registered region: 0x%llx with length %lld\t size: %lld\n", uffdio_register.range.start, uffdio_register.range.len, size);
-
-  printf("Set up userfault success\n");
-
-  int has_userfault_register_wp = (uffdio_register.ioctls & UFFDIO_REGISTER) ? 1 : 0;
-  printf("has userfault register wp: %d\n", has_userfault_register_wp);
 
   printf("initializing thread data\n");
   gettimeofday(&starttime, NULL);
@@ -529,11 +487,6 @@ main(int argc, char **argv)
   // wait for worker threads
   for (i = 0; i < threads; i++) {
     int r = pthread_join(t[i], NULL);
-    assert(r == 0);
-  }
-
-  if (remap) {
-    int r = pthread_join(remap_thread, NULL);
     assert(r == 0);
   }
 
