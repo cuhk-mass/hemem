@@ -126,6 +126,7 @@ void
   void* zero_page;
   void* field = fa->region;
   unsigned long size = fa->size;
+  struct timeval start, end;
 
   printf("fault handler entered\n");
 
@@ -256,26 +257,37 @@ void
         // to the page. Since we turn swapping off and (as far as I am aware) userfaultfd
         // prevents the OS from doing its own page management things to the region, it
         // can only be the first touch case. Mapping a zero page should then do the trick
- 
+        printf("received a page missing fault at addr 0x%lld\n", fault_addr);
+
+        gettimeofday(&start, NULL);
+        
 	if (nvm_to_dram) {
-          new_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
-	}
-	else {
+          old_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
           new_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
 	}
+	else {
+          old_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
+          new_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
+	}
 
-	if (new_addr == MAP_FAILED) {
-          perror("mmap");
+	if (old_addr == MAP_FAILED) {
+          perror("old addr mmap");
 	  assert(0);
 	}
 
-	memcpy(new_addr, zero_page, size);
+	if (new_addr == MAP_FAILED) {
+          perror("new addr mmap");
+	  assert(0);
+	}
+
+	// copy page from faulting location to temp location
+	memcpy(new_addr, old_addr, size);
 
 	if (nvm_to_dram) {
-          newptr = mmap((void*)field, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, 0);
+          newptr = mmap((void*)field, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, 0);
         }
         else {
-          newptr = mmap((void*)field, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, 0);
+          newptr = mmap((void*)field, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, 0);
 	}
 
 	if (newptr == MAP_FAILED) {
@@ -286,7 +298,11 @@ void
           printf("mapped address is not same as faulting address\n");
 	}
 
+	munmap(old_addr, size);
 	munmap(new_addr, size);
+	gettimeofday(&end, NULL);
+
+        printf("page missing fault took %.4f seconds\n", elapsed(&start, &end));
       }
 
       // wake the faulting thread
@@ -329,7 +345,7 @@ void
   // go through region hugepage-by-hugepage, marking as write protected
   // the fault handling thread will do the actual migration
   //for (wp_ptr = field; wp_ptr < field + size; wp_ptr += HUGEPAGE_SIZE) {
-    sleep(1);
+    sleep(3);
 
     printf("Changing protection to read only\n");
     wp.range.start = (unsigned long)field;
@@ -362,7 +378,7 @@ void
 
   for (i = 0; i < args->iters; i++) {
     index = GET_NEXT_INDEX(args->tid, i, args->size);
-    memset(data, i, elt_size);
+    memset(data, 8, elt_size);
     memcpy(&field[index * elt_size], data, elt_size);
   }
 }
