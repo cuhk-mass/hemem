@@ -196,8 +196,6 @@ void
 
     //TODO: check page fault event, handle it
     if (msg.event & UFFD_EVENT_PAGEFAULT) {
-      //TODO: handle missing page fault (will this ever happen?)
-      //TODO: handle wp page fault -- how?
       fault_addr = (unsigned long)msg.arg.pagefault.address;
       fault_flags = msg.arg.pagefault.flags;
 
@@ -207,56 +205,15 @@ void
       //printf("page boundry is 0x%lld\n", page_boundry);
 
       if (fault_flags & UFFD_PAGEFAULT_FLAG_WP) {
-        // if it is a write protection falut, it is because the remapper thread
-	// flagged the page as ready to move by write-protecting it, so this is
-	// the case where we migrate the page
 	printf("received a write-protection fault at addr 0x%lld\n", fault_addr);
-	
-        if (nvm_to_dram) {
-          old_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
-          new_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
-	}
-	else {
-          old_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
-          new_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
-	}
-
-	if (old_addr == MAP_FAILED) {
-          perror("old addr mmap");
-	  assert(0);
-	}
-
-	if (new_addr == MAP_FAILED) {
-          perror("new addr mmap");
-	  assert(0);
-	}
-
-	// copy page from faulting location to temp location
-	memcpy(new_addr, old_addr, size);
-
-	if (nvm_to_dram) {
-          newptr = mmap((void*)field, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, 0);
-        }
-        else {
-          newptr = mmap((void*)field, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, 0);
-	}
-
-	if (newptr == MAP_FAILED) {
-          perror("mmap");
-	  assert(0);
-	}
-	if (newptr != (void*)field) {
-          printf("mapped address is not same as faulting address\n");
-	}
-
-	munmap(old_addr, size);
-	munmap(new_addr, size);
       }
       else {
-        // if the fault is one of the page missing cases, then this is our first access
-        // to the page. Since we turn swapping off and (as far as I am aware) userfaultfd
-        // prevents the OS from doing its own page management things to the region, it
-        // can only be the first touch case. Mapping a zero page should then do the trick
+	// Write protection faults seem to be passed as missing faults instead of
+	// WP faults. This should be okay as we shouldn't really get page missing
+	// faults anyway since the dax files shouldn't be swapped by the OS, and if
+	// we map the original reagion with the MAP_POPULATE flag, then we won't
+	// have first touch misses either. Thus, we assume any page missing fault
+	// we receive is due to write protection
         printf("received a page missing fault at addr 0x%lld\n", fault_addr);
 
         gettimeofday(&start, NULL);
