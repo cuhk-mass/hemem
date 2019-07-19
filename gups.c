@@ -114,6 +114,8 @@ void
   int dramfd = fa->dram_fd;
   int nvmfd = fa->nvm_fd;
   int nvm_to_dram = fa->nvm_to_dram;
+  void* field = fa->region;
+  unsigned long size = fa->size; 
   ssize_t nread;
   unsigned long fault_addr;
   unsigned long fault_flags;
@@ -123,26 +125,9 @@ void
   void* newptr;
   struct uffdio_range range;
   int ret;
-  void* zero_page;
-  void* field = fa->region;
-  unsigned long size = fa->size;
   struct timeval start, end;
 
   printf("fault handler entered\n");
-
-  if (nvm_to_dram) {
-    zero_page = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
-  }
-  else {
-    zero_page = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
-  }
-
-  if (zero_page == MAP_FAILED) {
-    perror("mmap zero page");
-    assert(0);
-  }
-
-  memset(zero_page, 0, size);
 
   //TODO: handle write protection fault (if possible)
   for (;;) {
@@ -205,7 +190,7 @@ void
       //printf("page boundry is 0x%lld\n", page_boundry);
 
       if (fault_flags & UFFD_PAGEFAULT_FLAG_WP) {
-	printf("received a write-protection fault at addr 0x%lld\n", fault_addr);
+	printf("received a write-protection fault at addr 0x%llx\n", fault_addr);
       }
       else {
 	// Write protection faults seem to be passed as missing faults instead of
@@ -214,17 +199,21 @@ void
 	// we map the original reagion with the MAP_POPULATE flag, then we won't
 	// have first touch misses either. Thus, we assume any page missing fault
 	// we receive is due to write protection
-        printf("received a page missing fault at addr 0x%lld\n", fault_addr);
-
+        printf("received a page missing fault at addr 0x%llx\n", fault_addr);
+	printf("page boundry: 0x%llx\tcalculated offset in dax file: 0x%llx\n", page_boundry, page_boundry - (unsigned long)field);
+ 
         gettimeofday(&start, NULL);
+
+	// map virtual address to dax file offset
+	unsigned long offset = page_boundry - (unsigned long) field;
         
 	if (nvm_to_dram) {
-          old_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
-          new_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
+          old_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, offset);
+          new_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, offset);
 	}
 	else {
-          old_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
-          new_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
+          old_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, offset);
+          new_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, offset);
 	}
 
 	if (old_addr == MAP_FAILED) {
@@ -241,17 +230,17 @@ void
 	memcpy(new_addr, old_addr, size);
 
 	if (nvm_to_dram) {
-          newptr = mmap((void*)field, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, 0);
+          newptr = mmap((void*)page_boundry, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, offset);
         }
         else {
-          newptr = mmap((void*)field, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, 0);
+          newptr = mmap((void*)page_boundry, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, offset);
 	}
 
 	if (newptr == MAP_FAILED) {
           perror("mmap");
 	  assert(0);
 	}
-	if (newptr != (void*)field) {
+	if (newptr != (void*)page_boundry) {
           printf("mapped address is not same as faulting address\n");
 	}
 
@@ -263,8 +252,8 @@ void
       }
 
       // wake the faulting thread
-      range.start = (unsigned long)field;
-      range.len = size;
+      range.start = (unsigned long)page_boundry;
+      range.len = HUGEPAGE_SIZE;
 
       ret = ioctl(uffd, UFFDIO_WAKE, &range);
 
@@ -297,16 +286,17 @@ void
   void* wp_ptr;
 
   assert(field != NULL);
+
+  sleep(3);
+
   //printf("do_remap:\tfield: 0x%x\tfd: %d\tbase: %d\tsize: %llu\tnvm_to_dram: %d\n",field, fd, base, size, nvm_to_dram);
 
   // go through region hugepage-by-hugepage, marking as write protected
   // the fault handling thread will do the actual migration
-  //for (wp_ptr = field; wp_ptr < field + size; wp_ptr += HUGEPAGE_SIZE) {
-    sleep(3);
-
-    printf("Changing protection to read only\n");
-    wp.range.start = (unsigned long)field;
-    wp.range.len = size;
+  for (wp_ptr = field; wp_ptr < field + size; wp_ptr += HUGEPAGE_SIZE) {
+    //printf("Changing protection to read only\n");
+    wp.range.start = (unsigned long)wp_ptr;
+    wp.range.len = HUGEPAGE_SIZE;
     wp.mode = UFFDIO_WRITEPROTECT_MODE_WP;
     ret = ioctl(uffd, UFFDIO_WRITEPROTECT, &wp);
   
@@ -314,8 +304,8 @@ void
       perror("uffdio writeprotect");
       assert(0);
     }
-    printf("Protection changed\n");
-  //}
+    //printf("Protection changed\n");
+  }
 
 }
 
@@ -355,8 +345,6 @@ main(int argc, char **argv)
   int dramfd = 0, nvmfd = 0;
   long uffd;
   struct uffdio_api uffdio_api;
-  struct uffdio_register uffdio_register;
-
   struct timeval start, end;
 
   if (argc != 8) {
@@ -470,14 +458,19 @@ main(int argc, char **argv)
     perror("ioctl uffdio_api");
     assert(0);
   }
-
-  uffdio_register.range.start = (unsigned long)p;
-  uffdio_register.range.len = size;
-  uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
-  uffdio_register.ioctls = 0;
-  if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
-    perror("ioctl uffdio_register");
-    assert(0);
+ 
+  void *register_ptr = p;
+  for (register_ptr = p; register_ptr < p + size; register_ptr += HUGEPAGE_SIZE) {
+    struct uffdio_register uffdio_register;
+    uffdio_register.range.start = (unsigned long)register_ptr;
+    uffdio_register.range.len = HUGEPAGE_SIZE;
+    uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
+    uffdio_register.ioctls = 0;
+    if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
+      perror("ioctl uffdio_register");
+      assert(0);
+    }
+    //printf("registered region: 0x%llx - 0x%llx\n", register_ptr, register_ptr + HUGEPAGE_SIZE);
   }
 
   printf("Set up userfault success\n");
@@ -489,7 +482,7 @@ main(int argc, char **argv)
   fa->dram_fd = dramfd;
   fa->nvm_to_dram = !dram;
   fa->region = p;
-  fa->size = size;
+  fa->size = HUGEPAGE_SIZE;
   int s = pthread_create(&fault_thread, NULL, handle_fault, (void*)fa);
   if (s != 0) {
     perror("pthread_create");
