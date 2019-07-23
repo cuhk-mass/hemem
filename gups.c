@@ -136,15 +136,19 @@ void
     pollfd.fd = uffd;
     pollfd.events = POLLIN;
 
+    printf("calling poll\n");
     pollres = poll(&pollfd, 1, -1);
+    printf("poll returned\n");
 
     switch (pollres) {
     case -1:
       perror("poll");
       assert(0);
     case 0:
+      printf("poll read 0\n");
       continue;
     case 1:
+      printf("poll read 1\n");
       break;
     default:
       printf("unexpected poll result\n");
@@ -174,6 +178,7 @@ void
       assert(0);
     }
 
+    printf("nread: %d\tsize of uffd msg: %d\n", nread, sizeof(msg));
     if (nread != sizeof(msg)) {
       printf("invalid msg size\n");
       assert(0);
@@ -181,6 +186,8 @@ void
 
     //TODO: check page fault event, handle it
     if (msg.event & UFFD_EVENT_PAGEFAULT) {
+      //printf("received a page fault event\n");
+
       fault_addr = (unsigned long)msg.arg.pagefault.address;
       fault_flags = msg.arg.pagefault.flags;
 
@@ -200,12 +207,12 @@ void
 	// have first touch misses either. Thus, we assume any page missing fault
 	// we receive is due to write protection
         printf("received a page missing fault at addr 0x%llx\n", fault_addr);
-	printf("page boundry: 0x%llx\tcalculated offset in dax file: 0x%llx\n", page_boundry, page_boundry - (unsigned long)field);
- 
-        gettimeofday(&start, NULL);
 
 	// map virtual address to dax file offset
-	unsigned long offset = page_boundry - (unsigned long) field;
+	unsigned long offset = page_boundry -  (unsigned long)field;
+	printf("page boundry: 0x%llx\tcalculated offset in dax file: 0x%llx\n", page_boundry, offset);
+
+        gettimeofday(&start, NULL);
         
 	if (nvm_to_dram) {
           old_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, offset);
@@ -246,14 +253,16 @@ void
 
 	munmap(old_addr, size);
 	munmap(new_addr, size);
+
 	gettimeofday(&end, NULL);
 
         printf("page missing fault took %.4f seconds\n", elapsed(&start, &end));
       }
 
+      //printf("waking thread\n");
       // wake the faulting thread
       range.start = (unsigned long)page_boundry;
-      range.len = HUGEPAGE_SIZE;
+      range.len = size;
 
       ret = ioctl(uffd, UFFDIO_WAKE, &range);
 
@@ -284,10 +293,13 @@ void
   void *newptr;
   struct uffdio_writeprotect wp;
   void* wp_ptr;
+  int wp_count = 0;
 
   assert(field != NULL);
 
   sleep(3);
+  printf("Begin write protecting pages\n");
+  gettimeofday(&start, NULL);
 
   //printf("do_remap:\tfield: 0x%x\tfd: %d\tbase: %d\tsize: %llu\tnvm_to_dram: %d\n",field, fd, base, size, nvm_to_dram);
 
@@ -305,7 +317,14 @@ void
       assert(0);
     }
     //printf("Protection changed\n");
+
+    wp_count++;
   }
+  
+  gettimeofday(&end, NULL);
+
+  printf("Finished write protecting pages\n");
+  printf("write protected %d pages in %.4f seconds\n", wp_count, elapsed(&start, &end));
 
 }
 
