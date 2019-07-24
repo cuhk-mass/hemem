@@ -31,7 +31,6 @@
 #include <pthread.h>
 #include <sys/mman.h>
 #include <libpmem.h>
-#include <libvmem.h>
 #include <linux/userfaultfd.h>
 #include <poll.h>
 #include <sys/syscall.h>
@@ -209,7 +208,7 @@ void
         printf("received a page missing fault at addr 0x%llx\n", fault_addr);
 
 	// map virtual address to dax file offset
-	unsigned long offset = page_boundry -  (unsigned long)field;
+	unsigned long offset = page_boundry - (unsigned long)field;
 	printf("page boundry: 0x%llx\tcalculated offset in dax file: 0x%llx\n", page_boundry, offset);
 
         gettimeofday(&start, NULL);
@@ -291,7 +290,7 @@ void
   struct timeval start, end;
   int ret = 0;
   void *newptr;
-  struct uffdio_writeprotect wp;
+  struct uffdio_writeprotect *wp_structs;
   void* wp_ptr;
   int wp_count = 0;
 
@@ -305,8 +304,12 @@ void
 
   // go through region hugepage-by-hugepage, marking as write protected
   // the fault handling thread will do the actual migration
+  int num_pages = size / HUGEPAGE_SIZE;
+  wp_structs = (struct uffdio_writeprotect*)malloc(num_pages * sizeof(struct uffdio_writeprotect));
+  int page = 0;
   for (wp_ptr = field; wp_ptr < field + size; wp_ptr += HUGEPAGE_SIZE) {
-    //printf("Changing protection to read only\n");
+    printf("Changing protection to read only on range 0x%llx - 0x%llx\n", wp_ptr, wp_ptr + HUGEPAGE_SIZE);
+    struct uffdio_writeprotect wp = wp_structs[page];
     wp.range.start = (unsigned long)wp_ptr;
     wp.range.len = HUGEPAGE_SIZE;
     wp.mode = UFFDIO_WRITEPROTECT_MODE_WP;
@@ -319,6 +322,7 @@ void
     //printf("Protection changed\n");
 
     wp_count++;
+    page++;
   }
   
   gettimeofday(&end, NULL);
@@ -344,7 +348,7 @@ void
 
   for (i = 0; i < args->iters; i++) {
     index = GET_NEXT_INDEX(args->tid, i, args->size);
-    memset(data, 8, elt_size);
+    memset(data, i, elt_size);
     memcpy(&field[index * elt_size], data, elt_size);
   }
 }
@@ -359,12 +363,14 @@ main(int argc, char **argv)
   struct timeval starttime, stoptime;
   double secs, gups;
   int dram = 0, base = 0;
-  VMEM *vmp;
   int remap = 0;
   int dramfd = 0, nvmfd = 0;
   long uffd;
   struct uffdio_api uffdio_api;
   struct timeval start, end;
+  int i;
+  void *p, *register_ptr;
+  struct uffdio_register *register_structs;
 
   if (argc != 8) {
     printf("Usage: %s [threads] [updates per thread] [exponent] [data size (bytes)] [DRAM/NVM] [base/huge] [noremap/remap]\n", argv[0]);
@@ -390,11 +396,6 @@ main(int argc, char **argv)
   size -= (size % 256);
   assert(size > 0 && (size % 256 == 0));
   elt_size = atoi(argv[4]);
- 
-  if ((vmp = vmem_create("/mnt/pmem12", (1024*1024*1024))) == NULL) {
-    perror("vmem_create");
-    exit(1);
-  }
   
   if (!strcmp("DRAM", argv[5])) {
     dram = 1;
@@ -439,8 +440,6 @@ main(int argc, char **argv)
   assert(nvmfd >= 0);
   //printf("DRAM fd: %d\nNVM fd: %d\n", dramfd, nvmfd);
 
-  int i;
-  void *p;
   if (dram) {
     // devdax doesn't like huge page flag
     gettimeofday(&starttime, NULL);
@@ -478,9 +477,12 @@ main(int argc, char **argv)
     assert(0);
   }
  
-  void *register_ptr = p;
+  int num_pages = size / HUGEPAGE_SIZE;
+  printf("number of pages in region: %d\n", num_pages);
+  register_structs = (struct uffdio_register*)malloc(num_pages * sizeof(struct uffdio_register));
+  int page = 0;
   for (register_ptr = p; register_ptr < p + size; register_ptr += HUGEPAGE_SIZE) {
-    struct uffdio_register uffdio_register;
+    struct uffdio_register uffdio_register = register_structs[page];
     uffdio_register.range.start = (unsigned long)register_ptr;
     uffdio_register.range.len = HUGEPAGE_SIZE;
     uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
@@ -489,7 +491,8 @@ main(int argc, char **argv)
       perror("ioctl uffdio_register");
       assert(0);
     }
-    //printf("registered region: 0x%llx - 0x%llx\n", register_ptr, register_ptr + HUGEPAGE_SIZE);
+    printf("registered region: 0x%llx - 0x%llx\n", register_ptr, register_ptr + HUGEPAGE_SIZE);
+    page++;
   }
 
   printf("Set up userfault success\n");
@@ -513,9 +516,9 @@ main(int argc, char **argv)
   for (i = 0; i < threads; i++) {
     td[i].field = p + (i * nelems * elt_size);
     //printf("thread %d start address: %llu\n", i, (unsigned long)td[i].field);
-    td[i].indices = (unsigned long*)vmem_malloc(vmp, updates * sizeof(unsigned long));
+    td[i].indices = (unsigned long*)malloc(updates * sizeof(unsigned long));
     if (td[i].indices == NULL) {
-      perror("vmem_malloc");
+      perror("malloc");
       exit(1);
     }
     calc_indices(td[i].indices, updates, nelems);
@@ -577,7 +580,7 @@ main(int argc, char **argv)
   printf("GUPS = %.10f\n", gups);
 
   for (i = 0; i < threads; i++) {
-    vmem_free(vmp, td[i].indices);
+    free(td[i].indices);
   }
   free(td);
 
