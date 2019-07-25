@@ -40,7 +40,7 @@
 #define DRAMPATH "/dev/dax0.0"
 #define NVMPATH "/dev/dax1.0"
 
-#define HUGEPAGE_SIZE 2 * (1024 * 1024)
+#define HUGEPAGE_SIZE (2 * (1024 * 1024))
 
 extern void calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems);
 
@@ -290,7 +290,6 @@ void
   struct timeval start, end;
   int ret = 0;
   void *newptr;
-  struct uffdio_writeprotect *wp_structs;
   void* wp_ptr;
   int wp_count = 0;
 
@@ -304,12 +303,12 @@ void
 
   // go through region hugepage-by-hugepage, marking as write protected
   // the fault handling thread will do the actual migration
-  int num_pages = size / HUGEPAGE_SIZE;
-  wp_structs = (struct uffdio_writeprotect*)malloc(num_pages * sizeof(struct uffdio_writeprotect));
-  int page = 0;
+  int num_pages = size / (unsigned long)HUGEPAGE_SIZE;
+  printf("write protecting %d pages\n", num_pages);
+
   for (wp_ptr = field; wp_ptr < field + size; wp_ptr += HUGEPAGE_SIZE) {
-    printf("Changing protection to read only on range 0x%llx - 0x%llx\n", wp_ptr, wp_ptr + HUGEPAGE_SIZE);
-    struct uffdio_writeprotect wp = wp_structs[page];
+    //printf("Changing protection to read only on range 0x%llx - 0x%llx\n", wp_ptr, wp_ptr + HUGEPAGE_SIZE);
+    struct uffdio_writeprotect wp;
     wp.range.start = (unsigned long)wp_ptr;
     wp.range.len = HUGEPAGE_SIZE;
     wp.mode = UFFDIO_WRITEPROTECT_MODE_WP;
@@ -322,7 +321,6 @@ void
     //printf("Protection changed\n");
 
     wp_count++;
-    page++;
   }
   
   gettimeofday(&end, NULL);
@@ -370,7 +368,7 @@ main(int argc, char **argv)
   struct timeval start, end;
   int i;
   void *p, *register_ptr;
-  struct uffdio_register *register_structs;
+  struct uffdio_register **register_structs;
 
   if (argc != 8) {
     printf("Usage: %s [threads] [updates per thread] [exponent] [data size (bytes)] [DRAM/NVM] [base/huge] [noremap/remap]\n", argv[0]);
@@ -477,12 +475,12 @@ main(int argc, char **argv)
     assert(0);
   }
  
-  int num_pages = size / HUGEPAGE_SIZE;
-  printf("number of pages in region: %d\n", num_pages);
-  register_structs = (struct uffdio_register*)malloc(num_pages * sizeof(struct uffdio_register));
+  unsigned long num_pages = (size / HUGEPAGE_SIZE);
   int page = 0;
+  printf("number of pages in region: %llu\n", num_pages);
+
   for (register_ptr = p; register_ptr < p + size; register_ptr += HUGEPAGE_SIZE) {
-    struct uffdio_register uffdio_register = register_structs[page];
+    struct uffdio_register uffdio_register;
     uffdio_register.range.start = (unsigned long)register_ptr;
     uffdio_register.range.len = HUGEPAGE_SIZE;
     uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
@@ -491,10 +489,11 @@ main(int argc, char **argv)
       perror("ioctl uffdio_register");
       assert(0);
     }
-    printf("registered region: 0x%llx - 0x%llx\n", register_ptr, register_ptr + HUGEPAGE_SIZE);
+    //printf("registered region: 0x%llx - 0x%llx\n", register_ptr, register_ptr + HUGEPAGE_SIZE);
     page++;
   }
 
+  printf("registered %d pages with userfaultfd\n", page);
   printf("Set up userfault success\n");
 
   pthread_t fault_thread;

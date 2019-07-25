@@ -20,6 +20,10 @@
 #include <stdio.h>
 #include <assert.h>
 
+//#define UNIFORM_RANDOM
+
+#ifndef UNIFORM_RANDOM
+
 const double ZETAN = 26.46902820178302;
 const double ZIPFIAN_CONSTANT = 0.99;
 unsigned long min, max, itemcount;
@@ -136,3 +140,18 @@ calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems
     indices[i] = ret;
   }
 }
+
+#else // #ifdef UNIFORM_RANDOM
+
+void
+calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems)
+{
+  unsitned int i;
+  assert(indices != NULL);
+
+  for (i = 0; i < updates; i++) {
+    indices[i] = rand() % nelems;
+  }
+}
+
+#endif // UNIFORM_RANDOM
