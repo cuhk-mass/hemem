@@ -197,6 +197,57 @@ void
 
       if (fault_flags & UFFD_PAGEFAULT_FLAG_WP) {
 	printf("received a write-protection fault at addr 0x%llx\n", fault_addr);
+
+	// map virtual address to dax file offset
+	unsigned long offset = page_boundry - (unsigned long)field;
+	printf("page boundry: 0x%llx\tcalculated offset in dax file: 0x%llx\n", page_boundry, offset);
+
+        gettimeofday(&start, NULL);
+        
+	if (nvm_to_dram) {
+          old_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, offset);
+          new_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, offset);
+	}
+	else {
+          old_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, offset);
+          new_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, offset);
+	}
+
+	if (old_addr == MAP_FAILED) {
+          perror("old addr mmap");
+	  assert(0);
+	}
+
+	if (new_addr == MAP_FAILED) {
+          perror("new addr mmap");
+	  assert(0);
+	}
+
+	// copy page from faulting location to temp location
+	memcpy(new_addr, old_addr, size);
+
+	if (nvm_to_dram) {
+          newptr = mmap((void*)page_boundry, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, offset);
+        }
+        else {
+          newptr = mmap((void*)page_boundry, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, offset);
+	}
+
+	if (newptr == MAP_FAILED) {
+          perror("mmap");
+	  assert(0);
+	}
+	if (newptr != (void*)page_boundry) {
+          printf("mapped address is not same as faulting address\n");
+	}
+
+	munmap(old_addr, size);
+	munmap(new_addr, size);
+
+	gettimeofday(&end, NULL);
+
+        printf("write protection fault took %.4f seconds\n", elapsed(&start, &end));
+
       }
       else {
 	// Write protection faults seem to be passed as missing faults instead of
