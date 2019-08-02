@@ -38,7 +38,7 @@
 #include <errno.h>
 
 #define DRAMPATH "/dev/dax0.0"
-#define NVMPATH "/dev/dax1.0"
+#define NVMPATH "/dev/dax1.1"
 
 #define HUGEPAGE_SIZE (2 * (1024 * 1024))
 
@@ -399,6 +399,7 @@ void
     index = GET_NEXT_INDEX(args->tid, i, args->size);
     memset(data, i, elt_size);
     memcpy(&field[index * elt_size], data, elt_size);
+    //memcpy(data, &field[index * elt_size], elt_size);
   }
 }
 
