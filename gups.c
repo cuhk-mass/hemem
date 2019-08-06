@@ -129,9 +129,9 @@ void
     pollfd.fd = uffd;
     pollfd.events = POLLIN;
 
-    printf("calling poll\n");
+    //printf("calling poll\n");
     pollres = poll(&pollfd, 1, -1);
-    printf("poll returned\n");
+    //printf("poll returned\n");
 
     switch (pollres) {
     case -1:
@@ -141,7 +141,7 @@ void
       printf("poll read 0\n");
       continue;
     case 1:
-      printf("poll read 1\n");
+      //printf("poll read 1\n");
       break;
     default:
       printf("unexpected poll result\n");
@@ -171,7 +171,7 @@ void
       assert(0);
     }
 
-    printf("nread: %d\tsize of uffd msg: %d\n", nread, sizeof(msg));
+    //printf("nread: %d\tsize of uffd msg: %d\n", nread, sizeof(msg));
     if (nread != sizeof(msg)) {
       printf("invalid msg size\n");
       assert(0);
@@ -189,15 +189,15 @@ void
       //printf("page boundry is 0x%lld\n", page_boundry);
 
       if (fault_flags & UFFD_PAGEFAULT_FLAG_WP) {
-	printf("received a write-protection fault at addr 0x%llx\n", fault_addr);
+	//printf("received a write-protection fault at addr 0x%llx\n", fault_addr);
         
 	gettimeofday(&start, NULL);
 
  
 	// map virtual address to dax file offset
 	unsigned long offset = page_boundry - (unsigned long)field;
-	printf("page boundry: 0x%llx\tcalculated offset in dax file: 0x%llx\n", page_boundry, offset);
-/* 
+	//printf("page boundry: 0x%llx\tcalculated offset in dax file: 0x%llx\n", page_boundry, offset);
+
 	if (nvm_to_dram) {
           old_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, offset);
           new_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, offset);
@@ -221,10 +221,10 @@ void
 	memcpy(new_addr, old_addr, size);
 
 	if (nvm_to_dram) {
-          newptr = mmap((void*)page_boundry, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, offset);
+          newptr = mmap((void*)page_boundry, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, offset);
         }
         else {
-          newptr = mmap((void*)page_boundry, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, offset);
+          newptr = mmap((void*)page_boundry, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, offset);
 	}
 
 	if (newptr == MAP_FAILED) {
@@ -237,8 +237,8 @@ void
 
 	munmap(old_addr, size);
 	munmap(new_addr, size);
-*/
 
+/*
         struct uffdio_writeprotect wp;
 	wp.range.start = (unsigned long)page_boundry;
 	wp.range.len = size;
@@ -249,9 +249,10 @@ void
           perror("uffdio writeprotect");
 	  assert(0);
 	}
+*/
 	gettimeofday(&end, NULL);
 
-        printf("write protection fault took %.4f seconds\n", elapsed(&start, &end));
+        //printf("write protection fault took %.4f seconds\n", elapsed(&start, &end));
 
       }
       else {
@@ -261,11 +262,11 @@ void
 	// we map the original reagion with the MAP_POPULATE flag, then we won't
 	// have first touch misses either. Thus, we assume any page missing fault
 	// we receive is due to write protection
-        printf("received a page missing fault at addr 0x%llx\n", fault_addr);
+        //printf("received a page missing fault at addr 0x%llx\n", fault_addr);
 
 	// map virtual address to dax file offset
 	unsigned long offset = page_boundry - (unsigned long)field;
-	printf("page boundry: 0x%llx\tcalculated offset in dax file: 0x%llx\n", page_boundry, offset);
+	//printf("page boundry: 0x%llx\tcalculated offset in dax file: 0x%llx\n", page_boundry, offset);
 
         gettimeofday(&start, NULL);
         
@@ -311,7 +312,7 @@ void
 
 	gettimeofday(&end, NULL);
 
-        printf("page missing fault took %.4f seconds\n", elapsed(&start, &end));
+        //printf("page missing fault took %.4f seconds\n", elapsed(&start, &end));
       }
 
       //printf("waking thread\n");
@@ -401,7 +402,7 @@ void
   unsigned long elt_size = args->elt_size;
   char data[elt_size];
 
-  printf("Thread [%d] starting: field: [%llx]\n", args->tid, field);
+  //printf("Thread [%d] starting: field: [%llx]\n", args->tid, field);
   for (i = 0; i < args->iters; i++) {
     index = args->indices[i];
     memset(data, i, elt_size);
@@ -575,7 +576,7 @@ main(int argc, char **argv)
   for (i = 0; i < threads; ++i) {
     ga[i] = (struct gups_args*)malloc(sizeof(struct gups_args));
     ga[i]->field = p + (i * nelems * elt_size);
-    printf("Thread [%d] starting address: %llx\n", i, ga[i]->field);
+    //printf("Thread [%d] starting address: %llx\n", i, ga[i]->field);
     //printf("thread %d start address: %llu\n", i, (unsigned long)td[i].field);
     ga[i]->indices = (unsigned long*)malloc(updates * sizeof(unsigned long));
     if (ga[i]->indices == NULL) {
@@ -596,12 +597,12 @@ main(int argc, char **argv)
   
   // spawn gups worker threads
   for (i = 0; i < threads; i++) {
-    printf("starting thread [%d]\n", i);
+    //printf("starting thread [%d]\n", i);
     ga[i]->tid = i; 
     ga[i]->iters = updates;
     ga[i]->size = nelems;
     ga[i]->elt_size = elt_size;
-    printf("  tid: [%d]  iters: [%llu]  size: [%llu]  elt size: [%llu]\n", ga[i]->tid, ga[i]->iters, ga[i]->size, ga[i]->elt_size);
+    //printf("  tid: [%d]  iters: [%llu]  size: [%llu]  elt size: [%llu]\n", ga[i]->tid, ga[i]->iters, ga[i]->size, ga[i]->elt_size);
     int r = pthread_create(&t[i], NULL, do_gups, (void*)ga[i]);
     assert(r == 0);
   }
