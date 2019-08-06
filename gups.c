@@ -38,22 +38,16 @@
 #include <errno.h>
 
 #define DRAMPATH "/dev/dax0.0"
-#define NVMPATH "/dev/dax1.1"
+#define NVMPATH "/dev/dax1.0"
 
 #define HUGEPAGE_SIZE (2 * (1024 * 1024))
 
 extern void calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems);
 
-struct thread_data {
-  unsigned long *indices;       // array of indices to access
-  void *field;                  // pointer to start of thread's region
-};
-
-struct thread_data* td;
-
-struct args {
+struct gups_args {
   int tid;                      // thread id
-  struct thread_data* td;       // thread data for thread
+  unsigned long *indices;       // array of indices to access
+  void* field;                  // pointer to start of thread's region
   unsigned long iters;          // iterations to perform
   unsigned long size;           // size of region
   unsigned long elt_size;       // size of elements
@@ -186,7 +180,6 @@ void
     //TODO: check page fault event, handle it
     if (msg.event & UFFD_EVENT_PAGEFAULT) {
       //printf("received a page fault event\n");
-
       fault_addr = (unsigned long)msg.arg.pagefault.address;
       fault_flags = msg.arg.pagefault.flags;
 
@@ -197,13 +190,14 @@ void
 
       if (fault_flags & UFFD_PAGEFAULT_FLAG_WP) {
 	printf("received a write-protection fault at addr 0x%llx\n", fault_addr);
+        
+	gettimeofday(&start, NULL);
 
+ 
 	// map virtual address to dax file offset
 	unsigned long offset = page_boundry - (unsigned long)field;
 	printf("page boundry: 0x%llx\tcalculated offset in dax file: 0x%llx\n", page_boundry, offset);
-
-        gettimeofday(&start, NULL);
-        
+/* 
 	if (nvm_to_dram) {
           old_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, offset);
           new_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, offset);
@@ -227,10 +221,10 @@ void
 	memcpy(new_addr, old_addr, size);
 
 	if (nvm_to_dram) {
-          newptr = mmap((void*)page_boundry, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, offset);
+          newptr = mmap((void*)page_boundry, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, offset);
         }
         else {
-          newptr = mmap((void*)page_boundry, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, offset);
+          newptr = mmap((void*)page_boundry, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, offset);
 	}
 
 	if (newptr == MAP_FAILED) {
@@ -243,7 +237,18 @@ void
 
 	munmap(old_addr, size);
 	munmap(new_addr, size);
+*/
 
+        struct uffdio_writeprotect wp;
+	wp.range.start = (unsigned long)page_boundry;
+	wp.range.len = size;
+	wp.mode = !UFFDIO_WRITEPROTECT_MODE_WP | UFFDIO_WRITEPROTECT_MODE_DONTWAKE;
+
+	int ret = ioctl(uffd, UFFDIO_WRITEPROTECT, &wp);
+	if (ret < 0) {
+          perror("uffdio writeprotect");
+	  assert(0);
+	}
 	gettimeofday(&end, NULL);
 
         printf("write protection fault took %.4f seconds\n", elapsed(&start, &end));
@@ -321,6 +326,9 @@ void
 	assert(0);
       }
     }
+    else {
+      printf("Received a non page fault event\n");
+    }
   }
 }
 
@@ -382,21 +390,20 @@ void
 }
 
 
-#define GET_NEXT_INDEX(tid, i, size) td[tid].indices[i]
-
 void
 *do_gups(void *arguments)
 {
   //printf("do_gups entered\n");
-  struct args *args = (struct args*)arguments;
-  char *field = (char*)(args->td->field);
+  struct gups_args *args = (struct gups_args*)arguments;
+  char *field = (char*)(args->field);
   unsigned long i;
   unsigned long long index;
   unsigned long elt_size = args->elt_size;
   char data[elt_size];
 
+  printf("Thread [%d] starting: field: [%llx]\n", args->tid, field);
   for (i = 0; i < args->iters; i++) {
-    index = GET_NEXT_INDEX(args->tid, i, args->size);
+    index = args->indices[i];
     memset(data, i, elt_size);
     memcpy(&field[index * elt_size], data, elt_size);
     //memcpy(data, &field[index * elt_size], elt_size);
@@ -420,7 +427,7 @@ main(int argc, char **argv)
   struct timeval start, end;
   int i;
   void *p, *register_ptr;
-  struct uffdio_register **register_structs;
+  struct gups_args** ga;
 
   if (argc != 8) {
     printf("Usage: %s [threads] [updates per thread] [exponent] [data size (bytes)] [DRAM/NVM] [base/huge] [noremap/remap]\n", argv[0]);
@@ -435,7 +442,7 @@ main(int argc, char **argv)
   }
 
   threads = atoi(argv[1]);
-  td = (struct thread_data*)malloc(threads * sizeof(struct thread_data)); 
+  ga = (struct gups_args**)malloc(threads * sizeof(struct gups_args*));
   
   updates = atol(argv[2]);
   updates -= updates % 256;
@@ -512,6 +519,7 @@ main(int argc, char **argv)
   //printf("Field addr: 0x%x\n", p);
 
   nelems = (size / threads) / elt_size; // number of elements per thread
+  printf("Elements per thread: %llu\n", nelems);
 
   uffd = syscall(__NR_userfaultfd, O_CLOEXEC | O_NONBLOCK);
   if (uffd == -1) {
@@ -564,15 +572,17 @@ main(int argc, char **argv)
 
   printf("initializing thread data\n");
   gettimeofday(&starttime, NULL);
-  for (i = 0; i < threads; i++) {
-    td[i].field = p + (i * nelems * elt_size);
+  for (i = 0; i < threads; ++i) {
+    ga[i] = (struct gups_args*)malloc(sizeof(struct gups_args));
+    ga[i]->field = p + (i * nelems * elt_size);
+    printf("Thread [%d] starting address: %llx\n", i, ga[i]->field);
     //printf("thread %d start address: %llu\n", i, (unsigned long)td[i].field);
-    td[i].indices = (unsigned long*)malloc(updates * sizeof(unsigned long));
-    if (td[i].indices == NULL) {
+    ga[i]->indices = (unsigned long*)malloc(updates * sizeof(unsigned long));
+    if (ga[i]->indices == NULL) {
       perror("malloc");
       exit(1);
     }
-    calc_indices(td[i].indices, updates, nelems);
+    calc_indices(ga[i]->indices, updates, nelems);
   }
   
   gettimeofday(&stoptime, NULL);
@@ -584,16 +594,15 @@ main(int argc, char **argv)
   pthread_t remap_thread;
   gettimeofday(&starttime, NULL);
   
-  struct args **as = (struct args**)malloc(threads * sizeof(struct args*));
   // spawn gups worker threads
   for (i = 0; i < threads; i++) {
-    as[i] = (struct args*)malloc(sizeof(struct args));
-    as[i]->tid = i;
-    as[i]->td = &td[i];
-    as[i]->iters = updates;
-    as[i]->size = nelems;
-    as[i]->elt_size = elt_size;
-    int r = pthread_create(&t[i], NULL, do_gups, (void*)as[i]);
+    printf("starting thread [%d]\n", i);
+    ga[i]->tid = i; 
+    ga[i]->iters = updates;
+    ga[i]->size = nelems;
+    ga[i]->elt_size = elt_size;
+    printf("  tid: [%d]  iters: [%llu]  size: [%llu]  elt size: [%llu]\n", ga[i]->tid, ga[i]->iters, ga[i]->size, ga[i]->elt_size);
+    int r = pthread_create(&t[i], NULL, do_gups, (void*)ga[i]);
     assert(r == 0);
   }
 
@@ -631,9 +640,10 @@ main(int argc, char **argv)
   printf("GUPS = %.10f\n", gups);
 
   for (i = 0; i < threads; i++) {
-    free(td[i].indices);
+    free(ga[i]->indices);
+    free(ga[i]);
   }
-  free(td);
+  free(ga);
 
   close(nvmfd);
   close(dramfd);
