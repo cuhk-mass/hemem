@@ -20,9 +20,13 @@
 #include <stdio.h>
 #include <assert.h>
 
-//#define UNIFORM_RANDOM
+#define INDEX_FILE "indices.txt"
 
-#ifndef UNIFORM_RANDOM
+//#define ZIPFIAN
+//#define HOTSPOT
+#define UNIFORM_RANDOM
+
+#ifdef ZIPFIAN
 
 const double ZETAN = 26.46902820178302;
 const double ZIPFIAN_CONSTANT = 0.99;
@@ -114,7 +118,14 @@ nextValue(unsigned long itemcount)
 void
 calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems)
 {
+  FILE* f;
   unsigned int i;
+
+  f = fopen(INDEX_FILE, "w");
+  if (f == NULL) {
+    perror("fopen");
+    assert(0);
+  }
   assert(indices != NULL);
 
   // init zipfian distrobution variables
@@ -138,15 +149,58 @@ calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems
     ret = min + fnvhash64(ret) % itemcount;
     lastVal = ret;
     indices[i] = ret;
+    //fprintf(f, "%d\n", indices[i]);
   }
+
+  fclose(f);
 }
 
-#else // #ifdef UNIFORM_RANDOM
+#elif defined HOTSPOT
 
 void
 calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems)
 {
-  unsitned int i;
+  FILE* f;
+  int i;
+  unsigned long interval;
+  unsigned long lowerBound;
+  unsigned long upperBound;
+  unsigned long hotInterval;
+  unsigned long coldInterval;
+  double hotsetFraction = 0.2;
+  double hotopFraction = 0.8;
+
+  f = fopen(INDEX_FILE, "w");
+  if (f == NULL) {
+    perror("fopen");
+    assert(0);
+  }
+
+  lowerBound = 0;
+  upperBound = nelems - 1;
+  interval = upperBound - lowerBound + 1;
+  hotInterval = (int)(interval * hotsetFraction);
+  coldInterval = interval - hotInterval;
+
+  for (i = 0; i < updates; i++) {
+    if (((double)rand() / RAND_MAX) < hotopFraction) {
+      indices[i] = lowerBound + abs(rand()) % hotInterval;
+      //fprintf(f, "hot: %d\n", indices[i]);
+    }
+    else {
+      indices[i] = lowerBound + hotInterval + abs(rand()) % coldInterval;
+      //fprintf(f, "cold: %d\n", indices[i]);
+    }
+  }
+  fclose(f);
+}
+
+#else // UNIFORM_RANDOM
+
+void
+calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems)
+{
+  unsigned int i;
   assert(indices != NULL);
 
   for (i = 0; i < updates; i++) {
@@ -154,4 +208,4 @@ calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems
   }
 }
 
-#endif // UNIFORM_RANDOM
+#endif

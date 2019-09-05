@@ -37,10 +37,15 @@
 #include <sys/ioctl.h>
 #include <errno.h>
 
-#define DRAMPATH "/dev/dax0.0"
-#define NVMPATH "/dev/dax1.0"
 
+#define EXAMINE_PGTABLES
+
+#define DRAMPATH "/dev/dax0.0"
+#define NVMPATH "/dev/dax1.1"
+
+//#define HUGEPAGE_SIZE (1024 * 1024 * 1024)
 #define HUGEPAGE_SIZE (2 * (1024 * 1024))
+//#define HUGEPAGE_SIZE (4 * 1024)
 
 extern void calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems);
 
@@ -228,7 +233,7 @@ void
 	}
 
 	if (newptr == MAP_FAILED) {
-          perror("mmap");
+          perror("newptr mmap");
 	  assert(0);
 	}
 	if (newptr != (void*)page_boundry) {
@@ -238,18 +243,6 @@ void
 	munmap(old_addr, size);
 	munmap(new_addr, size);
 
-/*
-        struct uffdio_writeprotect wp;
-	wp.range.start = (unsigned long)page_boundry;
-	wp.range.len = size;
-	wp.mode = !UFFDIO_WRITEPROTECT_MODE_WP | UFFDIO_WRITEPROTECT_MODE_DONTWAKE;
-
-	int ret = ioctl(uffd, UFFDIO_WRITEPROTECT, &wp);
-	if (ret < 0) {
-          perror("uffdio writeprotect");
-	  assert(0);
-	}
-*/
 	gettimeofday(&end, NULL);
 
         //printf("write protection fault took %.4f seconds\n", elapsed(&start, &end));
@@ -300,7 +293,7 @@ void
 	}
 
 	if (newptr == MAP_FAILED) {
-          perror("mmap");
+          perror("newptr mmap");
 	  assert(0);
 	}
 	if (newptr != (void*)page_boundry) {
@@ -312,7 +305,7 @@ void
 
 	gettimeofday(&end, NULL);
 
-        //printf("page missing fault took %.4f seconds\n", elapsed(&start, &end));
+        printf("page missing fault took %.4f seconds\n", elapsed(&start, &end));
       }
 
       //printf("waking thread\n");
@@ -405,12 +398,95 @@ void
   //printf("Thread [%d] starting: field: [%llx]\n", args->tid, field);
   for (i = 0; i < args->iters; i++) {
     index = args->indices[i];
-    memset(data, i, elt_size);
+    memcpy(data, &field[index * elt_size], elt_size);
+    memset(data, data[0] + i, elt_size);
     memcpy(&field[index * elt_size], data, elt_size);
-    //memcpy(data, &field[index * elt_size], elt_size);
   }
 }
 
+
+#ifdef EXAMINE_PGTABLES
+void
+*examine_pagetables()
+{
+  FILE *maps;
+  int pagemaps;
+  FILE *kpageflags;
+  char *line = NULL;
+  ssize_t nread;
+  size_t len;
+  unsigned long vm_start, vm_end;
+  int n, num_pages;
+  long index;
+  off64_t o;
+  ssize_t t;
+
+  maps = fopen("/proc/self/maps", "r");
+  if (maps == NULL) {
+    perror("/proc/self/maps fopen");
+    assert(0);
+  }
+
+  pagemaps = open("/proc/self/pagemap", O_RDONLY);
+  if (pagemaps == -1) {
+    perror("/proc/self/pagemap fopen");
+    assert(0);
+  }
+
+  kpageflags = fopen("/proc/kpageflags", "r");
+  if (kpageflags == NULL) {
+    perror("/proc/kpageflags fopen");
+    assert(0);
+  }
+
+  nread = getline(&line, &len, maps); 
+  while (nread != -1) {
+    if (strstr(line, DRAMPATH) != NULL) {
+      n = sscanf(line, "%lX-%lX", &vm_start, &vm_end);
+      if (n != 2) {
+        printf("error, invalid line: %s\n", line);
+	assert(0);
+      }
+
+      num_pages = (vm_end - vm_start) / HUGEPAGE_SIZE;
+      if (num_pages > 0) {
+        index = (vm_start / HUGEPAGE_SIZE) * sizeof(unsigned long long);
+
+        o = lseek64(pagemaps, index, SEEK_SET);
+
+	if (o != index) {
+          perror("pagemaps lseek");
+	  assert(0);
+	}
+
+	printf("num_pages: %d\n", num_pages);
+
+	while (num_pages > 0) {
+          unsigned long long pa;
+
+	  t = read(pagemaps, &pa, sizeof(unsigned long long));
+	  if (t < 0) {
+            perror("pagemaps read");
+	    assert(0);
+	  }
+
+	  printf("%016llX\n", pa);
+	  
+	  num_pages--;
+	}
+      }
+    }
+    if (strstr(line, NVMPATH) != NULL) {
+      printf("%s", line);
+    }
+    nread = getline(&line, &len, maps);
+  }
+
+  fclose(maps);
+  close(pagemaps);
+  fclose(kpageflags);
+}
+#endif
 
 int
 main(int argc, char **argv)
@@ -442,6 +518,8 @@ main(int argc, char **argv)
     return 0;
   }
 
+  gettimeofday(&starttime, NULL);
+  
   threads = atoi(argv[1]);
   ga = (struct gups_args**)malloc(threads * sizeof(struct gups_args*));
   
@@ -572,7 +650,6 @@ main(int argc, char **argv)
   }
 
   printf("initializing thread data\n");
-  gettimeofday(&starttime, NULL);
   for (i = 0; i < threads; ++i) {
     ga[i] = (struct gups_args*)malloc(sizeof(struct gups_args));
     ga[i]->field = p + (i * nelems * elt_size);
@@ -639,6 +716,15 @@ main(int argc, char **argv)
   printf("Elapsed time: %.4f seconds.\n", secs);
   gups = threads * ((double)updates) / (secs * 1.0e9);
   printf("GUPS = %.10f\n", gups);
+
+#ifdef EXAMINE_PGTABLES
+  pthread_t pagetable_thread;
+  int r = pthread_create(&pagetable_thread, NULL, examine_pagetables, NULL);
+  assert(r == 0);
+
+  r = pthread_join(pagetable_thread, NULL);
+  assert(r == 0);
+#endif
 
   for (i = 0; i < threads; i++) {
     free(ga[i]->indices);
