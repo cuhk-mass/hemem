@@ -442,6 +442,43 @@ void
   nread = getline(&line, &len, maps); 
   while (nread != -1) {
     if (strstr(line, DRAMPATH) != NULL) {
+      //printf("%s", line);
+      n = sscanf(line, "%lX-%lX", &vm_start, &vm_end);
+      if (n != 2) {
+        printf("error, invalid line: %s\n", line);
+	assert(0);
+      }
+
+      //printf("vm_start: %lX\tvm_end: %lX\n", vm_start, vm_end);
+      num_pages = (vm_end - vm_start) / HUGEPAGE_SIZE;
+      if (num_pages > 0) {
+        index = (vm_start / HUGEPAGE_SIZE) * sizeof(unsigned long long);
+
+        o = lseek64(pagemaps, index, SEEK_SET);
+
+	if (o != index) {
+          perror("pagemaps lseek");
+	  assert(0);
+	}
+
+	printf("num_pages: %d\n", num_pages);
+
+	while (num_pages > 0) {
+          unsigned long long pfn;
+
+	  t = read(pagemaps, &pfn, sizeof(unsigned long long));
+	  if (t < 0) {
+            perror("pagemaps read");
+	    assert(0);
+	  }
+
+	  printf("%016llX\n", pfn);
+	  
+	  num_pages--;
+	}
+      }
+    }
+    if (strstr(line, NVMPATH) != NULL) {
       n = sscanf(line, "%lX-%lX", &vm_start, &vm_end);
       if (n != 2) {
         printf("error, invalid line: %s\n", line);
@@ -462,22 +499,21 @@ void
 	printf("num_pages: %d\n", num_pages);
 
 	while (num_pages > 0) {
-          unsigned long long pa;
+          unsigned long long pfn;
 
-	  t = read(pagemaps, &pa, sizeof(unsigned long long));
+	  t = read(pagemaps, &pfn, sizeof(unsigned long long));
 	  if (t < 0) {
             perror("pagemaps read");
 	    assert(0);
 	  }
 
-	  printf("%016llX\n", pa);
+	  printf("%016llX\n", pfn);
 	  
 	  num_pages--;
 	}
       }
-    }
-    if (strstr(line, NVMPATH) != NULL) {
-      printf("%s", line);
+      
+      //printf("%s", line);
     }
     nread = getline(&line, &len, maps);
   }
