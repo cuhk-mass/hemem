@@ -41,11 +41,11 @@
 #define EXAMINE_PGTABLES
 
 #define DRAMPATH "/dev/dax0.0"
-#define NVMPATH "/dev/dax1.1"
+#define NVMPATH "/dev/dax1.0"
 
 //#define HUGEPAGE_SIZE (1024 * 1024 * 1024)
-#define HUGEPAGE_SIZE (2 * (1024 * 1024))
-//#define HUGEPAGE_SIZE (4 * 1024)
+//#define HUGEPAGE_SIZE (2 * (1024 * 1024))
+#define HUGEPAGE_SIZE (4 * 1024)
 
 extern void calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems);
 
@@ -406,6 +406,16 @@ void
 
 
 #ifdef EXAMINE_PGTABLES
+
+struct pagemapEntry {
+  unsigned long long pfn : 54;
+  unsigned int soft_dirty : 1;
+  unsigned int exclusive : 1;
+  unsigned int file_page : 1;
+  unsigned int swapped : 1;
+  unsigned int present : 1;
+};
+
 void
 *examine_pagetables()
 {
@@ -420,6 +430,7 @@ void
   long index;
   off64_t o;
   ssize_t t;
+  struct pagemapEntry entry;
 
   maps = fopen("/proc/self/maps", "r");
   if (maps == NULL) {
@@ -472,8 +483,15 @@ void
 	    assert(0);
 	  }
 
-	  printf("%016llX\n", pfn);
-	  
+	  //printf("%016llX\n", pfn);
+          entry.pfn = pfn & 0x7ffffffffffff;
+	  entry.soft_dirty = (pfn >> 55) & 1;
+	  entry.exclusive = (pfn >> 56) & 1;
+	  entry.file_page = (pfn >> 61) & 1;
+	  entry.swapped = (pfn >> 62) & 1;
+	  entry.present = (pfn >> 63) & 1;
+	 
+	  printf("%016llX\n", (entry.pfn * sysconf(_SC_PAGESIZE))); 
 	  num_pages--;
 	}
       }
@@ -496,7 +514,7 @@ void
 	  assert(0);
 	}
 
-	printf("num_pages: %d\n", num_pages);
+	//printf("num_pages: %d\n", num_pages);
 
 	while (num_pages > 0) {
           unsigned long long pfn;
@@ -507,8 +525,15 @@ void
 	    assert(0);
 	  }
 
-	  printf("%016llX\n", pfn);
+	  //printf("%016llX\n", pfn);
+          entry.pfn = pfn & 0x7ffffffffffff;
+	  entry.soft_dirty = (pfn >> 55) & 1;
+	  entry.exclusive = (pfn >> 56) & 1;
+	  entry.file_page = (pfn >> 61) & 1;
+	  entry.swapped = (pfn >> 62) & 1;
+	  entry.present = (pfn >> 63) & 1;
 	  
+	  printf("%016llX\n", (entry.pfn * sysconf(_SC_PAGE_SIZE)));
 	  num_pages--;
 	}
       }
