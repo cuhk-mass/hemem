@@ -38,7 +38,10 @@
 #include <errno.h>
 
 
-#define EXAMINE_PGTABLES
+//#define EXAMINE_PGTABLES
+
+#define NVMSIZE		(128L * (1024L * 1024L * 1024L))
+#define DRAMSIZE	(32L * (1024L * 1024L * 1024L))
 
 #define DRAMPATH "/dev/dax0.0"
 #define NVMPATH "/dev/dax1.0"
@@ -46,6 +49,9 @@
 //#define HUGEPAGE_SIZE (1024 * 1024 * 1024)
 //#define HUGEPAGE_SIZE (2 * (1024 * 1024))
 #define HUGEPAGE_SIZE (4 * 1024)
+
+unsigned long mem_allocated = 0;
+int alloc_nvm = 0;
 
 extern void calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems);
 
@@ -124,6 +130,7 @@ void
   struct uffdio_range range;
   int ret;
   struct timeval start, end;
+  int faults_handled = 0;
 
   printf("fault handler entered\n");
 
@@ -244,68 +251,43 @@ void
 	munmap(new_addr, size);
 
 	gettimeofday(&end, NULL);
+	
+	faults_handled++;
 
-        //printf("write protection fault took %.4f seconds\n", elapsed(&start, &end));
+	if (faults_handled % 1000 == 0) {
+          printf("write protection fault took %.6f seconds\n", elapsed(&start, &end));
+        }
 
       }
       else {
-	// Write protection faults seem to be passed as missing faults instead of
-	// WP faults. This should be okay as we shouldn't really get page missing
-	// faults anyway since the dax files shouldn't be swapped by the OS, and if
-	// we map the original reagion with the MAP_POPULATE flag, then we won't
-	// have first touch misses either. Thus, we assume any page missing fault
-	// we receive is due to write protection
-        //printf("received a page missing fault at addr 0x%llx\n", fault_addr);
+        // Page mising fault case - probably the first touch case
+	// allocate in DRAM as per LRU
+
+	//printf("received a page missing fault at addr 0x%llx\n", fault_addr);
 
 	// map virtual address to dax file offset
-	unsigned long offset = page_boundry - (unsigned long)field;
+	unsigned long offset = (mem_allocated < DRAMSIZE) ? mem_allocated : mem_allocated - DRAMSIZE;
 	//printf("page boundry: 0x%llx\tcalculated offset in dax file: 0x%llx\n", page_boundry, offset);
 
         gettimeofday(&start, NULL);
         
-	if (nvm_to_dram) {
-          old_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, offset);
-          new_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, offset);
+	if (mem_allocated < DRAMSIZE) {
+          newptr = mmap((void*)page_boundry, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, offset);
+	  //printf("allocated a page in DRAM\n");
 	}
 	else {
-          old_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, offset);
-          new_addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, offset);
-	}
-
-	if (old_addr == MAP_FAILED) {
-          perror("old addr mmap");
-	  assert(0);
-	}
-
-	if (new_addr == MAP_FAILED) {
-          perror("new addr mmap");
-	  assert(0);
-	}
-
-	// copy page from faulting location to temp location
-	memcpy(new_addr, old_addr, size);
-
-	if (nvm_to_dram) {
-          newptr = mmap((void*)page_boundry, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, offset);
-        }
-        else {
           newptr = mmap((void*)page_boundry, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, offset);
+	  if (!alloc_nvm) {
+            printf("switch to allocating in NVM\n");
+	  }
+	  alloc_nvm = 1;
+	  //printf("allocated a page in NVM\n");
 	}
-
-	if (newptr == MAP_FAILED) {
-          perror("newptr mmap");
-	  assert(0);
-	}
-	if (newptr != (void*)page_boundry) {
-          printf("mapped address is not same as faulting address\n");
-	}
-
-	munmap(old_addr, size);
-	munmap(new_addr, size);
+	mem_allocated += size;
 
 	gettimeofday(&end, NULL);
 
-        printf("page missing fault took %.4f seconds\n", elapsed(&start, &end));
+        //printf("page missing fault took %.4f seconds\n", elapsed(&start, &end));
       }
 
       //printf("waking thread\n");
@@ -345,6 +327,8 @@ void
   void *newptr;
   void* wp_ptr;
   int wp_count = 0;
+  struct timeval page_start, page_end;
+  double time_sum = 0;
 
   assert(field != NULL);
 
@@ -361,6 +345,7 @@ void
 
   for (wp_ptr = field; wp_ptr < field + size; wp_ptr += HUGEPAGE_SIZE) {
     //printf("Changing protection to read only on range 0x%llx - 0x%llx\n", wp_ptr, wp_ptr + HUGEPAGE_SIZE);
+    gettimeofday(&page_start, NULL);
     struct uffdio_writeprotect wp;
     wp.range.start = (unsigned long)wp_ptr;
     wp.range.len = HUGEPAGE_SIZE;
@@ -374,12 +359,15 @@ void
     //printf("Protection changed\n");
 
     wp_count++;
+    gettimeofday(&page_end, NULL);
+    time_sum += elapsed(&page_start, &page_end);
   }
   
   gettimeofday(&end, NULL);
 
   printf("Finished write protecting pages\n");
   printf("write protected %d pages in %.4f seconds\n", wp_count, elapsed(&start, &end));
+  printf("avg write protection time: %.6f seconds\n", time_sum /(1.0 * wp_count));
 
 }
 
@@ -514,7 +502,7 @@ void
 	  assert(0);
 	}
 
-	//printf("num_pages: %d\n", num_pages);
+	printf("num_pages: %d\n", num_pages);
 
 	while (num_pages > 0) {
           unsigned long long pfn;
@@ -637,6 +625,7 @@ main(int argc, char **argv)
   assert(nvmfd >= 0);
   //printf("DRAM fd: %d\nNVM fd: %d\n", dramfd, nvmfd);
 
+/*
   if (dram) {
     // devdax doesn't like huge page flag
     gettimeofday(&starttime, NULL);
@@ -647,7 +636,8 @@ main(int argc, char **argv)
     // devdax doesn't like huge page flag
     p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
   }
-
+*/
+  p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, dramfd, 0);
   if (p == NULL || p == MAP_FAILED) {
     perror("mmap");
   }  
