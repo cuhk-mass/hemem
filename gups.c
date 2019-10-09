@@ -41,7 +41,7 @@
 //#define EXAMINE_PGTABLES
 
 #define NVMSIZE		(128L * (1024L * 1024L * 1024L))
-#define DRAMSIZE	(32L * (1024L * 1024L * 1024L))
+#define DRAMSIZE	(8L * (1024L * 1024L * 1024L))
 
 #define DRAMPATH "/dev/dax0.0"
 #define NVMPATH "/dev/dax1.0"
@@ -83,6 +83,11 @@ struct fault_args {
   unsigned long size;           // size of region
 };
 
+int dramfd = -1;
+int nvmfd = -1;
+long uffd = -1;
+int init = 0;
+
 /* Returns the number of seconds encoded in T, a "struct timeval". */
 #define tv_to_double(t) (t.tv_sec + (t.tv_usec / 1000000.0))
 
@@ -107,6 +112,79 @@ elapsed(struct timeval *starttime, struct timeval *endtime)
 
   timeDiff(&diff, endtime, starttime);
   return tv_to_double(diff);
+}
+
+void
+hemem_init()
+{
+  struct uffdio_api uffdio_api;
+
+  dramfd = open(DRAMPATH, O_RDWR);
+  if (dramfd < 0) {
+    perror("dram open");
+  }
+  assert(dramfd >= 0);
+
+  nvmfd = open(NVMPATH, O_RDWR);
+  if (nvmfd < 0) {
+    perror("nvm open");
+  }
+  assert(nvmfd >= 0);
+  
+  uffd = syscall(__NR_userfaultfd, O_CLOEXEC | O_NONBLOCK);
+  if (uffd == -1) {
+    perror("uffd");
+    assert(0);
+  }
+
+  uffdio_api.api = UFFD_API;
+  uffdio_api.features = UFFD_FEATURE_PAGEFAULT_FLAG_WP |  UFFD_FEATURE_MISSING_SHMEM | UFFD_FEATURE_MISSING_HUGETLBFS;
+  uffdio_api.ioctls = 0;
+  if (ioctl(uffd, UFFDIO_API, &uffdio_api) == -1) {
+    perror("ioctl uffdio_api");
+    assert(0);
+  }
+
+  init = 1;
+
+}
+
+void* 
+hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
+{
+  void* p;
+  void* register_ptr;
+
+  assert(init);
+
+  p = mmap(addr, length, prot, flags, dramfd, offset);
+  if (p == NULL || p == MAP_FAILED) {
+    perror("mmap");
+  }  
+  assert(p != NULL && p != MAP_FAILED);
+
+  unsigned long num_pages = (length / HUGEPAGE_SIZE);
+  int page = 0;
+  printf("number of pages in region: %llu\n", num_pages);
+
+  for (register_ptr = p; register_ptr < p + length; register_ptr += HUGEPAGE_SIZE) {
+    struct uffdio_register uffdio_register;
+    uffdio_register.range.start = (unsigned long)register_ptr;
+    uffdio_register.range.len = HUGEPAGE_SIZE;
+    uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
+    uffdio_register.ioctls = 0;
+    if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
+      perror("ioctl uffdio_register");
+      assert(0);
+    }
+    //printf("registered region: 0x%llx - 0x%llx\n", register_ptr, register_ptr + HUGEPAGE_SIZE);
+    page++;
+  }
+
+  printf("registered %d pages with userfaultfd\n", page);
+  printf("Set up userfault success\n");
+
+  return p;
 }
 
 void 
@@ -545,24 +623,18 @@ main(int argc, char **argv)
   unsigned long size, elt_size, nelems;
   struct timeval starttime, stoptime;
   double secs, gups;
-  int dram = 0, base = 0;
   int remap = 0;
-  int dramfd = 0, nvmfd = 0;
-  long uffd;
-  struct uffdio_api uffdio_api;
   struct timeval start, end;
   int i;
-  void *p, *register_ptr;
+  void *p;
   struct gups_args** ga;
 
-  if (argc != 8) {
-    printf("Usage: %s [threads] [updates per thread] [exponent] [data size (bytes)] [DRAM/NVM] [base/huge] [noremap/remap]\n", argv[0]);
+  if (argc != 6) {
+    printf("Usage: %s [threads] [updates per thread] [exponent] [data size (bytes)] [noremap/remap]\n", argv[0]);
     printf("  threads\t\t\tnumber of threads to launch\n");
     printf("  updates per thread\t\tnumber of updates per thread\n");
     printf("  exponent\t\t\tlog size of region\n");
     printf("  data size\t\t\tsize of data in array (in bytes)\n");
-    printf("  DRAM/NVM\t\t\twhether the region is in DRAM or NVM\n");
-    printf("  base/huge\t\t\twhether to map the region with base or huge pages\n");
     printf("  noremap/remap\t\t\twhether to remap the region when accessing\n");
     return 0;
   }
@@ -582,110 +654,27 @@ main(int argc, char **argv)
   assert(size > 0 && (size % 256 == 0));
   elt_size = atoi(argv[4]);
   
-  if (!strcmp("DRAM", argv[5])) {
-    dram = 1;
-  }
-
-  if (!strcmp("base", argv[6])) {
-    base = 1;
-  }
-
-  if (!strcmp("remap", argv[7])) {
+  if (!strcmp("remap", argv[5])) {
     remap = 1;
   }
+
+  hemem_init();
 
   printf("%lu updates per thread (%d threads)\n", updates, threads);
   printf("field of 2^%lu (%lu) bytes\n", expt, size);
   printf("%d byte element size (%d elements total)\n", elt_size, size / elt_size);
 
-  if (dram) {
-    printf("Mapping in DRAM ");
-  }
-  else {
-    printf("Mapping in NVM ");
-  }
-
-  if (base) {
-    printf("with base pages\n");
-  }
-  else {
-    printf("with huge pages\n");
-  }
-
-  dramfd = open(DRAMPATH, O_RDWR);
-  if (dramfd < 0) {
-    perror("dram open");
-  }
-  assert(dramfd >= 0);
-
-  nvmfd = open(NVMPATH, O_RDWR);
-  if (nvmfd < 0) {
-    perror("nvm open");
-  }
-  assert(nvmfd >= 0);
-  //printf("DRAM fd: %d\nNVM fd: %d\n", dramfd, nvmfd);
-
-/*
-  if (dram) {
-    // devdax doesn't like huge page flag
-    gettimeofday(&starttime, NULL);
-    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
-  }
-  else {
-    gettimeofday(&starttime, NULL);
-    // devdax doesn't like huge page flag
-    p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
-  }
-*/
-  p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, dramfd, 0);
-  if (p == NULL || p == MAP_FAILED) {
-    perror("mmap");
-  }  
-  assert(p != NULL && p != MAP_FAILED);
+  p = hemem_mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, -1, 0);
 
   gettimeofday(&stoptime, NULL);
-  printf("Init mmap took %.4f seconds\n", elapsed(&starttime, &stoptime));
+  printf("Init took %.4f seconds\n", elapsed(&starttime, &stoptime));
   printf("Region address: 0x%llx\t size: %lld\n", p, size);
   //printf("Field addr: 0x%x\n", p);
 
   nelems = (size / threads) / elt_size; // number of elements per thread
   printf("Elements per thread: %llu\n", nelems);
 
-  uffd = syscall(__NR_userfaultfd, O_CLOEXEC | O_NONBLOCK);
-  if (uffd == -1) {
-    perror("uffd");
-    assert(0);
-  }
-
-  uffdio_api.api = UFFD_API;
-  uffdio_api.features = UFFD_FEATURE_PAGEFAULT_FLAG_WP |  UFFD_FEATURE_MISSING_SHMEM | UFFD_FEATURE_MISSING_HUGETLBFS;
-  uffdio_api.ioctls = 0;
-  if (ioctl(uffd, UFFDIO_API, &uffdio_api) == -1) {
-    perror("ioctl uffdio_api");
-    assert(0);
-  }
  
-  unsigned long num_pages = (size / HUGEPAGE_SIZE);
-  int page = 0;
-  printf("number of pages in region: %llu\n", num_pages);
-
-  for (register_ptr = p; register_ptr < p + size; register_ptr += HUGEPAGE_SIZE) {
-    struct uffdio_register uffdio_register;
-    uffdio_register.range.start = (unsigned long)register_ptr;
-    uffdio_register.range.len = HUGEPAGE_SIZE;
-    uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
-    uffdio_register.ioctls = 0;
-    if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
-      perror("ioctl uffdio_register");
-      assert(0);
-    }
-    //printf("registered region: 0x%llx - 0x%llx\n", register_ptr, register_ptr + HUGEPAGE_SIZE);
-    page++;
-  }
-
-  printf("registered %d pages with userfaultfd\n", page);
-  printf("Set up userfault success\n");
-
   pthread_t fault_thread;
   struct fault_args *fa = malloc(sizeof(struct fault_args));
   fa->uffd = uffd;
