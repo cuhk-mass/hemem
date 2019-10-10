@@ -65,6 +65,8 @@ void
     memset(data, data[0] + i, elt_size);
     memcpy(&field[index * elt_size], data, elt_size);
   }
+
+  return 0;
 }
 
 
@@ -76,7 +78,6 @@ main(int argc, char **argv)
   unsigned long size, elt_size, nelems;
   struct timeval starttime, stoptime;
   double secs, gups;
-  struct timeval start, end;
   int i;
   void *p;
   struct gups_args** ga;
@@ -109,17 +110,17 @@ main(int argc, char **argv)
 
   printf("%lu updates per thread (%d threads)\n", updates, threads);
   printf("field of 2^%lu (%lu) bytes\n", expt, size);
-  printf("%d byte element size (%d elements total)\n", elt_size, size / elt_size);
+  printf("%ld byte element size (%ld elements total)\n", elt_size, size / elt_size);
 
   p = hemem_mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, -1, 0);
 
   gettimeofday(&stoptime, NULL);
   printf("Init took %.4f seconds\n", elapsed(&starttime, &stoptime));
-  printf("Region address: 0x%llx\t size: %lld\n", p, size);
+  printf("Region address: 0x%p\t size: %ld\n", p, size);
   //printf("Field addr: 0x%x\n", p);
 
   nelems = (size / threads) / elt_size; // number of elements per thread
-  printf("Elements per thread: %llu\n", nelems);
+  printf("Elements per thread: %lu\n", nelems);
 
   printf("initializing thread data\n");
   for (i = 0; i < threads; ++i) {

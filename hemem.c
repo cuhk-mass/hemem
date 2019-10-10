@@ -19,6 +19,17 @@
 #include "hemem.h"
 #include "timer.h"
 
+pthread_t fault_thread;
+
+int dramfd = -1;
+int nvmfd = -1;
+long uffd = -1;
+int init = 0;
+unsigned long mem_allocated = 0;
+int alloc_nvm = 0;
+int wp_faults_handled = 0;
+int missing_faults_handled = 0;
+
 void
 hemem_init()
 {
@@ -35,7 +46,7 @@ hemem_init()
     perror("nvm open");
   }
   assert(nvmfd >= 0);
-  
+
   uffd = syscall(__NR_userfaultfd, O_CLOEXEC | O_NONBLOCK);
   if (uffd == -1) {
     perror("uffd");
@@ -57,8 +68,8 @@ hemem_init()
   }
 
 
-  close(nvmfd);
-  close(dramfd);
+  //close(nvmfd);
+  //close(dramfd);
 
   init = 1;
 }
@@ -69,10 +80,10 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 {
   void* p;
   void* register_ptr;
-
+  
   assert(init);
-
-  p = mmap(addr, length, prot, flags, dramfd, offset);
+  
+  p = mmap(addr, length, prot, MAP_SHARED, dramfd, offset);
   if (p == NULL || p == MAP_FAILED) {
     perror("mmap");
   }  
@@ -80,7 +91,7 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 
   unsigned long num_pages = (length / PAGE_SIZE);
   int page = 0;
-  printf("number of pages in region: %llu\n", num_pages);
+  printf("number of pages in region: %lu\n", num_pages);
 
   for (register_ptr = p; register_ptr < p + length; register_ptr += PAGE_SIZE) {
     struct uffdio_register uffdio_register;
@@ -103,10 +114,10 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 }
 
 
-void*
-hemem_unmap(void* addr, size_t length)
+int
+hemem_munmap(void* addr, size_t length)
 {
-  munmap(addr, length);
+  return munmap(addr, length);
 }
 
 
@@ -117,6 +128,7 @@ handle_wp_fault(unsigned long page_boundry, void* field)
   void* new_addr;
   void* newptr;
   struct timeval start, end;
+  int nvm_to_dram = 0;
 
   gettimeofday(&start, NULL);
 
@@ -179,7 +191,7 @@ handle_missing_fault(unsigned long page_boundry)
 {
   // Page mising fault case - probably the first touch case
   // allocate in DRAM as per LRU
-
+  void* newptr;
   struct timeval start, end;
 
   // map virtual address to dax file offset
@@ -200,6 +212,11 @@ handle_missing_fault(unsigned long page_boundry)
     alloc_nvm = 1;
   }
   mem_allocated += PAGE_SIZE;
+
+  if (newptr == NULL || newptr == MAP_FAILED) {
+    perror("newptr mmap");
+    assert(0);
+  }
 
   gettimeofday(&end, NULL);
 
@@ -290,6 +307,7 @@ void
       if (fault_flags & UFFD_PAGEFAULT_FLAG_WP) {
         //printf("received a write-protection fault at addr 0x%llx\n", fault_addr);
         handle_wp_fault(page_boundry, field);
+      }
       else {
         //printf("received a page missing fault at addr 0x%llx\n", fault_addr);
         handle_missing_fault(page_boundry);

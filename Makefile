@@ -8,15 +8,15 @@ default: gups
 all: gups tester
 
 gups: gups.o hemem.o timer.o
-	$(CC) $(CFLAGS) $(INCLUDES) -o gups gups.o zipf.o hmem.o timer.o $(LIBS)
+	$(CC) $(CFLAGS) $(INCLUDES) -o gups gups.o zipf.o hemem.o timer.o $(LIBS)
 
 gups.o: gups.c zipf.c hemem.h timer.h
-	$(CC) $(CFLAGS) -c gups.c zipf.c
+	$(CC) $(CFLAGS) $(INCLUDES) -c gups.c zipf.c
 
-hemem.o: hemem.h hemem.c
+hemem.o: hemem.c hemem.h
 	$(CC) $(CFLAGS) $(INCLUDES) -c hemem.c
 
-timer.o: timer.h timer.c
+timer.o: timer.c timer.h
 	$(CC) $(CFLAGS) $(INCLUDES) -c timer.c
 
 tester: test.c
