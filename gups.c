@@ -167,6 +167,8 @@ main(int argc, char **argv)
   printf("Elapsed time: %.4f seconds.\n", secs);
   gups = threads * ((double)updates) / (secs * 1.0e9);
   printf("GUPS = %.10f\n", gups);
+  printf("missing faults handled: %d\n", missing_faults_handled);
+  printf("memory allocated through faults: %lld\n", (unsigned long long)missing_faults_handled * PAGE_SIZE);
 
 #ifdef EXAMINE_PGTABLES
   pthread_t pagetable_thread;

@@ -82,7 +82,8 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
   void* register_ptr;
   
   assert(init);
-  
+
+  // reserve block of memory
   p = mmap(addr, length, prot, MAP_SHARED, dramfd, offset);
   if (p == NULL || p == MAP_FAILED) {
     perror("mmap");
@@ -93,6 +94,7 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
   int page = 0;
   printf("number of pages in region: %lu\n", num_pages);
 
+  // register with uffd page-by-page
   for (register_ptr = p; register_ptr < p + length; register_ptr += PAGE_SIZE) {
     struct uffdio_register uffdio_register;
     uffdio_register.range.start = (unsigned long)register_ptr;
@@ -136,6 +138,8 @@ handle_wp_fault(unsigned long page_boundry, void* field)
   unsigned long offset = page_boundry - (unsigned long)field;
   //printf("page boundry: 0x%llx\tcalculated offset in dax file: 0x%llx\n", page_boundry, offset);
 
+  //TODO: figure out how to tell whether block needs to move from NVM to DRAM or vice-versa
+  //TODO: figure out how to keep track of mapping of virtual addresses -> /dev/dax file offsets
   if (nvm_to_dram) {
     old_addr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, offset);
     new_addr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, offset);
