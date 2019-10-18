@@ -26,7 +26,6 @@ int nvmfd = -1;
 long uffd = -1;
 int init = 0;
 unsigned long mem_allocated = 0;
-int alloc_nvm = 0;
 int wp_faults_handled = 0;
 int missing_faults_handled = 0;
 
@@ -79,7 +78,6 @@ void*
 hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 {
   void* p;
-  void* register_ptr;
   
   assert(init);
 
@@ -91,16 +89,35 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
   assert(p != NULL && p != MAP_FAILED);
 
   unsigned long num_pages = (length / PAGE_SIZE);
-  int page = 0;
   printf("number of pages in region: %lu\n", num_pages);
 
+  // register with uffd
+  struct uffdio_register uffdio_register;
+  uffdio_register.range.start = (unsigned long)p;
+  uffdio_register.range.len = length;
+  uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
+  uffdio_register.ioctls = 0;
+  if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
+    perror("ioctl uffdio_register");
+    assert(0);
+  }
+  
   // register with uffd page-by-page
+/*
   for (register_ptr = p; register_ptr < p + length; register_ptr += PAGE_SIZE) {
     struct uffdio_register uffdio_register;
     uffdio_register.range.start = (unsigned long)register_ptr;
     uffdio_register.range.len = PAGE_SIZE;
     uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
     uffdio_register.ioctls = 0;
+    if (!(((unsigned long long)(register_ptr) & ((unsigned long long)(2 * 1024 * 1024) - 1)) == 0)) {
+      printf("not aligned: %p\n", register_ptr);
+    }
+    else {
+      printf("aligned: %p\n", register_ptr);
+    }
+    
+    printf("start: %llx\tend: %llx\tlen:%llu\n", uffdio_register.range.start, uffdio_register.range.start + uffdio_register.range.len, uffdio_register.range.len);
     if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
       perror("ioctl uffdio_register");
       assert(0);
@@ -110,6 +127,8 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
   }
 
   printf("registered %d pages with userfaultfd\n", page);
+*/
+  
   printf("Set up userfault success\n");
 
   return p;
@@ -205,20 +224,17 @@ handle_missing_fault(unsigned long page_boundry)
   gettimeofday(&start, NULL);
 
   if (mem_allocated < DRAMSIZE) {
+    printf("allocating a page in DRAM\n");
     newptr = mmap((void*)page_boundry, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, offset);
-    //printf("allocated a page in DRAM\n");
   }
   else {
+    printf("allocating a page in NVM\n");
     newptr = mmap((void*)page_boundry, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, offset);
-    if (!alloc_nvm) {
-      printf("switch to allocating in NVM\n");
-    }
-    alloc_nvm = 1;
   }
   mem_allocated += PAGE_SIZE;
 
   if (newptr == NULL || newptr == MAP_FAILED) {
-    perror("newptr mmap");
+    perror("newptr mmap:");
     assert(0);
   }
 
@@ -299,21 +315,21 @@ void
 
     //TODO: check page fault event, handle it
     if (msg.event & UFFD_EVENT_PAGEFAULT) {
-      //printf("received a page fault event\n");
+      printf("received a page fault event\n");
       fault_addr = (unsigned long)msg.arg.pagefault.address;
       fault_flags = msg.arg.pagefault.flags;
 
       // allign faulting address to page boundry
       // huge page boundry in this case due to dax allignment
       page_boundry = fault_addr & ~(PAGE_SIZE - 1);
-      //printf("page boundry is 0x%lld\n", page_boundry);
+      printf("page boundry is 0x%lx\n", page_boundry);
 
       if (fault_flags & UFFD_PAGEFAULT_FLAG_WP) {
-        //printf("received a write-protection fault at addr 0x%llx\n", fault_addr);
+        printf("received a write-protection fault at addr 0x%lx\n", fault_addr);
         handle_wp_fault(page_boundry, field);
       }
       else {
-        //printf("received a page missing fault at addr 0x%llx\n", fault_addr);
+        printf("received a page missing fault at addr 0x%lx\n", fault_addr);
         handle_missing_fault(page_boundry);
       }
 

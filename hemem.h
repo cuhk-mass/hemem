@@ -6,15 +6,15 @@
 
 //#define EXAMINE_PGTABLES
 
-#define NVMSIZE		(256L * (1024L * 1024L * 1024L))
-#define DRAMSIZE	(120L * (1024L * 1024L * 1024L))
+#define NVMSIZE		(128L * (1024L * 1024L * 1024L))
+#define DRAMSIZE	(16L * (1024L * 1024L * 1024L))
 
 #define DRAMPATH "/dev/dax0.0"
 #define NVMPATH "/dev/dax1.0"
 
 //#define PAGE_SIZE (1024 * 1024 * 1024)
-#define PAGE_SIZE (2 * (1024 * 1024))
-//#define PAGE_SIZE (4 * 1024)
+//#define PAGE_SIZE (2 * (1024 * 1024))
+#define PAGE_SIZE (4 * 1024)
 
 extern pthread_t fault_thread;
 
