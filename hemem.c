@@ -101,6 +101,10 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
     perror("ioctl uffdio_register");
     assert(0);
   }
+
+#ifdef EXAMINE_PGTABLES
+  examine_pagetables();
+#endif
   
   // register with uffd page-by-page
 /*
@@ -241,6 +245,10 @@ handle_missing_fault(unsigned long page_boundry)
   gettimeofday(&end, NULL);
 
   missing_faults_handled++;
+
+#ifdef EXAMINE_PGTABLES
+  examine_pagetables();
+#endif
   //printf("page missing fault took %.4f seconds\n", elapsed(&start, &end));
 }
 
@@ -364,7 +372,7 @@ void
   unsigned long vm_start, vm_end;
   int n, num_pages;
   long index;
-  off64_t o;
+  off_t o;
   ssize_t t;
   struct pagemapEntry entry;
 
@@ -389,7 +397,7 @@ void
   nread = getline(&line, &len, maps); 
   while (nread != -1) {
     if (strstr(line, DRAMPATH) != NULL) {
-      //printf("%s", line);
+      printf("%s", line);
       n = sscanf(line, "%lX-%lX", &vm_start, &vm_end);
       if (n != 2) {
         printf("error, invalid line: %s\n", line);
@@ -401,8 +409,7 @@ void
       if (num_pages > 0) {
         index = (vm_start / PAGE_SIZE) * sizeof(unsigned long long);
 
-        o = lseek64(pagemaps, index, SEEK_SET);
-
+        o = lseek(pagemaps, index, SEEK_SET);
         if (o != index) {
           perror("pagemaps lseek");
           assert(0);
@@ -426,7 +433,7 @@ void
           entry.swapped = (pfn >> 62) & 1;
           entry.present = (pfn >> 63) & 1;
 
-          printf("%016llX\n", (entry.pfn * sysconf(_SC_PAGESIZE))); 
+          //printf("%016lX\n", (entry.pfn * sysconf(_SC_PAGESIZE))); 
           num_pages--;
         }
       }
@@ -442,7 +449,7 @@ void
       if (num_pages > 0) {
         index = (vm_start / PAGE_SIZE) * sizeof(unsigned long long);
 
-        o = lseek64(pagemaps, index, SEEK_SET);
+        o = lseek(pagemaps, index, SEEK_SET);
         if (o != index) {
           perror("pagemaps lseek");
           assert(0);
@@ -466,7 +473,7 @@ void
           entry.swapped = (pfn >> 62) & 1;
           entry.present = (pfn >> 63) & 1;
 
-          printf("%016llX\n", (entry.pfn * sysconf(_SC_PAGE_SIZE)));
+          //printf("%016lX\n", (entry.pfn * sysconf(_SC_PAGE_SIZE)));
           num_pages--;
         }
       }    
@@ -478,5 +485,7 @@ void
   fclose(maps);
   close(pagemaps);
   fclose(kpageflags);
+
+  return 0;
 }
 #endif

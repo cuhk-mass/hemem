@@ -4,7 +4,7 @@
 
 #include <pthread.h>
 
-//#define EXAMINE_PGTABLES
+#define EXAMINE_PGTABLES
 
 #define NVMSIZE		(128L * (1024L * 1024L * 1024L))
 #define DRAMSIZE	(16L * (1024L * 1024L * 1024L))
