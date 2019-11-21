@@ -28,6 +28,7 @@ int init = 0;
 unsigned long mem_allocated = 0;
 int wp_faults_handled = 0;
 int missing_faults_handled = 0;
+unsigned long pgd = 0;
 
 void
 hemem_init()
@@ -97,15 +98,12 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
   uffdio_register.range.len = length;
   uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
   uffdio_register.ioctls = 0;
+  uffdio_register.pgd = 0;
   if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
     perror("ioctl uffdio_register");
     assert(0);
   }
 
-#ifdef EXAMINE_PGTABLES
-  examine_pagetables();
-#endif
-  
   // register with uffd page-by-page
 /*
   for (register_ptr = p; register_ptr < p + length; register_ptr += PAGE_SIZE) {
@@ -132,10 +130,44 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 
   printf("registered %d pages with userfaultfd\n", page);
 */
+
+  pgd = uffdio_register.pgd;
   
-  printf("Set up userfault success\n");
+  printf("Set up userfault success\tpgd: %016lx\n", pgd);
 
   return p;
+}
+
+
+#define ADDRESS_MASK	0x00000ffffffff000
+
+
+void
+walk_pagetable()
+{
+  int devmemfd;
+  int *devmemptr;
+  unsigned long *pdpt;
+
+  devmemfd = open("/dev/mem", O_RDWR | O_SYNC);
+  if (devmemfd < 0) {
+    perror("/dev/mem open");
+    assert(0);
+  }
+
+  devmemptr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pgd & ADDRESS_MASK);
+  if (devmemptr == MAP_FAILED) {
+    perror("/dev/mem mmap");
+    assert(0);
+  }
+
+  printf("devmemptr: %p\t*devmemptr: %016x\n", devmemptr, *devmemptr);
+
+  pdpt = (unsigned long*)devmemptr;
+  for (int i = 0; i < 256; i++) {
+    printf("%016lx\n", *pdpt);
+    pdpt += sizeof(unsigned long);
+  }
 }
 
 
@@ -228,11 +260,11 @@ handle_missing_fault(unsigned long page_boundry)
   gettimeofday(&start, NULL);
 
   if (mem_allocated < DRAMSIZE) {
-    printf("allocating a page in DRAM\n");
+    //printf("allocating a page in DRAM\n");
     newptr = mmap((void*)page_boundry, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, offset);
   }
   else {
-    printf("allocating a page in NVM\n");
+    //printf("allocating a page in NVM\n");
     newptr = mmap((void*)page_boundry, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, offset);
   }
   mem_allocated += PAGE_SIZE;
@@ -246,9 +278,6 @@ handle_missing_fault(unsigned long page_boundry)
 
   missing_faults_handled++;
 
-#ifdef EXAMINE_PGTABLES
-  examine_pagetables();
-#endif
   //printf("page missing fault took %.4f seconds\n", elapsed(&start, &end));
 }
 
@@ -323,21 +352,21 @@ void
 
     //TODO: check page fault event, handle it
     if (msg.event & UFFD_EVENT_PAGEFAULT) {
-      printf("received a page fault event\n");
+      //printf("received a page fault event\n");
       fault_addr = (unsigned long)msg.arg.pagefault.address;
       fault_flags = msg.arg.pagefault.flags;
 
       // allign faulting address to page boundry
       // huge page boundry in this case due to dax allignment
       page_boundry = fault_addr & ~(PAGE_SIZE - 1);
-      printf("page boundry is 0x%lx\n", page_boundry);
+      //printf("page boundry is 0x%lx\n", page_boundry);
 
       if (fault_flags & UFFD_PAGEFAULT_FLAG_WP) {
-        printf("received a write-protection fault at addr 0x%lx\n", fault_addr);
+        //printf("received a write-protection fault at addr 0x%lx\n", fault_addr);
         handle_wp_fault(page_boundry, field);
       }
       else {
-        printf("received a page missing fault at addr 0x%lx\n", fault_addr);
+        //printf("received a page missing fault at addr 0x%lx\n", fault_addr);
         handle_missing_fault(page_boundry);
       }
 
@@ -375,7 +404,11 @@ void
   off_t o;
   ssize_t t;
   struct pagemapEntry entry;
-
+  int maps_copy;
+  ssize_t nwritten;
+  FILE *pfn_file;
+  unsigned long num_pfn = 0;
+  
   maps = fopen("/proc/self/maps", "r");
   if (maps == NULL) {
     perror("/proc/self/maps fopen");
@@ -388,16 +421,33 @@ void
     assert(0);
   }
 
+  maps_copy = open("maps.txt", O_CREAT | O_RDWR);
+  if (maps_copy == -1) {
+    perror("map.txt open");
+    assert(0);
+  }
+
   kpageflags = fopen("/proc/kpageflags", "r");
   if (kpageflags == NULL) {
     perror("/proc/kpageflags fopen");
     assert(0);
   }
 
+  pfn_file = fopen("pfn.txt", "w+");
+  if (pfn_file == NULL) {
+    perror("pfn.txt open");
+    assert(0);
+  }
+
   nread = getline(&line, &len, maps); 
   while (nread != -1) {
+    nwritten = write(maps_copy, line, nread);
+    if (nwritten < 0) {
+      perror("maps_copy write");
+      assert(0);
+    }
     if (strstr(line, DRAMPATH) != NULL) {
-      printf("%s", line);
+      //printf("%s", line);
       n = sscanf(line, "%lX-%lX", &vm_start, &vm_end);
       if (n != 2) {
         printf("error, invalid line: %s\n", line);
@@ -415,7 +465,7 @@ void
           assert(0);
         }
 
-        printf("num_pages: %d\n", num_pages);
+        //printf("num_pages: %d\n", num_pages);
 
         while (num_pages > 0) {
           unsigned long long pfn;
@@ -433,12 +483,13 @@ void
           entry.swapped = (pfn >> 62) & 1;
           entry.present = (pfn >> 63) & 1;
 
-          //printf("%016lX\n", (entry.pfn * sysconf(_SC_PAGESIZE))); 
+          fprintf(pfn_file, "DRAM: %016lX\n", (entry.pfn * sysconf(_SC_PAGESIZE))); 
           num_pages--;
+	  num_pfn++;
         }
       }
     }
-    if (strstr(line, NVMPATH) != NULL) {
+    else if (strstr(line, NVMPATH) != NULL) {
       n = sscanf(line, "%lX-%lX", &vm_start, &vm_end);
       if (n != 2) {
         printf("error, invalid line: %s\n", line);
@@ -455,7 +506,7 @@ void
           assert(0);
         }
 
-        printf("num_pages: %d\n", num_pages);
+        //printf("num_pages: %d\n", num_pages);
 
         while (num_pages > 0) {
           unsigned long long pfn;
@@ -473,8 +524,9 @@ void
           entry.swapped = (pfn >> 62) & 1;
           entry.present = (pfn >> 63) & 1;
 
-          //printf("%016lX\n", (entry.pfn * sysconf(_SC_PAGE_SIZE)));
+          fprintf(pfn_file, "NVM:  %016lX\n", (entry.pfn * sysconf(_SC_PAGE_SIZE)));
           num_pages--;
+	  num_pfn++;
         }
       }    
       //printf("%s", line);
@@ -482,9 +534,13 @@ void
     nread = getline(&line, &len, maps);
   }
 
+  printf("num_pfn: %lu\n", num_pfn);
+
   fclose(maps);
   close(pagemaps);
   fclose(kpageflags);
+  close(maps_copy);
+  fclose(pfn_file);
 
   return 0;
 }

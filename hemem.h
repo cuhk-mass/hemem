@@ -7,7 +7,7 @@
 #define EXAMINE_PGTABLES
 
 #define NVMSIZE		(128L * (1024L * 1024L * 1024L))
-#define DRAMSIZE	(16L * (1024L * 1024L * 1024L))
+#define DRAMSIZE	(8L * (1024L * 1024L * 1024L))
 
 #define DRAMPATH "/dev/dax0.0"
 #define NVMPATH "/dev/dax1.0"
@@ -31,6 +31,8 @@ void hemem_init();
 void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
 int hemem_munmap(void* addr, size_t length);
 void *handle_fault(void* arg);
+
+void walk_pagetable();
 
 #ifdef EXAMINE_PGTABLES
 

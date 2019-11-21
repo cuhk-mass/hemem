@@ -116,7 +116,7 @@ main(int argc, char **argv)
 
   gettimeofday(&stoptime, NULL);
   printf("Init took %.4f seconds\n", elapsed(&starttime, &stoptime));
-  printf("Region address: 0x%p\t size: %ld\n", p, size);
+  printf("Region address: %016p\t size: %ld\n", p, size);
   //printf("Field addr: 0x%x\n", p);
 
   nelems = (size / threads) / elt_size; // number of elements per thread
@@ -178,6 +178,8 @@ main(int argc, char **argv)
   r = pthread_join(pagetable_thread, NULL);
   assert(r == 0);
 #endif
+
+  walk_pagetable();
 
   for (i = 0; i < threads; i++) {
     free(ga[i]->indices);
