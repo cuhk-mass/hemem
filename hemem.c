@@ -29,6 +29,7 @@ unsigned long mem_allocated = 0;
 int wp_faults_handled = 0;
 int missing_faults_handled = 0;
 unsigned long pgd = 0;
+int devmemfd = -1;
 
 void
 hemem_init()
@@ -140,14 +141,146 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 
 
 #define ADDRESS_MASK	0x00000ffffffff000
+#define FLAGS_MASK	0x0000000000000fff
+
+#define HEMEM_PRESENT_FLAG 	0x0000000000000001
+#define HEMEM_WRITE_FLAG	0x0000000000000002
+#define HEMEM_USER_FLAG		0x0000000000000004
+#define HEMEM_PWT_FLAG		0x0000000000000008
+#define HEMEM_PCD_FLAG		0x0000000000000010
+#define HEMEM_ACCESSED_FLAG	0x0000000000000020
+#define HEMEM_IGNORED_FLAG	0x0000000000000040
+#define HEMEM_HUGEPAGE_FLAG	0x0000000000000080
+
+
+#define HEMEM_PAGE_WALK_FLAGS	(HEMEM_PRESENT_FLAG | 	\
+	       			 HEMEM_WRITE_FLAG |	\
+				 HEMEM_USER_FLAG |	\
+				 HEMEM_ACCESSED_FLAG |	\
+				 HEMEM_IGNORED_FLAG)
+
+#define HEMEM_PWTPCD_FLAGS	(HEMEM_PWT_FLAG | HEMEM_PCD_FLAG)
+
+
+FILE *ptes, *pdes, *pdtpes, *pml4es;
+
+void
+walk_fourth_level(int pde)
+{
+  int *ptable4_ptr;
+  unsigned long *pte_ptr;
+  unsigned long pte;
+
+  ptable4_ptr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pde & ADDRESS_MASK);
+  if (ptable4_ptr == MAP_FAILED) {
+    perror("third level page table mmap");
+    assert(0);
+  }
+
+  pte_ptr = (unsigned long*)ptable4_ptr;
+  for (int i = 0; i < 256; i++) {
+    pte = *pte_ptr;
+    fprintf(ptes, "%016lx\n", pte);
+
+    if (((pte & FLAGS_MASK) & HEMEM_PAGE_WALK_FLAGS) == HEMEM_PAGE_WALK_FLAGS) {
+      if (((pte & FLAGS_MASK) & HEMEM_PWTPCD_FLAGS) == 0) {
+        printf("pte:   %016lx\n", pte);
+      }
+    }
+
+    pte_ptr += sizeof(unsigned long);
+  }
+}
+void
+walk_third_level(int pdtpe)
+{
+  int *ptable3_ptr;
+  unsigned long *pde_ptr;
+  unsigned long pde;
+
+  ptable3_ptr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pdtpe & ADDRESS_MASK);
+  if (ptable3_ptr == MAP_FAILED) {
+    perror("third level page table mmap");
+    assert(0);
+  }
+
+  pde_ptr = (unsigned long*)ptable3_ptr;
+  for (int i = 0; i < 256; i++) {
+    pde = *pde_ptr;
+    fprintf(pdes, "%016lx\n", pde);
+
+    if (((pde & FLAGS_MASK) & HEMEM_PAGE_WALK_FLAGS) == HEMEM_PAGE_WALK_FLAGS) {
+      if (((pde & FLAGS_MASK) & HEMEM_PWTPCD_FLAGS) == 0) {
+        printf("pde:   %016lx\n", pde);
+	walk_fourth_level(pde);
+      }
+    }
+
+    pde_ptr += sizeof(unsigned long);
+  }
+}
+
+
+void
+walk_second_level(int pml4e)
+{
+  int *ptable2_ptr;
+  unsigned long *pdtpe_ptr;
+  unsigned long pdtpe;
+
+  ptable2_ptr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pml4e & ADDRESS_MASK);
+  if (ptable2_ptr == MAP_FAILED) {
+    perror("second level page table mmap");
+    assert(0);
+  }
+
+  pdtpe_ptr = (unsigned long*)ptable2_ptr;
+  for (int i = 0; i < 256; i++) {
+    pdtpe = *pdtpe_ptr;
+    fprintf(pdtpes, "%016lx\n", pdtpe);
+
+    if (((pdtpe & FLAGS_MASK) & HEMEM_PAGE_WALK_FLAGS) == HEMEM_PAGE_WALK_FLAGS) {
+      if (((pdtpe & FLAGS_MASK) & HEMEM_PWTPCD_FLAGS) == 0) {
+        printf("pdtpe: %016lx\n", pdtpe);
+        walk_third_level(pdtpe);
+      }
+    }
+
+    pdtpe_ptr += sizeof(unsigned long);
+  }
+}
 
 
 void
 walk_pagetable()
 {
-  int devmemfd;
-  int *devmemptr;
-  unsigned long *pdpt;
+  int *rootptr;
+  unsigned long *pml4e_ptr;
+  unsigned long pml4e;
+
+  pml4es = fopen("pml4es.txt", "w+");
+  if (pml4es == NULL) {
+    perror("pml4e file open");
+    assert(0);
+  }
+  
+  pdtpes = fopen("pdtpes.txt", "w+");
+  if (pdtpes == NULL) {
+    perror("pdtpes open");
+    assert(0);
+  }
+
+  pdes = fopen("pdes.txt", "w+");
+  if (pdes == NULL) {
+    perror("pdes open");
+    assert(0);  
+  }
+  
+  ptes = fopen("ptes.txt", "w+");
+  if (ptes == NULL) {
+    perror("ptes open");
+    assert(0);
+  }
 
   devmemfd = open("/dev/mem", O_RDWR | O_SYNC);
   if (devmemfd < 0) {
@@ -155,18 +288,24 @@ walk_pagetable()
     assert(0);
   }
 
-  devmemptr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pgd & ADDRESS_MASK);
-  if (devmemptr == MAP_FAILED) {
+  rootptr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pgd & ADDRESS_MASK);
+  if (rootptr == MAP_FAILED) {
     perror("/dev/mem mmap");
     assert(0);
   }
 
-  printf("devmemptr: %p\t*devmemptr: %016x\n", devmemptr, *devmemptr);
-
-  pdpt = (unsigned long*)devmemptr;
+  pml4e_ptr = (unsigned long*)rootptr;
   for (int i = 0; i < 256; i++) {
-    printf("%016lx\n", *pdpt);
-    pdpt += sizeof(unsigned long);
+    pml4e = *pml4e_ptr;
+    fprintf(pml4es, "%016lx\n", pml4e);
+
+    if (((pml4e & FLAGS_MASK) & HEMEM_PAGE_WALK_FLAGS) == HEMEM_PAGE_WALK_FLAGS) {
+      if (((pml4e & FLAGS_MASK) & HEMEM_PWTPCD_FLAGS) == 0) {
+        printf("pml4e: %016lx\n", pml4e);
+        walk_second_level(pml4e); 
+      }
+    }
+    pml4e_ptr += sizeof(unsigned long);
   }
 }
 
@@ -175,6 +314,7 @@ int
 hemem_munmap(void* addr, size_t length)
 {
   return munmap(addr, length);
+
 }
 
 
