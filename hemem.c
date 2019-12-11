@@ -15,6 +15,8 @@
 #include <sys/syscall.h>
 #include <sys/ioctl.h>
 #include <errno.h>
+#include <stdint.h>
+#include <inttypes.h>
 
 #include "hemem.h"
 #include "timer.h"
@@ -25,10 +27,10 @@ int dramfd = -1;
 int nvmfd = -1;
 long uffd = -1;
 int init = 0;
-unsigned long mem_allocated = 0;
+uint64_t mem_allocated = 0;
 int wp_faults_handled = 0;
 int missing_faults_handled = 0;
-unsigned long pgd = 0;
+uint64_t pgd = 0;
 int devmemfd = -1;
 
 void
@@ -90,12 +92,12 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
   }  
   assert(p != NULL && p != MAP_FAILED);
 
-  unsigned long num_pages = (length / PAGE_SIZE);
+  uint64_t num_pages = (length / PAGE_SIZE);
   printf("number of pages in region: %lu\n", num_pages);
 
   // register with uffd
   struct uffdio_register uffdio_register;
-  uffdio_register.range.start = (unsigned long)p;
+  uffdio_register.range.start = (uint64_t)p;
   uffdio_register.range.len = length;
   uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
   uffdio_register.ioctls = 0;
@@ -109,11 +111,11 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 /*
   for (register_ptr = p; register_ptr < p + length; register_ptr += PAGE_SIZE) {
     struct uffdio_register uffdio_register;
-    uffdio_register.range.start = (unsigned long)register_ptr;
+    uffdio_register.range.start = (uint64_t)register_ptr;
     uffdio_register.range.len = PAGE_SIZE;
     uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
     uffdio_register.ioctls = 0;
-    if (!(((unsigned long long)(register_ptr) & ((unsigned long long)(2 * 1024 * 1024) - 1)) == 0)) {
+    if (!(((uint64_t)(register_ptr) & ((uint64_t)(2 * 1024 * 1024) - 1)) == 0)) {
       printf("not aligned: %p\n", register_ptr);
     }
     else {
@@ -140,17 +142,17 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 }
 
 
-#define ADDRESS_MASK	0x00000ffffffff000
-#define FLAGS_MASK	0x0000000000000fff
+#define ADDRESS_MASK	(uint64_t)0x00000ffffffff000UL
+#define FLAGS_MASK	(uint64_t)0x0000000000000fffUL
 
-#define HEMEM_PRESENT_FLAG 	0x0000000000000001
-#define HEMEM_WRITE_FLAG	0x0000000000000002
-#define HEMEM_USER_FLAG		0x0000000000000004
-#define HEMEM_PWT_FLAG		0x0000000000000008
-#define HEMEM_PCD_FLAG		0x0000000000000010
-#define HEMEM_ACCESSED_FLAG	0x0000000000000020
-#define HEMEM_IGNORED_FLAG	0x0000000000000040
-#define HEMEM_HUGEPAGE_FLAG	0x0000000000000080
+#define HEMEM_PRESENT_FLAG 	(uint64_t)0x0000000000000001UL
+#define HEMEM_WRITE_FLAG	(uint64_t)0x0000000000000002UL
+#define HEMEM_USER_FLAG		(uint64_t)0x0000000000000004UL
+#define HEMEM_PWT_FLAG		(uint64_t)0x0000000000000008UL
+#define HEMEM_PCD_FLAG		(uint64_t)0x0000000000000010UL
+#define HEMEM_ACCESSED_FLAG	(uint64_t)0x0000000000000020UL
+#define HEMEM_IGNORED_FLAG	(uint64_t)0x0000000000000040UL
+#define HEMEM_HUGEPAGE_FLAG	(uint64_t)0x0000000000000080UL
 
 
 #define HEMEM_PAGE_WALK_FLAGS	(HEMEM_PRESENT_FLAG | 	\
@@ -168,8 +170,8 @@ void
 walk_fourth_level(int pde)
 {
   int *ptable4_ptr;
-  unsigned long *pte_ptr;
-  unsigned long pte;
+  uint64_t *pte_ptr;
+  uint64_t pte;
 
   ptable4_ptr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pde & ADDRESS_MASK);
   if (ptable4_ptr == MAP_FAILED) {
@@ -177,8 +179,8 @@ walk_fourth_level(int pde)
     assert(0);
   }
 
-  pte_ptr = (unsigned long*)ptable4_ptr;
-  for (int i = 0; i < 256; i++) {
+  pte_ptr = (uint64_t*)ptable4_ptr;
+  for (int i = 0; i < 512; i++) {
     pte = *pte_ptr;
     fprintf(ptes, "%016lx\n", pte);
 
@@ -188,15 +190,15 @@ walk_fourth_level(int pde)
       }
     }
 
-    pte_ptr += sizeof(unsigned long);
+    pte_ptr++;
   }
 }
 void
 walk_third_level(int pdtpe)
 {
   int *ptable3_ptr;
-  unsigned long *pde_ptr;
-  unsigned long pde;
+  uint64_t *pde_ptr;
+  uint64_t pde;
 
   ptable3_ptr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pdtpe & ADDRESS_MASK);
   if (ptable3_ptr == MAP_FAILED) {
@@ -204,8 +206,8 @@ walk_third_level(int pdtpe)
     assert(0);
   }
 
-  pde_ptr = (unsigned long*)ptable3_ptr;
-  for (int i = 0; i < 256; i++) {
+  pde_ptr = (uint64_t*)ptable3_ptr;
+  for (int i = 0; i < 512; i++) {
     pde = *pde_ptr;
     fprintf(pdes, "%016lx\n", pde);
 
@@ -216,7 +218,7 @@ walk_third_level(int pdtpe)
       }
     }
 
-    pde_ptr += sizeof(unsigned long);
+    pde_ptr++;
   }
 }
 
@@ -225,8 +227,8 @@ void
 walk_second_level(int pml4e)
 {
   int *ptable2_ptr;
-  unsigned long *pdtpe_ptr;
-  unsigned long pdtpe;
+  uint64_t *pdtpe_ptr;
+  uint64_t pdtpe;
 
   ptable2_ptr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pml4e & ADDRESS_MASK);
   if (ptable2_ptr == MAP_FAILED) {
@@ -234,8 +236,8 @@ walk_second_level(int pml4e)
     assert(0);
   }
 
-  pdtpe_ptr = (unsigned long*)ptable2_ptr;
-  for (int i = 0; i < 256; i++) {
+  pdtpe_ptr = (uint64_t*)ptable2_ptr;
+  for (int i = 0; i < 512; i++) {
     pdtpe = *pdtpe_ptr;
     fprintf(pdtpes, "%016lx\n", pdtpe);
 
@@ -246,7 +248,7 @@ walk_second_level(int pml4e)
       }
     }
 
-    pdtpe_ptr += sizeof(unsigned long);
+    pdtpe_ptr++;
   }
 }
 
@@ -255,8 +257,8 @@ void
 walk_pagetable()
 {
   int *rootptr;
-  unsigned long *pml4e_ptr;
-  unsigned long pml4e;
+  uint64_t *pml4e_ptr;
+  uint64_t pml4e;
 
   pml4es = fopen("pml4es.txt", "w+");
   if (pml4es == NULL) {
@@ -294,8 +296,8 @@ walk_pagetable()
     assert(0);
   }
 
-  pml4e_ptr = (unsigned long*)rootptr;
-  for (int i = 0; i < 256; i++) {
+  pml4e_ptr = (uint64_t*)rootptr;
+  for (int i = 0; i < 512; i++) {
     pml4e = *pml4e_ptr;
     fprintf(pml4es, "%016lx\n", pml4e);
 
@@ -305,7 +307,7 @@ walk_pagetable()
         walk_second_level(pml4e); 
       }
     }
-    pml4e_ptr += sizeof(unsigned long);
+    pml4e_ptr++;
   }
 }
 
@@ -319,7 +321,7 @@ hemem_munmap(void* addr, size_t length)
 
 
 void
-handle_wp_fault(unsigned long page_boundry, void* field)
+handle_wp_fault(uint64_t page_boundry, void* field)
 {
   void* old_addr;
   void* new_addr;
@@ -330,7 +332,7 @@ handle_wp_fault(unsigned long page_boundry, void* field)
   gettimeofday(&start, NULL);
 
   // map virtual address to dax file offset
-  unsigned long offset = page_boundry - (unsigned long)field;
+  uint64_t offset = page_boundry - (uint64_t)field;
   //printf("page boundry: 0x%llx\tcalculated offset in dax file: 0x%llx\n", page_boundry, offset);
 
   //TODO: figure out how to tell whether block needs to move from NVM to DRAM or vice-versa
@@ -386,7 +388,7 @@ handle_wp_fault(unsigned long page_boundry, void* field)
 
 
 void
-handle_missing_fault(unsigned long page_boundry)
+handle_missing_fault(uint64_t page_boundry)
 {
   // Page mising fault case - probably the first touch case
   // allocate in DRAM as per LRU
@@ -394,7 +396,7 @@ handle_missing_fault(unsigned long page_boundry)
   struct timeval start, end;
 
   // map virtual address to dax file offset
-  unsigned long offset = (mem_allocated < DRAMSIZE) ? mem_allocated : mem_allocated - DRAMSIZE;
+  uint64_t offset = (mem_allocated < DRAMSIZE) ? mem_allocated : mem_allocated - DRAMSIZE;
   //printf("page boundry: 0x%llx\tcalculated offset in dax file: 0x%llx\n", page_boundry, offset);
 
   gettimeofday(&start, NULL);
@@ -421,6 +423,7 @@ handle_missing_fault(unsigned long page_boundry)
   //printf("page missing fault took %.4f seconds\n", elapsed(&start, &end));
 }
 
+FILE* page_boundries;
 
 void 
 *handle_fault(void* arg)
@@ -428,11 +431,17 @@ void
   static struct uffd_msg msg;
   void* field = arg;
   ssize_t nread;
-  unsigned long fault_addr;
-  unsigned long fault_flags;
-  unsigned long page_boundry;
+  uint64_t fault_addr;
+  uint64_t fault_flags;
+  uint64_t page_boundry;
   struct uffdio_range range;
   int ret;
+  
+  page_boundries = fopen("page_boundries.txt", "w+");
+  if (page_boundries == NULL) {
+    perror("page boundries file open");
+    assert(0);
+  }
 
   printf("fault handler entered\n");
 
@@ -493,7 +502,7 @@ void
     //TODO: check page fault event, handle it
     if (msg.event & UFFD_EVENT_PAGEFAULT) {
       //printf("received a page fault event\n");
-      fault_addr = (unsigned long)msg.arg.pagefault.address;
+      fault_addr = (uint64_t)msg.arg.pagefault.address;
       fault_flags = msg.arg.pagefault.flags;
 
       // allign faulting address to page boundry
@@ -506,13 +515,13 @@ void
         handle_wp_fault(page_boundry, field);
       }
       else {
-        //printf("received a page missing fault at addr 0x%lx\n", fault_addr);
+        fprintf(page_boundries, "received a page missing fault at addr 0x%lx\n", page_boundry);
         handle_missing_fault(page_boundry);
       }
 
       //printf("waking thread\n");
       // wake the faulting thread
-      range.start = (unsigned long)page_boundry;
+      range.start = (uint64_t)page_boundry;
       range.len = PAGE_SIZE;
 
       ret = ioctl(uffd, UFFDIO_WAKE, &range);
@@ -538,7 +547,7 @@ void
   char *line = NULL;
   ssize_t nread;
   size_t len;
-  unsigned long vm_start, vm_end;
+  uint64_t vm_start, vm_end;
   int n, num_pages;
   long index;
   off_t o;
@@ -547,7 +556,7 @@ void
   int maps_copy;
   ssize_t nwritten;
   FILE *pfn_file;
-  unsigned long num_pfn = 0;
+  uint64_t num_pfn = 0;
   
   maps = fopen("/proc/self/maps", "r");
   if (maps == NULL) {
@@ -597,7 +606,7 @@ void
       //printf("vm_start: %lX\tvm_end: %lX\n", vm_start, vm_end);
       num_pages = (vm_end - vm_start) / PAGE_SIZE;
       if (num_pages > 0) {
-        index = (vm_start / PAGE_SIZE) * sizeof(unsigned long long);
+        index = (vm_start / PAGE_SIZE) * sizeof(uint64_t);
 
         o = lseek(pagemaps, index, SEEK_SET);
         if (o != index) {
@@ -608,8 +617,8 @@ void
         //printf("num_pages: %d\n", num_pages);
 
         while (num_pages > 0) {
-          unsigned long long pfn;
-          t = read(pagemaps, &pfn, sizeof(unsigned long long));
+          uint64_t pfn;
+          t = read(pagemaps, &pfn, sizeof(uint64_t));
           if (t < 0) {
             perror("pagemaps read");
             assert(0);
@@ -638,7 +647,7 @@ void
 
       num_pages = (vm_end - vm_start) / PAGE_SIZE;
       if (num_pages > 0) {
-        index = (vm_start / PAGE_SIZE) * sizeof(unsigned long long);
+        index = (vm_start / PAGE_SIZE) * sizeof(uint64_t);
 
         o = lseek(pagemaps, index, SEEK_SET);
         if (o != index) {
@@ -649,8 +658,8 @@ void
         //printf("num_pages: %d\n", num_pages);
 
         while (num_pages > 0) {
-          unsigned long long pfn;
-          t = read(pagemaps, &pfn, sizeof(unsigned long long));
+          uint64_t pfn;
+          t = read(pagemaps, &pfn, sizeof(uint64_t));
           if (t < 0) {
             perror("pagemaps read");
             assert(0);

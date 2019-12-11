@@ -3,6 +3,8 @@
 #define HEMEM_H
 
 #include <pthread.h>
+#include <stdint.h>
+#include <inttypes.h>
 
 #define EXAMINE_PGTABLES
 
@@ -22,7 +24,7 @@ extern int dramfd;
 extern int nvmfd;
 extern long uffd;
 extern int init;
-extern unsigned long mem_allocated;
+extern uint64_t mem_allocated;
 extern int alloc_nvm;
 extern int wp_faults_handled;
 extern int missing_faults_handled;
@@ -37,7 +39,7 @@ void walk_pagetable();
 #ifdef EXAMINE_PGTABLES
 
 struct pagemapEntry {
-  unsigned long long pfn : 54;
+  uint64_t pfn : 54;
   unsigned int soft_dirty : 1;
   unsigned int exclusive : 1;
   unsigned int file_page : 1;

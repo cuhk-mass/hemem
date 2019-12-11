@@ -116,7 +116,7 @@ main(int argc, char **argv)
 
   gettimeofday(&stoptime, NULL);
   printf("Init took %.4f seconds\n", elapsed(&starttime, &stoptime));
-  printf("Region address: %016p\t size: %ld\n", p, size);
+  printf("Region address: %p\t size: %ld\n", p, size);
   //printf("Field addr: 0x%x\n", p);
 
   nelems = (size / threads) / elt_size; // number of elements per thread
