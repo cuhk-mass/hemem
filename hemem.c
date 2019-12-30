@@ -167,9 +167,9 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 FILE *ptes, *pdes, *pdtpes, *pml4es;
 
 void
-walk_fourth_level(int pde)
+walk_fourth_level(uint64_t pde)
 {
-  int *ptable4_ptr;
+  uint64_t *ptable4_ptr;
   uint64_t *pte_ptr;
   uint64_t pte;
 
@@ -186,7 +186,7 @@ walk_fourth_level(int pde)
 
     if (((pte & FLAGS_MASK) & HEMEM_PAGE_WALK_FLAGS) == HEMEM_PAGE_WALK_FLAGS) {
       if (((pte & FLAGS_MASK) & HEMEM_PWTPCD_FLAGS) == 0) {
-        printf("pte:   %016lx\n", pte);
+        printf("pte[%x]:   %016lx\n", i, pte);
       }
     }
 
@@ -194,9 +194,9 @@ walk_fourth_level(int pde)
   }
 }
 void
-walk_third_level(int pdtpe)
+walk_third_level(uint64_t pdtpe)
 {
-  int *ptable3_ptr;
+  uint64_t *ptable3_ptr;
   uint64_t *pde_ptr;
   uint64_t pde;
 
@@ -213,7 +213,7 @@ walk_third_level(int pdtpe)
 
     if (((pde & FLAGS_MASK) & HEMEM_PAGE_WALK_FLAGS) == HEMEM_PAGE_WALK_FLAGS) {
       if (((pde & FLAGS_MASK) & HEMEM_PWTPCD_FLAGS) == 0) {
-        printf("pde:   %016lx\n", pde);
+        printf("pde[%x]:   %016lx\n", i, pde);
 	walk_fourth_level(pde);
       }
     }
@@ -224,9 +224,9 @@ walk_third_level(int pdtpe)
 
 
 void
-walk_second_level(int pml4e)
+walk_second_level(uint64_t pml4e)
 {
-  int *ptable2_ptr;
+  uint64_t *ptable2_ptr;
   uint64_t *pdtpe_ptr;
   uint64_t pdtpe;
 
@@ -243,7 +243,7 @@ walk_second_level(int pml4e)
 
     if (((pdtpe & FLAGS_MASK) & HEMEM_PAGE_WALK_FLAGS) == HEMEM_PAGE_WALK_FLAGS) {
       if (((pdtpe & FLAGS_MASK) & HEMEM_PWTPCD_FLAGS) == 0) {
-        printf("pdtpe: %016lx\n", pdtpe);
+        printf("pdtpe[%x]: %016lx\n", i, pdtpe);
         walk_third_level(pdtpe);
       }
     }
@@ -303,7 +303,7 @@ walk_pagetable()
 
     if (((pml4e & FLAGS_MASK) & HEMEM_PAGE_WALK_FLAGS) == HEMEM_PAGE_WALK_FLAGS) {
       if (((pml4e & FLAGS_MASK) & HEMEM_PWTPCD_FLAGS) == 0) {
-        printf("pml4e: %016lx\n", pml4e);
+        printf("pml4e[%x]: %016lx\n", i, pml4e);
         walk_second_level(pml4e); 
       }
     }
