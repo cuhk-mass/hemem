@@ -36,6 +36,8 @@ void *handle_fault(void* arg);
 
 void walk_pagetable();
 
+uint64_t hemem_va_to_pa(uint64_t);
+
 #ifdef EXAMINE_PGTABLES
 
 struct pagemapEntry {

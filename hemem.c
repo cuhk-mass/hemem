@@ -30,7 +30,7 @@ int init = 0;
 uint64_t mem_allocated = 0;
 int wp_faults_handled = 0;
 int missing_faults_handled = 0;
-uint64_t pgd = 0;
+uint64_t base = 0;
 int devmemfd = -1;
 
 void
@@ -101,7 +101,7 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
   uffdio_register.range.len = length;
   uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
   uffdio_register.ioctls = 0;
-  uffdio_register.pgd = 0;
+  uffdio_register.base = 0;
   if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
     perror("ioctl uffdio_register");
     assert(0);
@@ -134,25 +134,25 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
   printf("registered %d pages with userfaultfd\n", page);
 */
 
-  pgd = uffdio_register.pgd;
+  base = uffdio_register.base;
   
-  printf("Set up userfault success\tpgd: %016lx\n", pgd);
+  printf("Set up userfault success\tbase: %016lx\n", base);
 
   return p;
 }
 
 
-#define ADDRESS_MASK	(uint64_t)0x00000ffffffff000UL
-#define FLAGS_MASK	(uint64_t)0x0000000000000fffUL
+#define ADDRESS_MASK	((uint64_t)0x00000ffffffff000UL)
+#define FLAGS_MASK	((uint64_t)0x0000000000000fffUL)
 
-#define HEMEM_PRESENT_FLAG 	(uint64_t)0x0000000000000001UL
-#define HEMEM_WRITE_FLAG	(uint64_t)0x0000000000000002UL
-#define HEMEM_USER_FLAG		(uint64_t)0x0000000000000004UL
-#define HEMEM_PWT_FLAG		(uint64_t)0x0000000000000008UL
-#define HEMEM_PCD_FLAG		(uint64_t)0x0000000000000010UL
-#define HEMEM_ACCESSED_FLAG	(uint64_t)0x0000000000000020UL
-#define HEMEM_IGNORED_FLAG	(uint64_t)0x0000000000000040UL
-#define HEMEM_HUGEPAGE_FLAG	(uint64_t)0x0000000000000080UL
+#define HEMEM_PRESENT_FLAG 	((uint64_t)0x0000000000000001UL)
+#define HEMEM_WRITE_FLAG	((uint64_t)0x0000000000000002UL)
+#define HEMEM_USER_FLAG		((uint64_t)0x0000000000000004UL)
+#define HEMEM_PWT_FLAG		((uint64_t)0x0000000000000008UL)
+#define HEMEM_PCD_FLAG		((uint64_t)0x0000000000000010UL)
+#define HEMEM_ACCESSED_FLAG	((uint64_t)0x0000000000000020UL)
+#define HEMEM_IGNORED_FLAG	((uint64_t)0x0000000000000040UL)
+#define HEMEM_HUGEPAGE_FLAG	((uint64_t)0x0000000000000080UL)
 
 
 #define HEMEM_PAGE_WALK_FLAGS	(HEMEM_PRESENT_FLAG | 	\
@@ -163,8 +163,45 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 
 #define HEMEM_PWTPCD_FLAGS	(HEMEM_PWT_FLAG | HEMEM_PCD_FLAG)
 
+#define HEMEM_PGDIR_SHIFT	39
+#define HEMEM_PTRS_PER_PGD	512
+#define HEMEM_PUD_SHIFT		30
+#define HEMEM_PTRS_PER_PUD	512
+#define HEMEM_PMD_SHIFT		21
+#define HEMEM_PTRS_PER_PMD	512
+#define HEMEM_PTRS_PER_PTE	512
 
-FILE *ptes, *pdes, *pdtpes, *pml4es;
+
+uint64_t
+hemem_va_to_pa(uint64_t va)
+{
+  uint64_t *pt_base = base & ADDRESS_MASK;
+  uint64_t *pgd = pt_base + ((va >> HEMEM_PGDIR_SHIFT) & (HEMEM_PTRS_PER_PGD - 1));
+  uint64_t *pud;
+  uint64_t *pmd;
+  uint64_t *pte;
+
+  printf("begin page walk for addr: %016lx\n", va);
+
+  if (!(((*pgd) & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
+    printf("hemem_va_to_pa: pgd not present!\n");
+    assert(0);
+  }
+  else {
+    printf("pgd present: %ln\n", pgd);
+  }
+
+  return 0;
+
+}
+
+void
+clear_accessed_bit(uint64_t *pte)
+{
+  *pte = *pte & ~HEMEM_ACCESSED_FLAG;
+}
+
+FILE *ptes, *pdes, *pdtpes, *pml4es, *valid;
 
 void
 walk_fourth_level(uint64_t pde)
@@ -186,7 +223,7 @@ walk_fourth_level(uint64_t pde)
 
     if (((pte & FLAGS_MASK) & HEMEM_PAGE_WALK_FLAGS) == HEMEM_PAGE_WALK_FLAGS) {
       if (((pte & FLAGS_MASK) & HEMEM_PWTPCD_FLAGS) == 0) {
-        printf("pte[%x]:   %016lx\n", i, pte);
+        fprintf(valid, "pte[%x]:   %016lx\n", i, pte);
       }
     }
 
@@ -213,7 +250,7 @@ walk_third_level(uint64_t pdtpe)
 
     if (((pde & FLAGS_MASK) & HEMEM_PAGE_WALK_FLAGS) == HEMEM_PAGE_WALK_FLAGS) {
       if (((pde & FLAGS_MASK) & HEMEM_PWTPCD_FLAGS) == 0) {
-        printf("pde[%x]:   %016lx\n", i, pde);
+        fprintf(valid, "pde[%x]:   %016lx\n", i, pde);
 	walk_fourth_level(pde);
       }
     }
@@ -243,7 +280,7 @@ walk_second_level(uint64_t pml4e)
 
     if (((pdtpe & FLAGS_MASK) & HEMEM_PAGE_WALK_FLAGS) == HEMEM_PAGE_WALK_FLAGS) {
       if (((pdtpe & FLAGS_MASK) & HEMEM_PWTPCD_FLAGS) == 0) {
-        printf("pdtpe[%x]: %016lx\n", i, pdtpe);
+        fprintf(valid, "pdtpe[%x]: %016lx\n", i, pdtpe);
         walk_third_level(pdtpe);
       }
     }
@@ -284,13 +321,15 @@ walk_pagetable()
     assert(0);
   }
 
+  valid = fopen("valid.txt", "w+");
+
   devmemfd = open("/dev/mem", O_RDWR | O_SYNC);
   if (devmemfd < 0) {
     perror("/dev/mem open");
     assert(0);
   }
 
-  rootptr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pgd & ADDRESS_MASK);
+  rootptr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, base & ADDRESS_MASK);
   if (rootptr == MAP_FAILED) {
     perror("/dev/mem mmap");
     assert(0);
@@ -303,7 +342,7 @@ walk_pagetable()
 
     if (((pml4e & FLAGS_MASK) & HEMEM_PAGE_WALK_FLAGS) == HEMEM_PAGE_WALK_FLAGS) {
       if (((pml4e & FLAGS_MASK) & HEMEM_PWTPCD_FLAGS) == 0) {
-        printf("pml4e[%x]: %016lx\n", i, pml4e);
+        fprintf(valid, "pml4e[%x]: %016lx\n", i, pml4e);
         walk_second_level(pml4e); 
       }
     }
@@ -316,7 +355,6 @@ int
 hemem_munmap(void* addr, size_t length)
 {
   return munmap(addr, length);
-
 }
 
 
@@ -423,7 +461,6 @@ handle_missing_fault(uint64_t page_boundry)
   //printf("page missing fault took %.4f seconds\n", elapsed(&start, &end));
 }
 
-FILE* page_boundries;
 
 void 
 *handle_fault(void* arg)
@@ -436,12 +473,6 @@ void
   uint64_t page_boundry;
   struct uffdio_range range;
   int ret;
-  
-  page_boundries = fopen("page_boundries.txt", "w+");
-  if (page_boundries == NULL) {
-    perror("page boundries file open");
-    assert(0);
-  }
 
   printf("fault handler entered\n");
 
@@ -515,7 +546,6 @@ void
         handle_wp_fault(page_boundry, field);
       }
       else {
-        fprintf(page_boundries, "received a page missing fault at addr 0x%lx\n", page_boundry);
         handle_missing_fault(page_boundry);
       }
 

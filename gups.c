@@ -181,6 +181,8 @@ main(int argc, char **argv)
 
   walk_pagetable();
 
+  uint64_t pa = hemem_va_to_pa((uint64_t)p);
+
   for (i = 0; i < threads; i++) {
     free(ga[i]->indices);
     free(ga[i]);
