@@ -151,7 +151,7 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 #define HEMEM_PWT_FLAG		((uint64_t)0x0000000000000008UL)
 #define HEMEM_PCD_FLAG		((uint64_t)0x0000000000000010UL)
 #define HEMEM_ACCESSED_FLAG	((uint64_t)0x0000000000000020UL)
-#define HEMEM_IGNORED_FLAG	((uint64_t)0x0000000000000040UL)
+#define HEMEM_DIRTY_FLAG	((uint64_t)0x0000000000000040UL)
 #define HEMEM_HUGEPAGE_FLAG	((uint64_t)0x0000000000000080UL)
 
 
@@ -159,7 +159,7 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 	       			 HEMEM_WRITE_FLAG |	\
 				 HEMEM_USER_FLAG |	\
 				 HEMEM_ACCESSED_FLAG |	\
-				 HEMEM_IGNORED_FLAG)
+				 HEMEM_DIRTY_FLAG)
 
 #define HEMEM_PWTPCD_FLAGS	(HEMEM_PWT_FLAG | HEMEM_PCD_FLAG)
 
@@ -169,37 +169,103 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 #define HEMEM_PTRS_PER_PUD	512
 #define HEMEM_PMD_SHIFT		21
 #define HEMEM_PTRS_PER_PMD	512
+#define HEMEM_PAGE_SHIFT	12
 #define HEMEM_PTRS_PER_PTE	512
 
 
 uint64_t
 hemem_va_to_pa(uint64_t va)
 {
-  uint64_t *pt_base = base & ADDRESS_MASK;
-  uint64_t *pgd = pt_base + ((va >> HEMEM_PGDIR_SHIFT) & (HEMEM_PTRS_PER_PGD - 1));
+  uint64_t pt_base = ((uint64_t)(base & ADDRESS_MASK));
+  uint64_t *pgd;
   uint64_t *pud;
   uint64_t *pmd;
   uint64_t *pte;
+  uint64_t pgd_entry;
+  uint64_t pud_entry;
+  uint64_t pmd_entry;
+  uint64_t pte_entry;
 
   printf("begin page walk for addr: %016lx\n", va);
 
-  if (!(((*pgd) & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
-    printf("hemem_va_to_pa: pgd not present!\n");
+  pgd = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pt_base);
+  if (pgd == MAP_FAILED) {
+    perror("hemem_va_to_pa pgd mmap:");
+    assert(0);
+  }
+  pgd_entry = *(pgd + (((va) >> HEMEM_PGDIR_SHIFT) & (HEMEM_PTRS_PER_PGD - 1)));
+  if (!((pgd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
+    printf("hemem_va_to_pa: pgd not present: %016lx\n", pgd_entry);
     assert(0);
   }
   else {
-    printf("pgd present: %ln\n", pgd);
+    printf("pgd present: %016lx\n", pgd_entry);
   }
 
-  return 0;
+  pud = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pgd_entry & ADDRESS_MASK);
+  if (pud == MAP_FAILED) {
+    perror("hemem_va_to_pa pud mmap:");
+    assert(0);
+  }
+  pud_entry = *(pud + (((va) >> HEMEM_PUD_SHIFT) & (HEMEM_PTRS_PER_PUD - 1)));
+  if (!((pud_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
+    printf("hemem_va_to_pa: pud not present: %016lx\n", pud_entry);
+    assert(0);
+  }
+  else {
+    printf("pud present: %016lx\n", pud_entry);
+  }
 
+  pmd = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pud_entry & ADDRESS_MASK);
+  if (pmd == MAP_FAILED) {
+    perror("hemem_va_to_pa pmd mmap:");
+    assert(0);
+  }
+  pmd_entry = *(pmd + (((va) >> HEMEM_PMD_SHIFT) & (HEMEM_PTRS_PER_PMD - 1)));
+  if (!((pmd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
+    printf("hemem_va_to_pa: pmd not present: %016lx\n", pmd_entry);
+    assert(0);
+  }
+  else {
+    printf("pmd present: %016lx\n", pmd_entry);
+  }
+
+  if ((pmd_entry & HEMEM_HUGEPAGE_FLAG) == HEMEM_HUGEPAGE_FLAG) {
+    printf("pmd huge page\n");
+    return pmd_entry;
+  }
+
+  pte = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pmd_entry & ADDRESS_MASK);
+  if (pte == MAP_FAILED) {
+    perror("hemem_va_to_pa pte mmap:");
+    assert(0);
+  }
+  pte_entry = *(pte + (((va) >> HEMEM_PAGE_SHIFT) & (HEMEM_PTRS_PER_PTE - 1)));
+  if (!((pte_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
+    printf("hemem_va_to_pa: pte not present: %016lx\n", pte_entry);
+    assert(0);
+  }
+  else {
+    printf("pte present: %016lx\n", pte_entry);
+  }
+
+  return pte_entry;
 }
+
 
 void
 clear_accessed_bit(uint64_t *pte)
 {
   *pte = *pte & ~HEMEM_ACCESSED_FLAG;
 }
+
+
+void
+clear_dirty_bit(uint64_t *pte)
+{
+  *pte = *pte & ~HEMEM_DIRTY_FLAG;
+}
+
 
 FILE *ptes, *pdes, *pdtpes, *pml4es, *valid;
 
