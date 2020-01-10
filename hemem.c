@@ -92,8 +92,8 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
   }  
   assert(p != NULL && p != MAP_FAILED);
 
-  uint64_t num_pages = (length / PAGE_SIZE);
-  printf("number of pages in region: %lu\n", num_pages);
+  //uint64_t num_pages = (length / PAGE_SIZE);
+  //printf("number of pages in region: %lu\n", num_pages);
 
   // register with uffd
   struct uffdio_register uffdio_register;
@@ -135,8 +135,7 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 */
 
   base = uffdio_register.base;
-  
-  printf("Set up userfault success\tbase: %016lx\n", base);
+  //printf("Set up userfault success\tbase: %016lx\n", base);
 
   return p;
 }
@@ -186,7 +185,7 @@ hemem_va_to_pa(uint64_t va)
   uint64_t pmd_entry;
   uint64_t pte_entry;
 
-  printf("begin page walk for addr: %016lx\n", va);
+  //printf("begin page walk for addr: %016lx\n", va);
 
   pgd = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pt_base);
   if (pgd == MAP_FAILED) {
@@ -199,7 +198,7 @@ hemem_va_to_pa(uint64_t va)
     assert(0);
   }
   else {
-    printf("pgd present: %016lx\n", pgd_entry);
+    //printf("pgd present: %016lx\n", pgd_entry);
   }
 
   pud = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pgd_entry & ADDRESS_MASK);
@@ -213,7 +212,7 @@ hemem_va_to_pa(uint64_t va)
     assert(0);
   }
   else {
-    printf("pud present: %016lx\n", pud_entry);
+    //printf("pud present: %016lx\n", pud_entry);
   }
 
   pmd = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pud_entry & ADDRESS_MASK);
@@ -227,11 +226,11 @@ hemem_va_to_pa(uint64_t va)
     assert(0);
   }
   else {
-    printf("pmd present: %016lx\n", pmd_entry);
+    //printf("pmd present: %016lx\n", pmd_entry);
   }
 
   if ((pmd_entry & HEMEM_HUGEPAGE_FLAG) == HEMEM_HUGEPAGE_FLAG) {
-    printf("pmd huge page\n");
+    //printf("pmd huge page\n");
     return pmd_entry;
   }
 
@@ -246,9 +245,13 @@ hemem_va_to_pa(uint64_t va)
     assert(0);
   }
   else {
-    printf("pte present: %016lx\n", pte_entry);
+    //printf("pte present: %016lx\n", pte_entry);
   }
 
+  munmap(pte, PAGE_SIZE);
+  munmap(pmd, PAGE_SIZE);
+  munmap(pud, PAGE_SIZE);
+  munmap(pgd, PAGE_SIZE);
   return pte_entry;
 }
 
@@ -270,7 +273,7 @@ clear_dirty_bit(uint64_t *pte)
 FILE *ptes, *pdes, *pdtpes, *pml4es, *valid;
 
 void
-walk_fourth_level(uint64_t pde)
+scan_fourth_level(uint64_t pde)
 {
   uint64_t *ptable4_ptr;
   uint64_t *pte_ptr;
@@ -295,9 +298,11 @@ walk_fourth_level(uint64_t pde)
 
     pte_ptr++;
   }
+
+  munmap(ptable4_ptr, PAGE_SIZE);
 }
 void
-walk_third_level(uint64_t pdtpe)
+scan_third_level(uint64_t pdtpe)
 {
   uint64_t *ptable3_ptr;
   uint64_t *pde_ptr;
@@ -317,17 +322,19 @@ walk_third_level(uint64_t pdtpe)
     if (((pde & FLAGS_MASK) & HEMEM_PAGE_WALK_FLAGS) == HEMEM_PAGE_WALK_FLAGS) {
       if (((pde & FLAGS_MASK) & HEMEM_PWTPCD_FLAGS) == 0) {
         fprintf(valid, "pde[%x]:   %016lx\n", i, pde);
-	walk_fourth_level(pde);
+	scan_fourth_level(pde);
       }
     }
 
     pde_ptr++;
   }
+
+  munmap(ptable3_ptr, PAGE_SIZE);
 }
 
 
 void
-walk_second_level(uint64_t pml4e)
+scan_second_level(uint64_t pml4e)
 {
   uint64_t *ptable2_ptr;
   uint64_t *pdtpe_ptr;
@@ -347,17 +354,19 @@ walk_second_level(uint64_t pml4e)
     if (((pdtpe & FLAGS_MASK) & HEMEM_PAGE_WALK_FLAGS) == HEMEM_PAGE_WALK_FLAGS) {
       if (((pdtpe & FLAGS_MASK) & HEMEM_PWTPCD_FLAGS) == 0) {
         fprintf(valid, "pdtpe[%x]: %016lx\n", i, pdtpe);
-        walk_third_level(pdtpe);
+        scan_third_level(pdtpe);
       }
     }
 
     pdtpe_ptr++;
   }
+
+  munmap(ptable2_ptr, PAGE_SIZE);
 }
 
 
 void
-walk_pagetable()
+scan_pagetable()
 {
   int *rootptr;
   uint64_t *pml4e_ptr;
@@ -409,11 +418,13 @@ walk_pagetable()
     if (((pml4e & FLAGS_MASK) & HEMEM_PAGE_WALK_FLAGS) == HEMEM_PAGE_WALK_FLAGS) {
       if (((pml4e & FLAGS_MASK) & HEMEM_PWTPCD_FLAGS) == 0) {
         fprintf(valid, "pml4e[%x]: %016lx\n", i, pml4e);
-        walk_second_level(pml4e); 
+        scan_second_level(pml4e); 
       }
     }
     pml4e_ptr++;
   }
+
+  munmap(rootptr, PAGE_SIZE);
 }
 
 
@@ -540,7 +551,7 @@ void
   struct uffdio_range range;
   int ret;
 
-  printf("fault handler entered\n");
+  //printf("fault handler entered\n");
 
   for (;;) {
     struct pollfd pollfd;
@@ -779,7 +790,7 @@ void
     nread = getline(&line, &len, maps);
   }
 
-  printf("num_pfn: %lu\n", num_pfn);
+  //printf("num_pfn: %lu\n", num_pfn);
 
   fclose(maps);
   close(pagemaps);

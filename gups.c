@@ -179,9 +179,10 @@ main(int argc, char **argv)
   assert(r == 0);
 #endif
 
-  walk_pagetable();
+  scan_pagetable();
 
   uint64_t pa = hemem_va_to_pa((uint64_t)p);
+  printf("hemem va to pa: %016lx -> %016lx\n", (uint64_t)p, pa);
 
   for (i = 0; i < threads; i++) {
     free(ga[i]->indices);

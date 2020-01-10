@@ -34,7 +34,7 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
 int hemem_munmap(void* addr, size_t length);
 void *handle_fault(void* arg);
 
-void walk_pagetable();
+void scan_pagetable();
 
 uint64_t hemem_va_to_pa(uint64_t);
 
