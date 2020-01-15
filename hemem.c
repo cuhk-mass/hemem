@@ -21,6 +21,38 @@
 #include "hemem.h"
 #include "timer.h"
 
+
+#define ADDRESS_MASK	((uint64_t)0x00000ffffffff000UL)
+#define FLAGS_MASK	((uint64_t)0x0000000000000fffUL)
+
+#define HEMEM_PRESENT_FLAG 	((uint64_t)0x0000000000000001UL)
+#define HEMEM_WRITE_FLAG	((uint64_t)0x0000000000000002UL)
+#define HEMEM_USER_FLAG		((uint64_t)0x0000000000000004UL)
+#define HEMEM_PWT_FLAG		((uint64_t)0x0000000000000008UL)
+#define HEMEM_PCD_FLAG		((uint64_t)0x0000000000000010UL)
+#define HEMEM_ACCESSED_FLAG	((uint64_t)0x0000000000000020UL)
+#define HEMEM_DIRTY_FLAG	((uint64_t)0x0000000000000040UL)
+#define HEMEM_HUGEPAGE_FLAG	((uint64_t)0x0000000000000080UL)
+
+
+#define HEMEM_PAGE_WALK_FLAGS	(HEMEM_PRESENT_FLAG | 	\
+	       			 HEMEM_WRITE_FLAG |	\
+				 HEMEM_USER_FLAG |	\
+				 HEMEM_ACCESSED_FLAG |	\
+				 HEMEM_DIRTY_FLAG)
+
+#define HEMEM_PWTPCD_FLAGS	(HEMEM_PWT_FLAG | HEMEM_PCD_FLAG)
+
+#define HEMEM_PGDIR_SHIFT	39
+#define HEMEM_PTRS_PER_PGD	512
+#define HEMEM_PUD_SHIFT		30
+#define HEMEM_PTRS_PER_PUD	512
+#define HEMEM_PMD_SHIFT		21
+#define HEMEM_PTRS_PER_PMD	512
+#define HEMEM_PAGE_SHIFT	12
+#define HEMEM_PTRS_PER_PTE	512
+
+
 pthread_t fault_thread;
 
 int dramfd = -1;
@@ -141,37 +173,6 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 }
 
 
-#define ADDRESS_MASK	((uint64_t)0x00000ffffffff000UL)
-#define FLAGS_MASK	((uint64_t)0x0000000000000fffUL)
-
-#define HEMEM_PRESENT_FLAG 	((uint64_t)0x0000000000000001UL)
-#define HEMEM_WRITE_FLAG	((uint64_t)0x0000000000000002UL)
-#define HEMEM_USER_FLAG		((uint64_t)0x0000000000000004UL)
-#define HEMEM_PWT_FLAG		((uint64_t)0x0000000000000008UL)
-#define HEMEM_PCD_FLAG		((uint64_t)0x0000000000000010UL)
-#define HEMEM_ACCESSED_FLAG	((uint64_t)0x0000000000000020UL)
-#define HEMEM_DIRTY_FLAG	((uint64_t)0x0000000000000040UL)
-#define HEMEM_HUGEPAGE_FLAG	((uint64_t)0x0000000000000080UL)
-
-
-#define HEMEM_PAGE_WALK_FLAGS	(HEMEM_PRESENT_FLAG | 	\
-	       			 HEMEM_WRITE_FLAG |	\
-				 HEMEM_USER_FLAG |	\
-				 HEMEM_ACCESSED_FLAG |	\
-				 HEMEM_DIRTY_FLAG)
-
-#define HEMEM_PWTPCD_FLAGS	(HEMEM_PWT_FLAG | HEMEM_PCD_FLAG)
-
-#define HEMEM_PGDIR_SHIFT	39
-#define HEMEM_PTRS_PER_PGD	512
-#define HEMEM_PUD_SHIFT		30
-#define HEMEM_PTRS_PER_PUD	512
-#define HEMEM_PMD_SHIFT		21
-#define HEMEM_PTRS_PER_PMD	512
-#define HEMEM_PAGE_SHIFT	12
-#define HEMEM_PTRS_PER_PTE	512
-
-
 uint64_t
 hemem_va_to_pa(uint64_t va)
 {
@@ -260,6 +261,14 @@ void
 clear_accessed_bit(uint64_t *pte)
 {
   *pte = *pte & ~HEMEM_ACCESSED_FLAG;
+  //flush_tlb_page(vma, *pte);
+}
+
+
+uint64_t
+get_accessed_bit(uint64_t pte)
+{
+  return pte & HEMEM_ACCESSED_FLAG;
 }
 
 
@@ -267,6 +276,13 @@ void
 clear_dirty_bit(uint64_t *pte)
 {
   *pte = *pte & ~HEMEM_DIRTY_FLAG;
+}
+
+
+uint64_t
+get_dirty_bit(uint64_t pte)
+{
+  return pte & HEMEM_DIRTY_FLAG;
 }
 
 
@@ -301,6 +317,8 @@ scan_fourth_level(uint64_t pde)
 
   munmap(ptable4_ptr, PAGE_SIZE);
 }
+
+
 void
 scan_third_level(uint64_t pdtpe)
 {

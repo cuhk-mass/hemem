@@ -184,6 +184,23 @@ main(int argc, char **argv)
   uint64_t pa = hemem_va_to_pa((uint64_t)p);
   printf("hemem va to pa: %016lx -> %016lx\n", (uint64_t)p, pa);
 
+  uint64_t ac = get_accessed_bit(pa);
+
+  printf("hemem pa accessed bit: %016lx\n", ac);
+  
+  clear_accessed_bit(&pa);
+
+  sleep(3);
+
+  ac = get_accessed_bit(pa);
+
+  printf("hemem pa accessed bit: %016lx\n", ac);
+
+  memset(p, 'a', 4096);
+  
+  ac = get_accessed_bit(pa);
+  printf("hemem pa accessed bit: %016lx\n", ac);
+  
   for (i = 0; i < threads; i++) {
     free(ga[i]->indices);
     free(ga[i]);

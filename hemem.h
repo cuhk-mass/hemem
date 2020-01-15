@@ -36,7 +36,12 @@ void *handle_fault(void* arg);
 
 void scan_pagetable();
 
-uint64_t hemem_va_to_pa(uint64_t);
+void clear_accessed_bit(uint64_t *pa);
+uint64_t get_accessed_bit(uint64_t pa);
+void clear_dirty_bit(uint64_t *pa);
+uint64_t get_dirty_bit(uint64_t pa);
+
+uint64_t hemem_va_to_pa(uint64_t va);
 
 #ifdef EXAMINE_PGTABLES
 
