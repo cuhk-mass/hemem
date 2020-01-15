@@ -20,38 +20,7 @@
 
 #include "hemem.h"
 #include "timer.h"
-
-
-#define ADDRESS_MASK	((uint64_t)0x00000ffffffff000UL)
-#define FLAGS_MASK	((uint64_t)0x0000000000000fffUL)
-
-#define HEMEM_PRESENT_FLAG 	((uint64_t)0x0000000000000001UL)
-#define HEMEM_WRITE_FLAG	((uint64_t)0x0000000000000002UL)
-#define HEMEM_USER_FLAG		((uint64_t)0x0000000000000004UL)
-#define HEMEM_PWT_FLAG		((uint64_t)0x0000000000000008UL)
-#define HEMEM_PCD_FLAG		((uint64_t)0x0000000000000010UL)
-#define HEMEM_ACCESSED_FLAG	((uint64_t)0x0000000000000020UL)
-#define HEMEM_DIRTY_FLAG	((uint64_t)0x0000000000000040UL)
-#define HEMEM_HUGEPAGE_FLAG	((uint64_t)0x0000000000000080UL)
-
-
-#define HEMEM_PAGE_WALK_FLAGS	(HEMEM_PRESENT_FLAG | 	\
-	       			 HEMEM_WRITE_FLAG |	\
-				 HEMEM_USER_FLAG |	\
-				 HEMEM_ACCESSED_FLAG |	\
-				 HEMEM_DIRTY_FLAG)
-
-#define HEMEM_PWTPCD_FLAGS	(HEMEM_PWT_FLAG | HEMEM_PCD_FLAG)
-
-#define HEMEM_PGDIR_SHIFT	39
-#define HEMEM_PTRS_PER_PGD	512
-#define HEMEM_PUD_SHIFT		30
-#define HEMEM_PTRS_PER_PUD	512
-#define HEMEM_PMD_SHIFT		21
-#define HEMEM_PTRS_PER_PMD	512
-#define HEMEM_PAGE_SHIFT	12
-#define HEMEM_PTRS_PER_PTE	512
-
+#include "paging.h"
 
 pthread_t fault_thread;
 
@@ -170,279 +139,6 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
   //printf("Set up userfault success\tbase: %016lx\n", base);
 
   return p;
-}
-
-
-uint64_t
-hemem_va_to_pa(uint64_t va)
-{
-  uint64_t pt_base = ((uint64_t)(base & ADDRESS_MASK));
-  uint64_t *pgd;
-  uint64_t *pud;
-  uint64_t *pmd;
-  uint64_t *pte;
-  uint64_t pgd_entry;
-  uint64_t pud_entry;
-  uint64_t pmd_entry;
-  uint64_t pte_entry;
-
-  //printf("begin page walk for addr: %016lx\n", va);
-
-  pgd = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pt_base);
-  if (pgd == MAP_FAILED) {
-    perror("hemem_va_to_pa pgd mmap:");
-    assert(0);
-  }
-  pgd_entry = *(pgd + (((va) >> HEMEM_PGDIR_SHIFT) & (HEMEM_PTRS_PER_PGD - 1)));
-  if (!((pgd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
-    printf("hemem_va_to_pa: pgd not present: %016lx\n", pgd_entry);
-    assert(0);
-  }
-  else {
-    //printf("pgd present: %016lx\n", pgd_entry);
-  }
-
-  pud = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pgd_entry & ADDRESS_MASK);
-  if (pud == MAP_FAILED) {
-    perror("hemem_va_to_pa pud mmap:");
-    assert(0);
-  }
-  pud_entry = *(pud + (((va) >> HEMEM_PUD_SHIFT) & (HEMEM_PTRS_PER_PUD - 1)));
-  if (!((pud_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
-    printf("hemem_va_to_pa: pud not present: %016lx\n", pud_entry);
-    assert(0);
-  }
-  else {
-    //printf("pud present: %016lx\n", pud_entry);
-  }
-
-  pmd = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pud_entry & ADDRESS_MASK);
-  if (pmd == MAP_FAILED) {
-    perror("hemem_va_to_pa pmd mmap:");
-    assert(0);
-  }
-  pmd_entry = *(pmd + (((va) >> HEMEM_PMD_SHIFT) & (HEMEM_PTRS_PER_PMD - 1)));
-  if (!((pmd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
-    printf("hemem_va_to_pa: pmd not present: %016lx\n", pmd_entry);
-    assert(0);
-  }
-  else {
-    //printf("pmd present: %016lx\n", pmd_entry);
-  }
-
-  if ((pmd_entry & HEMEM_HUGEPAGE_FLAG) == HEMEM_HUGEPAGE_FLAG) {
-    //printf("pmd huge page\n");
-    return pmd_entry;
-  }
-
-  pte = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pmd_entry & ADDRESS_MASK);
-  if (pte == MAP_FAILED) {
-    perror("hemem_va_to_pa pte mmap:");
-    assert(0);
-  }
-  pte_entry = *(pte + (((va) >> HEMEM_PAGE_SHIFT) & (HEMEM_PTRS_PER_PTE - 1)));
-  if (!((pte_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
-    printf("hemem_va_to_pa: pte not present: %016lx\n", pte_entry);
-    assert(0);
-  }
-  else {
-    //printf("pte present: %016lx\n", pte_entry);
-  }
-
-  munmap(pte, PAGE_SIZE);
-  munmap(pmd, PAGE_SIZE);
-  munmap(pud, PAGE_SIZE);
-  munmap(pgd, PAGE_SIZE);
-  return pte_entry;
-}
-
-
-void
-clear_accessed_bit(uint64_t *pte)
-{
-  *pte = *pte & ~HEMEM_ACCESSED_FLAG;
-  //flush_tlb_page(vma, *pte);
-}
-
-
-uint64_t
-get_accessed_bit(uint64_t pte)
-{
-  return pte & HEMEM_ACCESSED_FLAG;
-}
-
-
-void
-clear_dirty_bit(uint64_t *pte)
-{
-  *pte = *pte & ~HEMEM_DIRTY_FLAG;
-}
-
-
-uint64_t
-get_dirty_bit(uint64_t pte)
-{
-  return pte & HEMEM_DIRTY_FLAG;
-}
-
-
-FILE *ptes, *pdes, *pdtpes, *pml4es, *valid;
-
-void
-scan_fourth_level(uint64_t pde)
-{
-  uint64_t *ptable4_ptr;
-  uint64_t *pte_ptr;
-  uint64_t pte;
-
-  ptable4_ptr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pde & ADDRESS_MASK);
-  if (ptable4_ptr == MAP_FAILED) {
-    perror("third level page table mmap");
-    assert(0);
-  }
-
-  pte_ptr = (uint64_t*)ptable4_ptr;
-  for (int i = 0; i < 512; i++) {
-    pte = *pte_ptr;
-    fprintf(ptes, "%016lx\n", pte);
-
-    if (((pte & FLAGS_MASK) & HEMEM_PAGE_WALK_FLAGS) == HEMEM_PAGE_WALK_FLAGS) {
-      if (((pte & FLAGS_MASK) & HEMEM_PWTPCD_FLAGS) == 0) {
-        fprintf(valid, "pte[%x]:   %016lx\n", i, pte);
-      }
-    }
-
-    pte_ptr++;
-  }
-
-  munmap(ptable4_ptr, PAGE_SIZE);
-}
-
-
-void
-scan_third_level(uint64_t pdtpe)
-{
-  uint64_t *ptable3_ptr;
-  uint64_t *pde_ptr;
-  uint64_t pde;
-
-  ptable3_ptr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pdtpe & ADDRESS_MASK);
-  if (ptable3_ptr == MAP_FAILED) {
-    perror("third level page table mmap");
-    assert(0);
-  }
-
-  pde_ptr = (uint64_t*)ptable3_ptr;
-  for (int i = 0; i < 512; i++) {
-    pde = *pde_ptr;
-    fprintf(pdes, "%016lx\n", pde);
-
-    if (((pde & FLAGS_MASK) & HEMEM_PAGE_WALK_FLAGS) == HEMEM_PAGE_WALK_FLAGS) {
-      if (((pde & FLAGS_MASK) & HEMEM_PWTPCD_FLAGS) == 0) {
-        fprintf(valid, "pde[%x]:   %016lx\n", i, pde);
-	scan_fourth_level(pde);
-      }
-    }
-
-    pde_ptr++;
-  }
-
-  munmap(ptable3_ptr, PAGE_SIZE);
-}
-
-
-void
-scan_second_level(uint64_t pml4e)
-{
-  uint64_t *ptable2_ptr;
-  uint64_t *pdtpe_ptr;
-  uint64_t pdtpe;
-
-  ptable2_ptr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pml4e & ADDRESS_MASK);
-  if (ptable2_ptr == MAP_FAILED) {
-    perror("second level page table mmap");
-    assert(0);
-  }
-
-  pdtpe_ptr = (uint64_t*)ptable2_ptr;
-  for (int i = 0; i < 512; i++) {
-    pdtpe = *pdtpe_ptr;
-    fprintf(pdtpes, "%016lx\n", pdtpe);
-
-    if (((pdtpe & FLAGS_MASK) & HEMEM_PAGE_WALK_FLAGS) == HEMEM_PAGE_WALK_FLAGS) {
-      if (((pdtpe & FLAGS_MASK) & HEMEM_PWTPCD_FLAGS) == 0) {
-        fprintf(valid, "pdtpe[%x]: %016lx\n", i, pdtpe);
-        scan_third_level(pdtpe);
-      }
-    }
-
-    pdtpe_ptr++;
-  }
-
-  munmap(ptable2_ptr, PAGE_SIZE);
-}
-
-
-void
-scan_pagetable()
-{
-  int *rootptr;
-  uint64_t *pml4e_ptr;
-  uint64_t pml4e;
-
-  pml4es = fopen("pml4es.txt", "w+");
-  if (pml4es == NULL) {
-    perror("pml4e file open");
-    assert(0);
-  }
-  
-  pdtpes = fopen("pdtpes.txt", "w+");
-  if (pdtpes == NULL) {
-    perror("pdtpes open");
-    assert(0);
-  }
-
-  pdes = fopen("pdes.txt", "w+");
-  if (pdes == NULL) {
-    perror("pdes open");
-    assert(0);  
-  }
-  
-  ptes = fopen("ptes.txt", "w+");
-  if (ptes == NULL) {
-    perror("ptes open");
-    assert(0);
-  }
-
-  valid = fopen("valid.txt", "w+");
-
-  devmemfd = open("/dev/mem", O_RDWR | O_SYNC);
-  if (devmemfd < 0) {
-    perror("/dev/mem open");
-    assert(0);
-  }
-
-  rootptr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, base & ADDRESS_MASK);
-  if (rootptr == MAP_FAILED) {
-    perror("/dev/mem mmap");
-    assert(0);
-  }
-
-  pml4e_ptr = (uint64_t*)rootptr;
-  for (int i = 0; i < 512; i++) {
-    pml4e = *pml4e_ptr;
-    fprintf(pml4es, "%016lx\n", pml4e);
-
-    if (((pml4e & FLAGS_MASK) & HEMEM_PAGE_WALK_FLAGS) == HEMEM_PAGE_WALK_FLAGS) {
-      if (((pml4e & FLAGS_MASK) & HEMEM_PWTPCD_FLAGS) == 0) {
-        fprintf(valid, "pml4e[%x]: %016lx\n", i, pml4e);
-        scan_second_level(pml4e); 
-      }
-    }
-    pml4e_ptr++;
-  }
-
-  munmap(rootptr, PAGE_SIZE);
 }
 
 
@@ -662,160 +358,36 @@ void
   }
 }
 
-#ifdef EXAMINE_PGTABLES
-void
-*examine_pagetables()
+
+uint64_t hemem_va_to_pa(uint64_t va)
 {
-  FILE *maps;
-  int pagemaps;
-  FILE *kpageflags;
-  char *line = NULL;
-  ssize_t nread;
-  size_t len;
-  uint64_t vm_start, vm_end;
-  int n, num_pages;
-  long index;
-  off_t o;
-  ssize_t t;
-  struct pagemapEntry entry;
-  int maps_copy;
-  ssize_t nwritten;
-  FILE *pfn_file;
-  uint64_t num_pfn = 0;
-  
-  maps = fopen("/proc/self/maps", "r");
-  if (maps == NULL) {
-    perror("/proc/self/maps fopen");
-    assert(0);
-  }
-
-  pagemaps = open("/proc/self/pagemap", O_RDONLY);
-  if (pagemaps == -1) {
-    perror("/proc/self/pagemap fopen");
-    assert(0);
-  }
-
-  maps_copy = open("maps.txt", O_CREAT | O_RDWR);
-  if (maps_copy == -1) {
-    perror("map.txt open");
-    assert(0);
-  }
-
-  kpageflags = fopen("/proc/kpageflags", "r");
-  if (kpageflags == NULL) {
-    perror("/proc/kpageflags fopen");
-    assert(0);
-  }
-
-  pfn_file = fopen("pfn.txt", "w+");
-  if (pfn_file == NULL) {
-    perror("pfn.txt open");
-    assert(0);
-  }
-
-  nread = getline(&line, &len, maps); 
-  while (nread != -1) {
-    nwritten = write(maps_copy, line, nread);
-    if (nwritten < 0) {
-      perror("maps_copy write");
-      assert(0);
-    }
-    if (strstr(line, DRAMPATH) != NULL) {
-      //printf("%s", line);
-      n = sscanf(line, "%lX-%lX", &vm_start, &vm_end);
-      if (n != 2) {
-        printf("error, invalid line: %s\n", line);
-        assert(0);
-      }
-
-      //printf("vm_start: %lX\tvm_end: %lX\n", vm_start, vm_end);
-      num_pages = (vm_end - vm_start) / PAGE_SIZE;
-      if (num_pages > 0) {
-        index = (vm_start / PAGE_SIZE) * sizeof(uint64_t);
-
-        o = lseek(pagemaps, index, SEEK_SET);
-        if (o != index) {
-          perror("pagemaps lseek");
-          assert(0);
-        }
-
-        //printf("num_pages: %d\n", num_pages);
-
-        while (num_pages > 0) {
-          uint64_t pfn;
-          t = read(pagemaps, &pfn, sizeof(uint64_t));
-          if (t < 0) {
-            perror("pagemaps read");
-            assert(0);
-          }
-
-          //printf("%016llX\n", pfn);
-          entry.pfn = pfn & 0x7ffffffffffff;
-          entry.soft_dirty = (pfn >> 55) & 1;
-          entry.exclusive = (pfn >> 56) & 1;
-          entry.file_page = (pfn >> 61) & 1;
-          entry.swapped = (pfn >> 62) & 1;
-          entry.present = (pfn >> 63) & 1;
-
-          fprintf(pfn_file, "DRAM: %016lX\n", (entry.pfn * sysconf(_SC_PAGESIZE))); 
-          num_pages--;
-	  num_pfn++;
-        }
-      }
-    }
-    else if (strstr(line, NVMPATH) != NULL) {
-      n = sscanf(line, "%lX-%lX", &vm_start, &vm_end);
-      if (n != 2) {
-        printf("error, invalid line: %s\n", line);
-        assert(0);
-      }
-
-      num_pages = (vm_end - vm_start) / PAGE_SIZE;
-      if (num_pages > 0) {
-        index = (vm_start / PAGE_SIZE) * sizeof(uint64_t);
-
-        o = lseek(pagemaps, index, SEEK_SET);
-        if (o != index) {
-          perror("pagemaps lseek");
-          assert(0);
-        }
-
-        //printf("num_pages: %d\n", num_pages);
-
-        while (num_pages > 0) {
-          uint64_t pfn;
-          t = read(pagemaps, &pfn, sizeof(uint64_t));
-          if (t < 0) {
-            perror("pagemaps read");
-            assert(0);
-          }
-
-          //printf("%016llX\n", pfn);
-          entry.pfn = pfn & 0x7ffffffffffff;
-          entry.soft_dirty = (pfn >> 55) & 1;
-          entry.exclusive = (pfn >> 56) & 1;
-          entry.file_page = (pfn >> 61) & 1;
-          entry.swapped = (pfn >> 62) & 1;
-          entry.present = (pfn >> 63) & 1;
-
-          fprintf(pfn_file, "NVM:  %016lX\n", (entry.pfn * sysconf(_SC_PAGE_SIZE)));
-          num_pages--;
-	  num_pfn++;
-        }
-      }    
-      //printf("%s", line);
-    }
-    nread = getline(&line, &len, maps);
-  }
-
-  //printf("num_pfn: %lu\n", num_pfn);
-
-  fclose(maps);
-  close(pagemaps);
-  fclose(kpageflags);
-  close(maps_copy);
-  fclose(pfn_file);
-
-  return 0;
+  uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
+  return va_to_pa(page_boundry);
 }
-#endif
+
+void hemem_clear_accessed_bit(uint64_t va)
+{
+  uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
+  struct uffdio_range range;
+  int ret;
+
+  clear_accessed_bit(page_boundry);
+
+  range.start = page_boundry;
+  range.len = PAGE_SIZE;
+  
+  ret = ioctl(uffd, UFFDIO_TLBFLUSH, &range);
+
+  if (ret < 0) {
+    perror("uffdio tlbflush");
+    assert(0);
+  }
+}
+
+
+int hemem_get_accessed_bit(uint64_t va)
+{
+  uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
+
+  return get_accessed_bit(page_boundry);
+}

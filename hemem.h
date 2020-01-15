@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include <inttypes.h>
 
-#define EXAMINE_PGTABLES
+#include "paging.h"
 
 #define NVMSIZE		(128L * (1024L * 1024L * 1024L))
 #define DRAMSIZE	(8L * (1024L * 1024L * 1024L))
@@ -22,6 +22,8 @@ extern pthread_t fault_thread;
 
 extern int dramfd;
 extern int nvmfd;
+extern int devmemfd;
+extern uint64_t base;
 extern long uffd;
 extern int init;
 extern uint64_t mem_allocated;
@@ -29,33 +31,14 @@ extern int alloc_nvm;
 extern int wp_faults_handled;
 extern int missing_faults_handled;
 
+
 void hemem_init();
 void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
 int hemem_munmap(void* addr, size_t length);
 void *handle_fault(void* arg);
 
-void scan_pagetable();
-
-void clear_accessed_bit(uint64_t *pa);
-uint64_t get_accessed_bit(uint64_t pa);
-void clear_dirty_bit(uint64_t *pa);
-uint64_t get_dirty_bit(uint64_t pa);
-
 uint64_t hemem_va_to_pa(uint64_t va);
-
-#ifdef EXAMINE_PGTABLES
-
-struct pagemapEntry {
-  uint64_t pfn : 54;
-  unsigned int soft_dirty : 1;
-  unsigned int exclusive : 1;
-  unsigned int file_page : 1;
-  unsigned int swapped : 1;
-  unsigned int present : 1;
-};
-
-void *examine_pagetables();
-
-#endif /*EXAMINE_PGTABLES*/
+void hemem_clear_accessed_bit(uint64_t va);
+int hemem_get_accessed_bit(uint64_t va);
 
 #endif /* HEMEM_H */
