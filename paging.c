@@ -105,9 +105,8 @@ va_to_pa(uint64_t va)
   return pte_entry;
 }
 
-
 void
-clear_accessed_bit(uint64_t va)
+clear_bit(uint64_t va, uint64_t bit)
 {
   uint64_t pt_base = ((uint64_t)(base & ADDRESS_MASK));
   uint64_t *pgd;
@@ -165,7 +164,7 @@ clear_accessed_bit(uint64_t va)
 
   if ((*pmd_entry & HEMEM_HUGEPAGE_FLAG) == HEMEM_HUGEPAGE_FLAG) {
     //printf("pmd huge page\n");
-    *pmd_entry = *pmd_entry & ~HEMEM_ACCESSED_FLAG;
+    *pmd_entry = *pmd_entry & ~bit;
     munmap(pmd, PAGE_SIZE);
     munmap(pud, PAGE_SIZE);
     munmap(pgd, PAGE_SIZE);
@@ -186,7 +185,7 @@ clear_accessed_bit(uint64_t va)
     //printf("pte present: %016lx\n", pte_entry);
   }
   
-  *pte_entry = *pte_entry & ~HEMEM_ACCESSED_FLAG;
+  *pte_entry = *pte_entry & ~bit;
 
   munmap(pte, PAGE_SIZE);
   munmap(pmd, PAGE_SIZE);
@@ -194,9 +193,8 @@ clear_accessed_bit(uint64_t va)
   munmap(pgd, PAGE_SIZE);
 }
 
-
 uint64_t
-get_accessed_bit(uint64_t va)
+get_bit(uint64_t va, uint64_t bit)
 {
   uint64_t pt_base = ((uint64_t)(base & ADDRESS_MASK));
   uint64_t *pgd;
@@ -212,12 +210,12 @@ get_accessed_bit(uint64_t va)
 
   pgd = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pt_base);
   if (pgd == MAP_FAILED) {
-    perror("clear_accessed_bit: pgd mmap:");
+    perror("get_accessed_bit: pgd mmap:");
     assert(0);
   }
   pgd_entry = (pgd + (((va) >> HEMEM_PGDIR_SHIFT) & (HEMEM_PTRS_PER_PGD - 1)));
   if (!((*pgd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
-    printf("clear_accessed_bit: pgd not present: %016lx\n", *pgd_entry);
+    printf("get_accessed_bit: pgd not present: %016lx\n", *pgd_entry);
     assert(0);
   }
   else {
@@ -226,12 +224,12 @@ get_accessed_bit(uint64_t va)
 
   pud = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pgd_entry & ADDRESS_MASK);
   if (pud == MAP_FAILED) {
-    perror("clear_accessed_bit: pud mmap:");
+    perror("get_accessed_bit: pud mmap:");
     assert(0);
   }
   pud_entry = (pud + (((va) >> HEMEM_PUD_SHIFT) & (HEMEM_PTRS_PER_PUD - 1)));
   if (!((*pud_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
-    printf("clear_accessed_bit: pud not present: %016lx\n", *pud_entry);
+    printf("get_accessed_bit: pud not present: %016lx\n", *pud_entry);
     assert(0);
   }
   else {
@@ -240,12 +238,12 @@ get_accessed_bit(uint64_t va)
 
   pmd = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pud_entry & ADDRESS_MASK);
   if (pmd == MAP_FAILED) {
-    perror("clear_accessed_bit: pmd mmap:");
+    perror("get_accessed_bit: pmd mmap:");
     assert(0);
   }
   pmd_entry = (pmd + (((va) >> HEMEM_PMD_SHIFT) & (HEMEM_PTRS_PER_PMD - 1)));
   if (!((*pmd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
-    printf("clear_accessed_bit: pmd not present: %016lx\n", *pmd_entry);
+    printf("get_accessed_bit: pmd not present: %016lx\n", *pmd_entry);
     assert(0);
   }
   else {
@@ -254,7 +252,7 @@ get_accessed_bit(uint64_t va)
 
   if ((*pmd_entry & HEMEM_HUGEPAGE_FLAG) == HEMEM_HUGEPAGE_FLAG) {
     //printf("pmd huge page\n");
-    int ret = *pmd_entry & HEMEM_ACCESSED_FLAG;
+    int ret = *pmd_entry & bit;
     munmap(pmd, PAGE_SIZE);
     munmap(pud, PAGE_SIZE);
     munmap(pgd, PAGE_SIZE);
@@ -263,19 +261,19 @@ get_accessed_bit(uint64_t va)
 
   pte = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pmd_entry & ADDRESS_MASK);
   if (pte == MAP_FAILED) {
-    perror("clear_accessed_bit pte mmap:");
+    perror("get_accessed_bit pte mmap:");
     assert(0);
   }
   pte_entry = (pte + (((va) >> HEMEM_PAGE_SHIFT) & (HEMEM_PTRS_PER_PTE - 1)));
   if (!((*pte_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
-    printf("clear_accessed_bit: pte not present: %016lx\n", *pte_entry);
+    printf("get_accessed_bit: pte not present: %016lx\n", *pte_entry);
     assert(0);
   }
   else {
     //printf("pte present: %016lx\n", pte_entry);
   }
   
-  int ret = *pte_entry & HEMEM_ACCESSED_FLAG;
+  int ret = *pte_entry & bit;
 
   munmap(pte, PAGE_SIZE);
   munmap(pmd, PAGE_SIZE);
@@ -283,32 +281,40 @@ get_accessed_bit(uint64_t va)
   munmap(pgd, PAGE_SIZE);
 
   return ret;
+
 }
 
 
 void
-clear_dirty_bit(uint64_t pa)
+clear_accessed_bit(uint64_t va)
 {
-  uint64_t *pte;
-
-  pte = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pa);
-  if (pte == MAP_FAILED) {
-    perror("clear_dirty_bit: pte mmap");
-    assert(0);
-  }
-
-  *pte = *pte & ~HEMEM_DIRTY_FLAG;
+  clear_bit(va, HEMEM_ACCESSED_FLAG);
 }
 
 
 uint64_t
-get_dirty_bit(uint64_t pte)
+get_accessed_bit(uint64_t va)
 {
-  return pte & HEMEM_DIRTY_FLAG;
+  return get_bit(va, HEMEM_ACCESSED_FLAG);
+}
+
+
+void
+clear_dirty_bit(uint64_t va)
+{
+  clear_bit(va, HEMEM_DIRTY_FLAG);
+}
+
+
+uint64_t
+get_dirty_bit(uint64_t va)
+{
+  return get_bit(va, HEMEM_DIRTY_FLAG);
 }
 
 
 FILE *ptes, *pdes, *pdtpes, *pml4es, *valid;
+
 
 void
 scan_fourth_level(uint64_t pde)
@@ -412,31 +418,35 @@ scan_pagetable()
   uint64_t *pml4e_ptr;
   uint64_t pml4e;
 
-  pml4es = fopen("pml4es.txt", "w+");
+  pml4es = fopen("logs/pml4es.txt", "w+");
   if (pml4es == NULL) {
     perror("pml4e file open");
     assert(0);
   }
   
-  pdtpes = fopen("pdtpes.txt", "w+");
+  pdtpes = fopen("logs/pdtpes.txt", "w+");
   if (pdtpes == NULL) {
     perror("pdtpes open");
     assert(0);
   }
 
-  pdes = fopen("pdes.txt", "w+");
+  pdes = fopen("logs/pdes.txt", "w+");
   if (pdes == NULL) {
     perror("pdes open");
     assert(0);  
   }
   
-  ptes = fopen("ptes.txt", "w+");
+  ptes = fopen("logs/ptes.txt", "w+");
   if (ptes == NULL) {
     perror("ptes open");
     assert(0);
   }
 
-  valid = fopen("valid.txt", "w+");
+  valid = fopen("logs/valid.txt", "w+");
+  if (valid == NULL) {
+    perror("valid open");
+    assert(0);
+  }
 
   devmemfd = open("/dev/mem", O_RDWR | O_SYNC);
   if (devmemfd < 0) {
@@ -500,7 +510,7 @@ void
     assert(0);
   }
 
-  maps_copy = open("maps.txt", O_CREAT | O_RDWR);
+  maps_copy = open("logs/maps.txt", O_CREAT | O_RDWR);
   if (maps_copy == -1) {
     perror("map.txt open");
     assert(0);
@@ -512,7 +522,7 @@ void
     assert(0);
   }
 
-  pfn_file = fopen("pfn.txt", "w+");
+  pfn_file = fopen("logs/pfn.txt", "w+");
   if (pfn_file == NULL) {
     perror("pfn.txt open");
     assert(0);
