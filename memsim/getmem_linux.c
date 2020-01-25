@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <pthread.h>
 #include <assert.h>
+#include <inttypes.h>
 
 #include "shared.h"
 
@@ -29,11 +30,13 @@ static bool fastmem_bitmap[FASTMEM_PAGES], slowmem_bitmap[SLOWMEM_PAGES];
 static pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
 static bool __thread in_kswapd = false;
 
-int listnum(uint64_t framenum)
+int listnum(struct pte *pte)
 {
   int listnum = -1;
-
+  
   pthread_mutex_lock(&global_lock);
+  
+  uint64_t framenum = (pte->addr & SLOWMEM_MASK) / BASE_PAGE_SIZE;
 
   for(struct page *p = pages_active[SLOWMEM].first; p != NULL; p = p->next) {
     if(p->framenum == framenum) {
@@ -180,6 +183,13 @@ static void *kswapd(void *arg)
 	    // Free slowmem
 	    slowmem_bitmap[p->framenum] = false;
 
+	    LOG("%zu cold (%" PRIu64 ") -> hot (%" PRIu64 "), "
+		"slowmem.active = %zu, slowmem.inactive = %zu\n",
+		runtime,
+		p->framenum, i,
+		pages_active[SLOWMEM].numentries,
+		pages_inactive[SLOWMEM].numentries);
+
 	    // Remap page
 	    tlb_shootdown(p->framenum * BASE_PAGE_SIZE);
 	    p->framenum = i;
@@ -187,9 +197,6 @@ static void *kswapd(void *arg)
 
 	    // Put on fastmem active list
 	    enqueue_fifo(&pages_active[FASTMEM], p);
-
-	    fprintf(stderr, "%zu cold -> hot, %zu\t%zu\n", runtime,
-		    pages_active[SLOWMEM].numentries, pages_inactive[SLOWMEM].numentries);
 
 	    moved = true;
 	    break;
@@ -206,7 +213,7 @@ static void *kswapd(void *arg)
 	if(cp == NULL) {
 	  // All fastmem pages are hot -- bail out
 	  enqueue_fifo(&pages_active[SLOWMEM], p);
-	  break;
+	  goto out;
 	}
 
 	for(uint64_t i = 0; i < SLOWMEM_PAGES; i++) {
@@ -232,6 +239,7 @@ static void *kswapd(void *arg)
       }
     }
 
+  out:
     pthread_mutex_unlock(&global_lock);
     
     oldruntime = runtime;
@@ -281,6 +289,9 @@ uint64_t getmem(uint64_t addr, struct pte *pte)
 	// Free fastmem
 	fastmem_bitmap[p->framenum] = false;
 
+	LOG("%zu OOM hot (%" PRIu64 ") -> cold (%" PRIu64 ")\n",
+	    runtime, p->framenum, i);
+
 	// Remap page
 	tlb_shootdown(p->framenum * BASE_PAGE_SIZE);
 	p->framenum = i;
@@ -288,8 +299,6 @@ uint64_t getmem(uint64_t addr, struct pte *pte)
 
 	// Put on slowmem inactive list
 	enqueue_fifo(&pages_inactive[SLOWMEM], p);
-
-	fprintf(stderr, "%zu OOM hot -> cold\n", runtime);
 
 	break;
       }

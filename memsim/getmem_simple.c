@@ -27,7 +27,7 @@ void getmem_init(void)
   // Nothing to do
 }
 
-int listnum(uint64_t framenum)
+int listnum(struct pte *pte)
 {
   return -1;
 }

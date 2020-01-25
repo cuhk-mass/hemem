@@ -33,8 +33,8 @@
 #define TIME_SLOWMEM_WRITE	1000
 
 // Fake offset for slowmem in physical memory
-#define SLOWMEM_BIT	(1ULL << 63)
-#define SLOWMEM_MASK	((1ULL << 63) - 1)
+#define SLOWMEM_BIT	((uint64_t)1 << 63)
+#define SLOWMEM_MASK	(((uint64_t)1 << 63) - 1)
 
 // Memory access type
 enum access_type {
@@ -62,8 +62,11 @@ struct pte {
 uint64_t getmem(uint64_t addr, struct pte *pte);
 void tlb_shootdown(uint64_t addr);
 void getmem_init(void);
-int listnum(uint64_t framenum);
+int listnum(struct pte *pte);
 
 extern _Atomic size_t runtime;
+
+//#define LOG(str, ...)	fprintf(stderr, str, __VA_ARGS__)
+#define LOG(std, ...)	while(0) {}
 
 #endif

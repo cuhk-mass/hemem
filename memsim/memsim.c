@@ -116,10 +116,13 @@ static void memaccess(uint64_t addr, enum access_type type)
   accesses[(pte->addr & SLOWMEM_BIT) ? SLOWMEM : FASTMEM]++;
 
   if((pte->addr & SLOWMEM_BIT) && type == TYPE_READ) {
-    fprintf(stderr, "%zu memaccess %s %" PRIu64 " %s %d\n", runtime,
-	    type == TYPE_READ ? "read" : "write",
-	    addr, (pte->addr & SLOWMEM_BIT) ? "slow" : "fast",
-	    listnum((pte->addr & SLOWMEM_MASK) / BASE_PAGE_SIZE));
+    LOG("%zu memaccess %s %" PRIu64 " %s %" PRIu64 " %d\n",
+	runtime,
+	type == TYPE_READ ? "read" : "write",
+	addr,
+	(pte->addr & SLOWMEM_BIT) ? "slow" : "fast",
+	(pte->addr & SLOWMEM_MASK) / BASE_PAGE_SIZE,
+	listnum(pte));
   }
 }
 
@@ -152,7 +155,7 @@ static void gups(size_t iters, uint64_t hotset_start, uint64_t hotset_size,
 
 static void reset_stats(void)
 {
-  fprintf(stderr, "%zu --- reset_stats ---\n", runtime);
+  LOG("%zu --- reset_stats ---\n", runtime);
 
   runtime = 0;
   accesses[FASTMEM] = accesses[SLOWMEM] = 0;
