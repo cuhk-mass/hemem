@@ -57,6 +57,7 @@ struct pte {
   bool present;
   bool accessed;
   bool modified;
+  bool pagemap;
 };
 
 uint64_t getmem(uint64_t addr, struct pte *pte);

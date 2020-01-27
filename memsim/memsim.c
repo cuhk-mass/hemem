@@ -28,7 +28,7 @@ struct tlbe {
 static struct tlbe l1tlb_1g[4], l1tlb_2m[32], l1tlb_4k[64];
 static struct tlbe l2tlb_1g[16], l2tlb_2m4k[1536];
 
-static size_t accesses[NMEMTYPES], tlbmisses = 0, pagefaults = 0;
+static size_t accesses[NMEMTYPES], tlbmisses = 0, tlbhits = 0, pagefaults = 0;
 
 static struct pte *alloc_ptables(uint64_t addr)
 {
@@ -55,18 +55,17 @@ static void pagefault(uint64_t addr)
   // Allocate page tables
   struct pte *pte = alloc_ptables(addr);
   pte->present = true;
+  pte->pagemap = true;
   runtime += TIME_PAGEFAULT;
   pagefaults++;
 
   pte->addr = getmem(addr, pte);
 }
 
-#if 0
 static unsigned int tlb_hash(uint64_t addr)
 {
   return addr >> 12;
 }
-#endif
 
 void tlb_shootdown(uint64_t addr)
 {
@@ -79,51 +78,122 @@ void tlb_shootdown(uint64_t addr)
   runtime += TIME_TLBSHOOTDOWN;
 }
 
+static struct tlbe *tlb_lookup(struct tlbe *tlb, unsigned int size, uint64_t vaddr)
+{
+  struct tlbe *te = &tlb[tlb_hash(vaddr) % size];
+  if(te->present && te->vaddr == vaddr) {
+    return te;
+  } else {
+    return NULL;
+  }
+}
+
+static void tlb_insert(uint64_t vaddr, uint64_t paddr, unsigned int level)
+{
+  struct tlbe *te;
+
+  assert(level >= 2 && level <= 4);
+  
+  switch(level) {
+  case 2:	// 1GB page
+    te = &l1tlb_1g[tlb_hash(vaddr) % 4];
+    if(te->present) {
+      // Move previous entry down
+      assert(te->vaddr != vaddr);
+      memcpy(&l2tlb_1g[tlb_hash(vaddr) % 16], te, sizeof(struct tlbe));
+    }
+    break;
+
+  case 3:	// 2MB page
+    te = &l1tlb_2m[tlb_hash(vaddr) % 32];
+
+    // Fall through...
+  case 4:	// 4KB page
+    if(level == 4) {
+      te = &l1tlb_4k[tlb_hash(vaddr) % 64];
+    }
+    if(te->present) {
+      // Move previous entry down
+      assert(te->vaddr != vaddr);
+      memcpy(&l2tlb_2m4k[tlb_hash(vaddr) % 1536], te, sizeof(struct tlbe));
+    }
+    break;
+  }
+
+  te->present = true;
+  te->vaddr = vaddr;
+  te->paddr = paddr;
+}
+
 static void memaccess(uint64_t addr, enum access_type type)
 {
   // Must be canonical addr
   assert((addr >> 48) == 0);
 
-  // TODO: In TLB?
-  tlbmisses++;
+  // In TLB?
+  struct tlbe *te = NULL;
+  uint64_t paddr;
+  if((te = tlb_lookup(l1tlb_1g, 4, addr)) == NULL &&
+     (te = tlb_lookup(l1tlb_2m, 32, addr)) == NULL &&
+     (te = tlb_lookup(l1tlb_4k, 64, addr)) == NULL &&
+     (te = tlb_lookup(l2tlb_1g, 16, addr)) == NULL &&
+     (te = tlb_lookup(l2tlb_2m4k, 1536, addr)) == NULL) {
+    tlbmisses++;
 
-  // 4-level page walk
-  struct pte *ptable = pml4, *pte = NULL;
+    // 4-level page walk
+    struct pte *ptable = pml4, *pte = NULL;
+    int level;
 
-  for(int i = 1; i <= 4 && ptable != NULL; i++) {
-    pte = &ptable[(addr >> (48 - (i * 9))) & 511];
+    for(level = 1; level <= 4 && ptable != NULL; level++) {
+      pte = &ptable[(addr >> (48 - (level * 9))) & 511];
 
-    if(!pte->present) {
-      pagefault(addr);
-      assert(pte->present);
+      runtime += TIME_PAGEWALK;
+
+      if(!pte->present) {
+	pagefault(addr);
+	assert(pte->present);
+      }
+
+      pte->accessed = true;
+      if(type == TYPE_WRITE) {
+	pte->modified = true;
+      }
+
+      if(pte->pagemap) {
+	// Page here -- terminate walk
+	break;
+      }
+      
+      ptable = pte->next;
     }
 
-    pte->accessed = true;
-    if(type == TYPE_WRITE) {
-      pte->modified = true;
-    }
-    ptable = pte->next;
-    runtime += TIME_PAGEWALK;
-  }
+    assert(pte != NULL);
+    paddr = pte->addr;
 
-  assert(pte != NULL);
-  if(type == TYPE_READ) {
-    runtime += (pte->addr & SLOWMEM_BIT) ? TIME_SLOWMEM_READ : TIME_FASTMEM_READ;
+    // Insert in TLB
+    tlb_insert(addr, paddr, level);
   } else {
-    runtime += (pte->addr & SLOWMEM_BIT) ? TIME_SLOWMEM_WRITE : TIME_FASTMEM_WRITE;
+    tlbhits++;
+    paddr = te->paddr;
   }
 
-  accesses[(pte->addr & SLOWMEM_BIT) ? SLOWMEM : FASTMEM]++;
-
-  if((pte->addr & SLOWMEM_BIT) && type == TYPE_READ) {
-    LOG("%zu memaccess %s %" PRIu64 " %s %" PRIu64 " %d\n",
-	runtime,
-	type == TYPE_READ ? "read" : "write",
-	addr,
-	(pte->addr & SLOWMEM_BIT) ? "slow" : "fast",
-	(pte->addr & SLOWMEM_MASK) / BASE_PAGE_SIZE,
-	listnum(pte));
+  if(type == TYPE_READ) {
+    runtime += (paddr & SLOWMEM_BIT) ? TIME_SLOWMEM_READ : TIME_FASTMEM_READ;
+  } else {
+    runtime += (paddr & SLOWMEM_BIT) ? TIME_SLOWMEM_WRITE : TIME_FASTMEM_WRITE;
   }
+
+  accesses[(paddr & SLOWMEM_BIT) ? SLOWMEM : FASTMEM]++;
+
+  /* if((pte->addr & SLOWMEM_BIT) && type == TYPE_READ) { */
+  /*   LOG("%zu memaccess %s %" PRIu64 " %s %" PRIu64 " %d\n", */
+  /* 	runtime, */
+  /* 	type == TYPE_READ ? "read" : "write", */
+  /* 	addr, */
+  /* 	(pte->addr & SLOWMEM_BIT) ? "slow" : "fast", */
+  /* 	(pte->addr & SLOWMEM_MASK) / BASE_PAGE_SIZE, */
+  /* 	listnum(pte)); */
+  /* } */
 }
 
 #define WORKSET_SIZE	MB(10)
@@ -159,7 +229,7 @@ static void reset_stats(void)
 
   runtime = 0;
   accesses[FASTMEM] = accesses[SLOWMEM] = 0;
-  tlbmisses = 0;
+  tlbmisses = tlbhits = 0;
   pagefaults = 0;
 }
 
@@ -172,18 +242,18 @@ int main(int argc, char *argv[])
   // GUPS!
   gups(10000000, 0, KB(512), 0.9);
 
-  printf("%s\t%.2f\t%zu\t%zu\t%zu\t%zu\n", argv[0],
+  printf("%s\t%.2f\t%zu\t%zu\t%zu\t%zu\t%zu\n", argv[0],
 	 (double)runtime / 1000000.0, accesses[FASTMEM], accesses[SLOWMEM],
-	 tlbmisses, pagefaults);
+	 tlbmisses, tlbhits, pagefaults);
 
   reset_stats();
 
   // Move hotset up
-  gups(10000000, MB(9), KB(512), 1);
+  gups(10000000, MB(9), KB(512), 0.9);
 
-  printf("%s\t%.2f\t%zu\t%zu\t%zu\t%zu\n", argv[0],
+  printf("%s\t%.2f\t%zu\t%zu\t%zu\t%zu\t%zu\n", argv[0],
 	 (double)runtime / 1000000.0, accesses[FASTMEM], accesses[SLOWMEM],
-	 tlbmisses, pagefaults);
+	 tlbmisses, tlbhits, pagefaults);
 
   return 0;
 }
