@@ -161,6 +161,7 @@ main(int argc, char **argv)
     int r = pthread_join(t[i], NULL);
     assert(r == 0);
   }
+
   gettimeofday(&stoptime, NULL);
 
   secs = elapsed(&starttime, &stoptime);

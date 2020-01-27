@@ -17,6 +17,7 @@
 //#define PAGE_SIZE (1024 * 1024 * 1024)
 //#define PAGE_SIZE (2 * (1024 * 1024))
 #define PAGE_SIZE (4 * 1024)
+#define HUGEPAGE_SIZE (2 * 1024 * 1024)
 
 extern pthread_t fault_thread;
 
