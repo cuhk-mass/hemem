@@ -25,6 +25,7 @@ struct fifo_queue {
   size_t	numentries;
 };
 
+static struct pte pml4[512]; // Top-level page table (we only emulate one process)
 static struct fifo_queue pages_active[NMEMTYPES], pages_inactive[NMEMTYPES];
 static bool fastmem_bitmap[FASTMEM_PAGES], slowmem_bitmap[SLOWMEM_PAGES];
 static pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -248,7 +249,7 @@ static void *kswapd(void *arg)
   return NULL;
 }
 
-uint64_t getmem(uint64_t addr, struct pte *pte)
+static uint64_t getmem(uint64_t addr, struct pte *pte)
 {
   pthread_mutex_lock(&global_lock);
 
@@ -310,10 +311,41 @@ uint64_t getmem(uint64_t addr, struct pte *pte)
   assert(!"Out of memory");
 }
 
-void getmem_init(void)
+static struct pte *alloc_ptables(uint64_t addr)
 {
-  pthread_t thread;
+  struct pte *ptable = pml4, *pte;
+
+  // Allocate page tables down to the leaf
+  for(int i = 1; i < 4; i++) {
+    pte = &ptable[(addr >> (48 - (i * 9))) & 511];
+
+    if(!pte->present) {
+      pte->present = true;
+      pte->next = calloc(512, sizeof(struct pte));
+    }
+
+    ptable = pte->next;
+  }
+
+  // Return last-level PTE corresponding to addr
+  return &ptable[(addr >> (48 - (4 * 9))) & 511];
+}
+
+void pagefault(uint64_t addr)
+{
+  // Allocate page tables
+  struct pte *pte = alloc_ptables(addr);
+  pte->present = true;
+  pte->pagemap = true;
+
+  pte->addr = getmem(addr, pte);
+}
+
+void mmgr_init(void)
+{
+  cr3 = pml4;
   
+  pthread_t thread;
   int r = pthread_create(&thread, NULL, kswapd, NULL);
   assert(r == 0);
 }
