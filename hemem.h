@@ -32,11 +32,25 @@ extern int alloc_nvm;
 extern int wp_faults_handled;
 extern int missing_faults_handled;
 
+struct hemem_page {
+  uint64_t va;
+  uint64_t devdax_offset;
+  int in_dram;
+
+  struct hemem_page *next, *prev;
+};
+
+struct page_list {
+  struct hemem_page *first, *last;
+  size_t numentries;
+};
+
+extern struct page_list list;
 
 void hemem_init();
 void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
 int hemem_munmap(void* addr, size_t length);
-void *handle_fault(void* arg);
+void *handle_fault();
 
 uint64_t hemem_va_to_pa(uint64_t va);
 void hemem_clear_accessed_bit(uint64_t va);

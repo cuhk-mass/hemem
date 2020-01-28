@@ -2,3 +2,5 @@
 *.txt
 *.patch
 gups
+memsim/mmgr_simple
+memsim/mmgr_linux

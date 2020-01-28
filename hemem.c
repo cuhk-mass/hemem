@@ -34,6 +34,8 @@ int missing_faults_handled = 0;
 uint64_t base = 0;
 int devmemfd = -1;
 
+struct page_list list;
+
 void
 hemem_init()
 {
@@ -148,9 +150,42 @@ hemem_munmap(void* addr, size_t length)
   return munmap(addr, length);
 }
 
+void 
+enqueue_page(struct hemem_page *page)
+{
+  assert(page->prev == NULL);
+  page->next = list.first;
+  if (list.first != NULL) {
+    assert(list.first->prev == NULL);
+    list.first->prev = page;
+  }
+  else {
+    assert(list.last == NULL);
+    assert(list.numentries == 0);
+    list.last = page;
+  }
+  list.first = page;
+  list.numentries++;
+}
+
+struct hemem_page*
+find_page(uint64_t va)
+{
+  struct hemem_page *cur = list.first;
+
+  while (cur != NULL) {
+    if (cur->va == va) {
+      return cur;
+    }
+    cur = cur->next;
+  }
+
+  return NULL;
+}
+
 
 void
-handle_wp_fault(uint64_t page_boundry, void* field)
+handle_wp_fault(uint64_t page_boundry)
 {
   void* old_addr;
   void* new_addr;
@@ -161,7 +196,14 @@ handle_wp_fault(uint64_t page_boundry, void* field)
   gettimeofday(&start, NULL);
 
   // map virtual address to dax file offset
-  uint64_t offset = page_boundry - (uint64_t)field;
+
+  struct hemem_page *page = find_page(page_boundry);
+  if (page == NULL) {
+    printf("handle_wp_fault: page == NULL\n");
+    assert(0);
+  }
+  uint64_t offset = page->devdax_offset;
+  nvm_to_dram = !(page->in_dram);
   //printf("page boundry: 0x%llx\tcalculated offset in dax file: 0x%llx\n", page_boundry, offset);
 
   //TODO: figure out how to tell whether block needs to move from NVM to DRAM or vice-versa
@@ -223,27 +265,45 @@ handle_missing_fault(uint64_t page_boundry)
   // allocate in DRAM as per LRU
   void* newptr;
   struct timeval start, end;
+  struct hemem_page *page;
 
   // map virtual address to dax file offset
   uint64_t offset = (mem_allocated < DRAMSIZE) ? mem_allocated : mem_allocated - DRAMSIZE;
   //printf("page boundry: 0x%llx\tcalculated offset in dax file: 0x%llx\n", page_boundry, offset);
+  page = (struct hemem_page*)calloc(1, sizeof(struct hemem_page));
 
   gettimeofday(&start, NULL);
 
   if (mem_allocated < DRAMSIZE) {
     //printf("allocating a page in DRAM\n");
     newptr = mmap((void*)page_boundry, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, offset);
+    page->va = (uint64_t)newptr;
+    page->devdax_offset = offset;
+    page->in_dram = 1;
   }
   else {
     //printf("allocating a page in NVM\n");
     newptr = mmap((void*)page_boundry, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, offset);
+    page->va = (uint64_t)newptr;
+    page->devdax_offset = offset;
+    page->in_dram = 0;
   }
-  mem_allocated += PAGE_SIZE;
 
   if (newptr == NULL || newptr == MAP_FAILED) {
     perror("newptr mmap:");
+    free(page);
     assert(0);
   }
+
+  if (newptr != (void*)page_boundry) {
+    printf("hemem: handle_missing_fault: warning, newptr != page_boundry");
+  }
+
+  mem_allocated += PAGE_SIZE;
+  
+  page->next = NULL;
+  page->prev = NULL;
+  enqueue_page(page);
 
   gettimeofday(&end, NULL);
 
@@ -254,10 +314,9 @@ handle_missing_fault(uint64_t page_boundry)
 
 
 void 
-*handle_fault(void* arg)
+*handle_fault()
 {
   static struct uffd_msg msg;
-  void* field = arg;
   ssize_t nread;
   uint64_t fault_addr;
   uint64_t fault_flags;
@@ -334,7 +393,7 @@ void
 
       if (fault_flags & UFFD_PAGEFAULT_FLAG_WP) {
         //printf("received a write-protection fault at addr 0x%lx\n", fault_addr);
-        handle_wp_fault(page_boundry, field);
+        handle_wp_fault(page_boundry);
       }
       else {
         handle_missing_fault(page_boundry);
