@@ -15,9 +15,8 @@
 
 #include "shared.h"
 
-// Top-level page table (we only emulate one process)
-static struct pte pml4[512];
-_Atomic size_t runtime = 0;		// Elapsed simulation time
+struct pte	*cr3 = NULL;
+_Atomic size_t	runtime = 0;		// Elapsed simulation time
 
 // Hardware 2-level TLB emulating Cascade Lake
 struct tlbe {
@@ -29,38 +28,6 @@ static struct tlbe l1tlb_1g[4], l1tlb_2m[32], l1tlb_4k[64];
 static struct tlbe l2tlb_1g[16], l2tlb_2m4k[1536];
 
 static size_t accesses[NMEMTYPES], tlbmisses = 0, tlbhits = 0, pagefaults = 0;
-
-static struct pte *alloc_ptables(uint64_t addr)
-{
-  struct pte *ptable = pml4, *pte;
-
-  // Allocate page tables down to the leaf
-  for(int i = 1; i < 4; i++) {
-    pte = &ptable[(addr >> (48 - (i * 9))) & 511];
-
-    if(!pte->present) {
-      pte->present = true;
-      pte->next = calloc(512, sizeof(struct pte));
-    }
-
-    ptable = pte->next;
-  }
-
-  // Return last-level PTE corresponding to addr
-  return &ptable[(addr >> (48 - (4 * 9))) & 511];
-}
-
-static void pagefault(uint64_t addr)
-{
-  // Allocate page tables
-  struct pte *pte = alloc_ptables(addr);
-  pte->present = true;
-  pte->pagemap = true;
-  runtime += TIME_PAGEFAULT;
-  pagefaults++;
-
-  pte->addr = getmem(addr, pte);
-}
 
 static unsigned int tlb_hash(uint64_t addr)
 {
@@ -141,7 +108,8 @@ static void memaccess(uint64_t addr, enum access_type type)
     tlbmisses++;
 
     // 4-level page walk
-    struct pte *ptable = pml4, *pte = NULL;
+    assert(cr3 != NULL);
+    struct pte *ptable = cr3, *pte = NULL;
     int level;
 
     for(level = 1; level <= 4 && ptable != NULL; level++) {
@@ -151,6 +119,8 @@ static void memaccess(uint64_t addr, enum access_type type)
 
       if(!pte->present) {
 	pagefault(addr);
+	runtime += TIME_PAGEFAULT;
+	pagefaults++;
 	assert(pte->present);
       }
 
@@ -235,7 +205,7 @@ static void reset_stats(void)
 
 int main(int argc, char *argv[])
 {
-  getmem_init();
+  mmgr_init();
 
   // Get memory traces from Onur's group at ETH? membench? Replay them here?
 

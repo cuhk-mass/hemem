@@ -60,14 +60,20 @@ struct pte {
   bool pagemap;
 };
 
-uint64_t getmem(uint64_t addr, struct pte *pte);
+void pagefault(uint64_t addr);
 void tlb_shootdown(uint64_t addr);
-void getmem_init(void);
+void mmgr_init(void);
+
+// XXX: Debug
 int listnum(struct pte *pte);
 
 extern _Atomic size_t runtime;
+extern struct pte *cr3;
 
-//#define LOG(str, ...)	fprintf(stderr, str, __VA_ARGS__)
-#define LOG(std, ...)	while(0) {}
+#ifdef LOG_DEBUG
+#	define LOG(str, ...)	fprintf(stderr, str, __VA_ARGS__)
+#else
+#	define LOG(std, ...)	while(0) {}
+#endif
 
 #endif
