@@ -5,11 +5,12 @@
 #include <pthread.h>
 #include <stdint.h>
 #include <inttypes.h>
+#include <stdbool.h>
 
 #include "paging.h"
 
-#define NVMSIZE		(128L * (1024L * 1024L * 1024L))
-#define DRAMSIZE	(8L * (1024L * 1024L * 1024L))
+#define NVMSIZE   (128L * (1024L * 1024L * 1024L))
+#define DRAMSIZE  (8L * (1024L * 1024L * 1024L))
 
 #define DRAMPATH "/dev/dax0.0"
 #define NVMPATH "/dev/dax1.0"
@@ -18,6 +19,9 @@
 //#define PAGE_SIZE (2 * (1024 * 1024))
 #define PAGE_SIZE (4 * 1024)
 #define HUGEPAGE_SIZE (2 * 1024 * 1024)
+
+#define FASTMEM_PAGES ((DRAMSIZE) / (PAGE_SIZE))
+#define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
 
 extern pthread_t fault_thread;
 
@@ -31,11 +35,14 @@ extern uint64_t mem_allocated;
 extern int alloc_nvm;
 extern int wp_faults_handled;
 extern int missing_faults_handled;
+extern bool dram_bitmap[FASTMEM_PAGES];
+extern bool nvm_bitmap[SLOWMEM_PAGES];
 
 struct hemem_page {
   uint64_t va;
   uint64_t devdax_offset;
-  int in_dram;
+  bool in_dram;
+  bool accessed;
 
   struct hemem_page *next, *prev;
 };

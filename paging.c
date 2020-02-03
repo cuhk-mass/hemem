@@ -368,7 +368,7 @@ scan_third_level(uint64_t pdtpe)
     if (((pde & FLAGS_MASK) & HEMEM_PAGE_WALK_FLAGS) == HEMEM_PAGE_WALK_FLAGS) {
       if (((pde & FLAGS_MASK) & HEMEM_PWTPCD_FLAGS) == 0) {
         fprintf(valid, "pde[%x]:   %016lx\n", i, pde);
-	scan_fourth_level(pde);
+  scan_fourth_level(pde);
       }
     }
 
@@ -574,7 +574,7 @@ void
 
           fprintf(pfn_file, "DRAM: %016lX\n", (entry.pfn * sysconf(_SC_PAGESIZE)));
           num_pages--;
-	  num_pfn++;
+    num_pfn++;
         }
       }
     }
@@ -615,7 +615,7 @@ void
 
           fprintf(pfn_file, "NVM:  %016lX\n", (entry.pfn * sysconf(_SC_PAGE_SIZE)));
           num_pages--;
-	  num_pfn++;
+    num_pfn++;
         }
       }
       //printf("%s", line);
