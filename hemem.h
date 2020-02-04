@@ -6,8 +6,12 @@
 #include <stdint.h>
 #include <inttypes.h>
 #include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "paging.h"
+#include "lru.h"
+#include "simple.h"
 
 #define NVMSIZE   (128L * (1024L * 1024L * 1024L))
 #define DRAMSIZE  (8L * (1024L * 1024L * 1024L))
@@ -23,20 +27,22 @@
 #define FASTMEM_PAGES ((DRAMSIZE) / (PAGE_SIZE))
 #define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
 
-extern pthread_t fault_thread;
+//#define LOG(...)	printf(__VA_ARGS__)
+#define LOG(str, ...) while(0) {}
 
-extern int dramfd;
-extern int nvmfd;
-extern int devmemfd;
+#ifdef ALLOC_LRU
+#define pagefault(...) lru_pagefault(__VA_ARGS__)
+#define paging_init(...) lru_init(__VA_ARGS__)
+#endif
+
+#ifdef ALLOC_SIMPLE
+#define pagefault(...) simple_pagefault(__VA_ARGS__)
+#define paging_init(...) simple_init(__VA_ARGS__)
+#endif
+
+
 extern uint64_t base;
-extern long uffd;
-extern int init;
-extern uint64_t mem_allocated;
-extern int alloc_nvm;
-extern int wp_faults_handled;
-extern int missing_faults_handled;
-extern bool dram_bitmap[FASTMEM_PAGES];
-extern bool nvm_bitmap[SLOWMEM_PAGES];
+int devmemfd;
 
 struct hemem_page {
   uint64_t va;
@@ -58,6 +64,8 @@ void hemem_init();
 void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
 int hemem_munmap(void* addr, size_t length);
 void *handle_fault();
+void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset);
+void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset);
 
 uint64_t hemem_va_to_pa(uint64_t va);
 void hemem_clear_accessed_bit(uint64_t va);

@@ -37,10 +37,6 @@ int wp_faults_handled = 0;
 int missing_faults_handled = 0;
 uint64_t base = 0;
 int devmemfd = -1;
-bool dram_bitmap[FASTMEM_PAGES];
-bool nvm_bitmap[SLOWMEM_PAGES];
-
-
 struct page_list list;
 
 void
@@ -84,6 +80,8 @@ hemem_init()
   //close(nvmfd);
   //close(dramfd);
 
+  paging_init();
+
   init = 1;
 }
 
@@ -126,6 +124,7 @@ hemem_munmap(void* addr, size_t length)
   return munmap(addr, length);
 }
 
+
 void 
 enqueue_page(struct hemem_page *page)
 {
@@ -144,6 +143,7 @@ enqueue_page(struct hemem_page *page)
   list.numentries++;
 }
 
+
 struct hemem_page*
 find_page(uint64_t va)
 {
@@ -161,8 +161,101 @@ find_page(uint64_t va)
 
 
 void
+hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
+{
+  void* old_addr;
+  void* new_addr;
+  void* newptr;
+  struct timeval start, end;
+  uint64_t old_addr_offset, new_addr_offset;
+
+  gettimeofday(&start, NULL);
+  
+  assert(page != NULL);
+  old_addr_offset = page->devdax_offset;
+  new_addr_offset = dram_offset;
+
+  old_addr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, old_addr_offset);
+  new_addr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, new_addr_offset);
+
+  if (old_addr == MAP_FAILED) {
+    perror("old addr mmap");
+    assert(0);
+  }
+  if (new_addr == MAP_FAILED) {
+    perror("new addr mmap");
+    assert(0);
+  }
+
+  // copy page from faulting location to temp location
+  memcpy(new_addr, old_addr, PAGE_SIZE);
+
+  newptr = mmap((void*)page->va, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, new_addr_offset);
+  if (newptr == MAP_FAILED) {
+    perror("newptr mmap");
+    assert(0);
+  }
+  if (newptr != (void*)page->va) {
+    printf("mapped address is not same as faulting address\n");
+  }
+
+  munmap(old_addr, PAGE_SIZE);
+  munmap(new_addr, PAGE_SIZE);
+
+  gettimeofday(&end, NULL);  
+}
+
+
+void
+hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
+{
+  void* old_addr;
+  void* new_addr;
+  void* newptr;
+  struct timeval start, end;
+  uint64_t old_addr_offset, new_addr_offset;
+
+  gettimeofday(&start, NULL);
+  
+  assert(page != NULL);
+  old_addr_offset = page->devdax_offset;
+  new_addr_offset = nvm_offset;
+
+  old_addr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, old_addr_offset);
+  new_addr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, new_addr_offset);
+
+  if (old_addr == MAP_FAILED) {
+    perror("old addr mmap");
+    assert(0);
+  }
+  if (new_addr == MAP_FAILED) {
+    perror("new addr mmap");
+    assert(0);
+  }
+
+  // copy page from faulting location to temp location
+  memcpy(new_addr, old_addr, PAGE_SIZE);
+
+  newptr = mmap((void*)page->va, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, new_addr_offset);
+  if (newptr == MAP_FAILED) {
+    perror("newptr mmap");
+    assert(0);
+  }
+  if (newptr != (void*)page->va) {
+    printf("mapped address is not same as faulting address\n");
+  }
+
+  munmap(old_addr, PAGE_SIZE);
+  munmap(new_addr, PAGE_SIZE);
+
+  gettimeofday(&end, NULL);  
+}
+
+
+void
 handle_wp_fault(uint64_t page_boundry)
 {
+  /*
   void* old_addr;
   void* new_addr;
   void* newptr;
@@ -227,6 +320,7 @@ handle_wp_fault(uint64_t page_boundry)
   gettimeofday(&end, NULL);
   
   wp_faults_handled++;
+*/
 
 /*
   if (wp_faults_handled % 1000 == 0) {
@@ -249,10 +343,12 @@ handle_missing_fault(uint64_t page_boundry)
   gettimeofday(&start, NULL);
   page = (struct hemem_page*)calloc(1, sizeof(struct hemem_page));
 
-  // let LRU do most of the heavy lifting of finding a free page
-  lru_pagefault(page); 
+  // let policy algorithm do most of the heavy lifting of finding a free page
+  pagefault(page); 
   offset = page->devdax_offset;
   
+  // now that we have an offset determined via the policy algorithm, actually map
+  // the page for the application
   newptr = mmap((void*)page_boundry, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, offset);
   if (newptr == MAP_FAILED) {
     perror("newptr mmap");
@@ -267,11 +363,9 @@ handle_missing_fault(uint64_t page_boundry)
   // use mmap return addr to track new page's virtual address
   page->va = (uint64_t)newptr;
 
-  // bookkeeping -- LRU will always give precedence to new pages in dram
-  fastmem_allocated += PAGE_SIZE;
   mem_allocated += PAGE_SIZE;
   
-  // place in hemem's page tracking list -- separate from lru lists
+  // place in hemem's page tracking list 
   enqueue_page(page);
 
   gettimeofday(&end, NULL);
@@ -391,6 +485,7 @@ hemem_va_to_pa(uint64_t va)
   uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
   return va_to_pa(page_boundry);
 }
+
 
 void 
 hemem_clear_accessed_bit(uint64_t va)
