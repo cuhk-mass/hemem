@@ -347,6 +347,7 @@ handle_missing_fault(uint64_t page_boundry)
   struct timeval start, end;
   struct hemem_page *page;
   uint64_t offset;
+  bool in_dram;
 
   gettimeofday(&start, NULL);
   page = (struct hemem_page*)calloc(1, sizeof(struct hemem_page));
@@ -354,10 +355,11 @@ handle_missing_fault(uint64_t page_boundry)
   // let policy algorithm do most of the heavy lifting of finding a free page
   pagefault(page); 
   offset = page->devdax_offset;
+  in_dram = page->in_dram;
   
   // now that we have an offset determined via the policy algorithm, actually map
   // the page for the application
-  newptr = mmap((void*)page_boundry, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, offset);
+  newptr = mmap((void*)page_boundry, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, (in_dram ? dramfd : nvmfd), offset);
   if (newptr == MAP_FAILED) {
     perror("newptr mmap");
     free(page);
