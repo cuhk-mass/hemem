@@ -38,6 +38,8 @@ int missing_faults_handled = 0;
 uint64_t base = 0;
 int devmemfd = -1;
 struct page_list list;
+uint64_t runtime = 0;
+
 
 void
 hemem_init()
@@ -73,6 +75,12 @@ hemem_init()
   int s = pthread_create(&fault_thread, NULL, handle_fault, 0);
   if (s != 0) {
     perror("pthread_create");
+    assert(0);
+  }
+
+  devmemfd = open("/dev/mem", O_RDWR | O_SYNC);
+  if (devmemfd < 0) {
+    perror("/dev/mem open");
     assert(0);
   }
 

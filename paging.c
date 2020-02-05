@@ -317,7 +317,7 @@ FILE *ptes, *pdes, *pdtpes, *pml4es, *valid;
 
 
 void
-scan_fourth_level(uint64_t pde)
+scan_fourth_level(uint64_t pde, bool clear_flag, uint64_t flag)
 {
   uint64_t *ptable4_ptr;
   uint64_t *pte_ptr;
@@ -337,6 +337,10 @@ scan_fourth_level(uint64_t pde)
     if (((pte & FLAGS_MASK) & HEMEM_PAGE_WALK_FLAGS) == HEMEM_PAGE_WALK_FLAGS) {
       if (((pte & FLAGS_MASK) & HEMEM_PWTPCD_FLAGS) == 0) {
         fprintf(valid, "pte[%x]:   %016lx\n", i, pte);
+
+        if (clear_flag) {
+          pte = pte & ~flag;
+        }
       }
     }
 
@@ -348,7 +352,7 @@ scan_fourth_level(uint64_t pde)
 
 
 void
-scan_third_level(uint64_t pdtpe)
+scan_third_level(uint64_t pdtpe, bool clear_flag, uint64_t flag)
 {
   uint64_t *ptable3_ptr;
   uint64_t *pde_ptr;
@@ -368,7 +372,7 @@ scan_third_level(uint64_t pdtpe)
     if (((pde & FLAGS_MASK) & HEMEM_PAGE_WALK_FLAGS) == HEMEM_PAGE_WALK_FLAGS) {
       if (((pde & FLAGS_MASK) & HEMEM_PWTPCD_FLAGS) == 0) {
         fprintf(valid, "pde[%x]:   %016lx\n", i, pde);
-  scan_fourth_level(pde);
+        scan_fourth_level(pde, clear_flag, flag);
       }
     }
 
@@ -380,7 +384,7 @@ scan_third_level(uint64_t pdtpe)
 
 
 void
-scan_second_level(uint64_t pml4e)
+scan_second_level(uint64_t pml4e, bool clear_flag, uint64_t flag)
 {
   uint64_t *ptable2_ptr;
   uint64_t *pdtpe_ptr;
@@ -400,7 +404,7 @@ scan_second_level(uint64_t pml4e)
     if (((pdtpe & FLAGS_MASK) & HEMEM_PAGE_WALK_FLAGS) == HEMEM_PAGE_WALK_FLAGS) {
       if (((pdtpe & FLAGS_MASK) & HEMEM_PWTPCD_FLAGS) == 0) {
         fprintf(valid, "pdtpe[%x]: %016lx\n", i, pdtpe);
-        scan_third_level(pdtpe);
+        scan_third_level(pdtpe, clear_flag, flag);
       }
     }
 
@@ -412,7 +416,7 @@ scan_second_level(uint64_t pml4e)
 
 
 void
-scan_pagetable()
+_scan_pagetable(bool clear_flag, uint64_t flag)
 {
   int *rootptr;
   uint64_t *pml4e_ptr;
@@ -448,12 +452,6 @@ scan_pagetable()
     assert(0);
   }
 
-  devmemfd = open("/dev/mem", O_RDWR | O_SYNC);
-  if (devmemfd < 0) {
-    perror("/dev/mem open");
-    assert(0);
-  }
-
   rootptr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, base & ADDRESS_MASK);
   if (rootptr == MAP_FAILED) {
     perror("/dev/mem mmap");
@@ -468,13 +466,19 @@ scan_pagetable()
     if (((pml4e & FLAGS_MASK) & HEMEM_PAGE_WALK_FLAGS) == HEMEM_PAGE_WALK_FLAGS) {
       if (((pml4e & FLAGS_MASK) & HEMEM_PWTPCD_FLAGS) == 0) {
         fprintf(valid, "pml4e[%x]: %016lx\n", i, pml4e);
-        scan_second_level(pml4e); 
+        scan_second_level(pml4e, clear_flag, flag); 
       }
     }
     pml4e_ptr++;
   }
 
   munmap(rootptr, PAGE_SIZE);
+}
+
+void
+scan_pagetable()
+{
+  _scan_pagetable(false, 0);
 }
 
 #ifdef EXAMINE_PGTABLES

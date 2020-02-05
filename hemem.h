@@ -21,8 +21,9 @@
 
 //#define PAGE_SIZE (1024 * 1024 * 1024)
 //#define PAGE_SIZE (2 * (1024 * 1024))
-#define PAGE_SIZE (4 * 1024)
+#define BASEPAGE_SIZE (4 * 1024)
 #define HUGEPAGE_SIZE (2 * 1024 * 1024)
+#define PAGE_SIZE HUGEPAGE_SIZE
 
 #define FASTMEM_PAGES ((DRAMSIZE) / (PAGE_SIZE))
 #define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
@@ -42,13 +43,12 @@
 
 
 extern uint64_t base;
-int devmemfd;
+extern int devmemfd;
 
 struct hemem_page {
   uint64_t va;
   uint64_t devdax_offset;
   bool in_dram;
-  bool accessed;
 
   struct hemem_page *next, *prev;
 };
@@ -57,8 +57,6 @@ struct page_list {
   struct hemem_page *first, *last;
   size_t numentries;
 };
-
-extern struct page_list list;
 
 void hemem_init();
 void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);

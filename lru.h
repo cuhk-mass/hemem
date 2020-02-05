@@ -8,6 +8,10 @@
 #include "hemem.h"
 #include "paging.h"
 
+
+#define CLEAR_ACCESSED_INTERVAL   (10UL)
+#define KSWAPD_INTERVAL           (10UL)
+
 struct lru_node {
   struct hemem_page *page;
   uint64_t framenum;

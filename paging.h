@@ -42,6 +42,7 @@
 
 
 void scan_pagetable();
+void _scan_pagetable(bool clear_flag, uint64_t flag);
 
 void clear_accessed_bit(uint64_t pa);
 uint64_t get_accessed_bit(uint64_t pa);
