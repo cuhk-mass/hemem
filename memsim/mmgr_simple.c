@@ -1,3 +1,8 @@
+/*
+ * Simple memory allocator that only allocates base pages, allocates
+ * physical memory linearly (first fast, then slow), and cannot free memory.
+ */
+
 #include <stdint.h>
 #include <stdbool.h>
 #include <assert.h>

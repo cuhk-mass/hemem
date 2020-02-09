@@ -1,5 +1,8 @@
 --- Now ---
 
-* huge page pagefault support
+* Linux will move pages unmodified (whatever size they were)
+
+* We can move small 4K pages up, and space them out to allow the rest
+   to move up if needed
 
 --- Done ---
