@@ -29,9 +29,27 @@ static struct tlbe l2tlb_1g[16], l2tlb_2m4k[1536];
 
 static size_t accesses[NMEMTYPES], tlbmisses = 0, tlbhits = 0, pagefaults = 0;
 
+// From Wikipedia
+static uint32_t jenkins_one_at_a_time_hash(const uint8_t *key, size_t length) {
+  size_t i = 0;
+  uint32_t hash = 0;
+
+  while (i != length) {
+    hash += key[i++];
+    hash += hash << 10;
+    hash ^= hash >> 6;
+  }
+  
+  hash += hash << 3;
+  hash ^= hash >> 11;
+  hash += hash << 15;
+  
+  return hash;
+}
+
 static unsigned int tlb_hash(uint64_t addr)
 {
-  return addr >> 12;
+  return jenkins_one_at_a_time_hash((uint8_t *)&addr, sizeof(uint64_t));
 }
 
 void tlb_shootdown(uint64_t addr)
