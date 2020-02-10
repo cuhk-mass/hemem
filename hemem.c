@@ -22,7 +22,6 @@
 #include "hemem.h"
 #include "timer.h"
 #include "paging.h"
-#include "lru.h"
 
 pthread_t fault_thread;
 
@@ -39,6 +38,7 @@ uint64_t base = 0;
 int devmemfd = -1;
 struct page_list list;
 uint64_t runtime = 0;
+bool base_set = false;
 
 
 void
@@ -97,8 +97,13 @@ hemem_init()
 void* 
 hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 {
-  void* p;
-  struct uffdio_register uffdio_register;
+  void *p;
+  void *register_p;
+
+  FILE *tmpfile;
+
+
+  tmpfile = fopen("uffdio_register.txt", "w+");
   
   assert(init);
 
@@ -110,18 +115,24 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
   assert(p != NULL && p != MAP_FAILED);
 
   // register with uffd
-  uffdio_register.range.start = (uint64_t)p;
-  uffdio_register.range.len = length;
-  uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
-  uffdio_register.ioctls = 0;
-  uffdio_register.base = 0;
-  if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
-    perror("ioctl uffdio_register");
-    assert(0);
+  for (register_p = p + length; register_p > p; register_p -= PAGE_SIZE) {
+    struct uffdio_register uffdio_register;
+    uffdio_register.range.start = (uint64_t)register_p;
+    uffdio_register.range.len = PAGE_SIZE;
+    uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
+    uffdio_register.ioctls = 0;
+    uffdio_register.base = 0;
+    fprintf(tmpfile, "start: 0x%llx\tend: 0x%llx\tlength: %lld\n", uffdio_register.range.start, uffdio_register.range.start + uffdio_register.range.len, uffdio_register.range.len);
+    if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
+      perror("ioctl uffdio_register");
+      assert(0);
+    }
+    if (!base_set) {
+      base = uffdio_register.base;
+      base_set = true;
+    }
   }
 
-  base = uffdio_register.base;
-  
   return p;
 }
 
@@ -259,10 +270,31 @@ hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
   gettimeofday(&end, NULL);  
 }
 
+void
+hemem_wp_page(struct hemem_page *page, bool protect)
+{
+  uint64_t addr = page->va;
+  struct uffdio_writeprotect wp;
+  int ret;
+  
+  LOG("Write protect va: 0x%lx\n", addr);
+
+  wp.range.start = addr;
+  wp.range.len = PAGE_SIZE;
+  wp.mode = (protect ? UFFDIO_WRITEPROTECT_MODE_WP : 0);
+  ret = ioctl(uffd, UFFDIO_WRITEPROTECT, &wp);
+
+  if (ret < 0) {
+    perror("uffdio writeprotect");
+    assert(0);
+  }
+}
+
 
 void
 handle_wp_fault(uint64_t page_boundry)
 {
+  assert(!"wp fault handling not yet implemented\n");
   /*
   void* old_addr;
   void* new_addr;
@@ -271,6 +303,7 @@ handle_wp_fault(uint64_t page_boundry)
   int nvm_to_dram = 0;
   struct hemem_page *page;
   uint64_t old_addr_offset, new_addr_offset;
+  
 
   gettimeofday(&start, NULL);
 

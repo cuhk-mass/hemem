@@ -12,9 +12,10 @@
 #include "paging.h"
 #include "lru.h"
 #include "simple.h"
+#include "lru_modified.h"
 
 #define NVMSIZE   (128L * (1024L * 1024L * 1024L))
-#define DRAMSIZE  (8L * (1024L * 1024L * 1024L))
+#define DRAMSIZE  (1L * (1024L * 1024L * 1024L))
 
 #define DRAMPATH "/dev/dax0.0"
 #define NVMPATH "/dev/dax1.0"
@@ -28,17 +29,18 @@
 #define FASTMEM_PAGES ((DRAMSIZE) / (PAGE_SIZE))
 #define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
 
-//#define LOG(...)	printf(__VA_ARGS__)
-#define LOG(str, ...) while(0) {}
+#define LOG(...)	printf(__VA_ARGS__)
+//#define LOG(str, ...) while(0) {}
 
-#ifdef ALLOC_LRU
-#define pagefault(...) lru_pagefault(__VA_ARGS__)
-#define paging_init(...) lru_init(__VA_ARGS__)
-#endif
-
-#ifdef ALLOC_SIMPLE
-#define pagefault(...) simple_pagefault(__VA_ARGS__)
-#define paging_init(...) simple_init(__VA_ARGS__)
+#if defined (ALLOC_LRU)
+  #define pagefault(...) lru_pagefault(__VA_ARGS__)
+  #define paging_init(...) lru_init(__VA_ARGS__)
+#elif defined (ALLOC_SIMPLE)
+  #define pagefault(...) simple_pagefault(__VA_ARGS__)
+  #define paging_init(...) simple_init(__VA_ARGS__)
+#elif defined (ALLOC_LRU_MODIFIED)
+  #define pagefault(...) lru_modified_pagefault(__VA_ARGS__)
+  #define paging_init(...) lru_modified_init(__VA_ARGS__)
 #endif
 
 
@@ -64,6 +66,7 @@ int hemem_munmap(void* addr, size_t length);
 void *handle_fault();
 void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset);
 void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset);
+void hemem_wp_page(struct hemem_page *page, bool protect);
 
 uint64_t hemem_va_to_pa(uint64_t va);
 void hemem_clear_accessed_bit(uint64_t va);

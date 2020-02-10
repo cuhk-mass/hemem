@@ -9,8 +9,7 @@
 #include "paging.h"
 
 
-#define CLEAR_ACCESSED_INTERVAL   (10UL)
-#define KSWAPD_INTERVAL           (10UL)
+#define KSWAPD_INTERVAL           (1.0)
 
 struct lru_node {
   struct hemem_page *page;
@@ -23,9 +22,6 @@ struct lru_list {
   struct lru_node *last;
   size_t numentries;
 };
-
-extern struct lru_list active_list;
-extern struct lru_list inactive_list;
 
 void lru_list_add(struct lru_list *list, struct lru_node *node);
 struct lru_node* lru_list_remove(struct lru_list *list);

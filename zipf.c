@@ -23,8 +23,8 @@
 #define INDEX_FILE "indices.txt"
 
 //#define ZIPFIAN
-//#define HOTSPOT
-#define UNIFORM_RANDOM
+#define HOTSPOT
+//#define UNIFORM_RANDOM
 
 #ifdef ZIPFIAN
 
@@ -170,6 +170,8 @@ calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems
   double hotsetFraction = 0.2;
   double hotopFraction = 0.8;
 
+  srand(0);
+
   f = fopen(INDEX_FILE, "w");
   if (f == NULL) {
     perror("fopen");
@@ -202,6 +204,8 @@ calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems
 {
   unsigned int i;
   assert(indices != NULL);
+
+  srand(0);
 
   for (i = 0; i < updates; i++) {
     indices[i] = rand() % nelems;
