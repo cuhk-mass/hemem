@@ -29,8 +29,12 @@
 #define FASTMEM_PAGES ((DRAMSIZE) / (PAGE_SIZE))
 #define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
 
-//#define LOG(...)	printf(__VA_ARGS__)
+//#define LOG(str, ...)	printf(str, __VA_ARGS__)
 #define LOG(str, ...) while(0) {}
+
+
+FILE *timef;
+#define LOG_TIME(str, ...) fprintf(timef, str, __VA_ARGS__)
 
 #if defined (ALLOC_LRU)
   #define pagefault(...) lru_pagefault(__VA_ARGS__)
