@@ -23,8 +23,8 @@
 #define INDEX_FILE "indices.txt"
 
 //#define ZIPFIAN
-#define HOTSPOT
-//#define UNIFORM_RANDOM
+//#define HOTSPOT
+#define UNIFORM_RANDOM
 
 #ifdef ZIPFIAN
 

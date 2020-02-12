@@ -115,10 +115,10 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
   assert(p != NULL && p != MAP_FAILED);
 
   // register with uffd
-  for (register_p = p + length; register_p > p; register_p -= PAGE_SIZE) {
+  //for (register_p = p; register_p < p + length; register_p += PAGE_SIZE) {
     struct uffdio_register uffdio_register;
-    uffdio_register.range.start = (uint64_t)register_p;
-    uffdio_register.range.len = PAGE_SIZE;
+    uffdio_register.range.start = (uint64_t)p;
+    uffdio_register.range.len = length;
     uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
     uffdio_register.ioctls = 0;
     fprintf(tmpfile, "start: 0x%llx\tend: 0x%llx\tlength: %lld\n", uffdio_register.range.start, uffdio_register.range.start + uffdio_register.range.len, uffdio_register.range.len);
@@ -126,7 +126,7 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
       perror("ioctl uffdio_register");
       assert(0);
     }
-  }
+  //}
 
   uffdio_base.range.start = (uint64_t)p;
   uffdio_base.range.len = length;
