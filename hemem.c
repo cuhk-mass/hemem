@@ -98,7 +98,6 @@ void*
 hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 {
   void *p;
-  void *register_p;
   struct uffdio_base uffdio_base;
   FILE *tmpfile;
 
@@ -115,18 +114,16 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
   assert(p != NULL && p != MAP_FAILED);
 
   // register with uffd
-  //for (register_p = p; register_p < p + length; register_p += PAGE_SIZE) {
-    struct uffdio_register uffdio_register;
-    uffdio_register.range.start = (uint64_t)p;
-    uffdio_register.range.len = length;
-    uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
-    uffdio_register.ioctls = 0;
-    fprintf(tmpfile, "start: 0x%llx\tend: 0x%llx\tlength: %lld\n", uffdio_register.range.start, uffdio_register.range.start + uffdio_register.range.len, uffdio_register.range.len);
-    if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
-      perror("ioctl uffdio_register");
-      assert(0);
-    }
-  //}
+  struct uffdio_register uffdio_register;
+  uffdio_register.range.start = (uint64_t)p;
+  uffdio_register.range.len = length;
+  uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
+  uffdio_register.ioctls = 0;
+  fprintf(tmpfile, "start: 0x%llx\tend: 0x%llx\tlength: %lld\n", uffdio_register.range.start, uffdio_register.range.start + uffdio_register.range.len, uffdio_register.range.len);
+  if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
+    perror("ioctl uffdio_register");
+    assert(0);
+  }
 
   uffdio_base.range.start = (uint64_t)p;
   uffdio_base.range.len = length;
@@ -221,6 +218,18 @@ hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
     printf("mapped address is not same as faulting address\n");
   }
 
+  // re-register new mmap region with userfaultfd
+  struct uffdio_register uffdio_register;
+  uffdio_register.range.start = (uint64_t)newptr;
+  uffdio_register.range.len = PAGE_SIZE;
+  uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
+  uffdio_register.ioctls = 0;
+  /* fprintf(stderr, "re-register start: 0x%llx\tend: 0x%llx\tlength: %lld\n", uffdio_register.range.start, uffdio_register.range.start + uffdio_register.range.len, uffdio_register.range.len); */
+  if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
+    perror("ioctl uffdio_register");
+    assert(0);
+  }
+  
   munmap(old_addr, PAGE_SIZE);
   munmap(new_addr, PAGE_SIZE);
 
@@ -266,6 +275,19 @@ hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
   if (newptr != (void*)page->va) {
     printf("mapped address is not same as faulting address\n");
   }
+  
+  // re-register new mmap region with userfaultfd
+  struct uffdio_register uffdio_register;
+  uffdio_register.range.start = (uint64_t)newptr;
+  uffdio_register.range.len = PAGE_SIZE;
+  uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
+  uffdio_register.ioctls = 0;
+  /* fprintf(stderr, "re-register start: 0x%llx\tend: 0x%llx\tlength: %lld\n", uffdio_register.range.start, uffdio_register.range.start + uffdio_register.range.len, uffdio_register.range.len); */
+  if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
+    perror("ioctl uffdio_register");
+    assert(0);
+  }
+  
 
   munmap(old_addr, PAGE_SIZE);
   munmap(new_addr, PAGE_SIZE);
@@ -402,6 +424,18 @@ handle_missing_fault(uint64_t page_boundry)
     assert(0);
   }
 
+  // re-register new mmap region with userfaultfd
+  struct uffdio_register uffdio_register;
+  uffdio_register.range.start = (uint64_t)newptr;
+  uffdio_register.range.len = PAGE_SIZE;
+  uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
+  uffdio_register.ioctls = 0;
+  /* fprintf(stderr, "re-register start: 0x%llx\tend: 0x%llx\tlength: %lld\n", uffdio_register.range.start, uffdio_register.range.start + uffdio_register.range.len, uffdio_register.range.len); */
+  if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
+    perror("ioctl uffdio_register");
+    assert(0);
+  }
+  
   if (newptr != (void*)page_boundry) {
     printf("hemem: handle missing fault: warning, newptr != page boundry\n");
   }
