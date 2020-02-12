@@ -339,6 +339,7 @@ void pagefault(uint64_t addr)
   pte->pagemap = true;
 
   pte->addr = getmem(addr, pte);
+  assert((pte->addr & BASE_PAGE_MASK) == 0);	// Must be aligned
 }
 
 void mmgr_init(void)

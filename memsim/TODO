@@ -5,6 +5,8 @@
 * We can move small 4K pages up, and space them out to allow the rest
    to move up if needed
 
-* Implement memory mode
-
 --- Done ---
+
+x Implement memory mode
+
+x Fix page and TLB lookups (need page alignment, not absolute addresses)
