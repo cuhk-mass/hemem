@@ -41,8 +41,7 @@ uint64_t runtime = 0;
 bool base_set = false;
 
 
-void
-hemem_init()
+void hemem_init()
 {
   struct uffdio_api uffdio_api;
 
@@ -94,8 +93,7 @@ hemem_init()
 }
 
 
-void* 
-hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
+void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 {
   void *p;
   struct uffdio_base uffdio_base;
@@ -137,15 +135,13 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 }
 
 
-int
-hemem_munmap(void* addr, size_t length)
+int hemem_munmap(void* addr, size_t length)
 {
   return munmap(addr, length);
 }
 
 
-void 
-enqueue_page(struct hemem_page *page)
+void enqueue_page(struct hemem_page *page)
 {
   assert(page->prev == NULL);
   page->next = list.first;
@@ -163,8 +159,7 @@ enqueue_page(struct hemem_page *page)
 }
 
 
-struct hemem_page*
-find_page(uint64_t va)
+struct hemem_page* find_page(uint64_t va)
 {
   struct hemem_page *cur = list.first;
 
@@ -179,8 +174,7 @@ find_page(uint64_t va)
 }
 
 
-void
-hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
+void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
 {
   void* old_addr;
   void* new_addr;
@@ -237,8 +231,7 @@ hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
 }
 
 
-void
-hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
+void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
 {
   void* old_addr;
   void* new_addr;
@@ -295,8 +288,7 @@ hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
   gettimeofday(&end, NULL);  
 }
 
-void
-hemem_wp_page(struct hemem_page *page, bool protect)
+void hemem_wp_page(struct hemem_page *page, bool protect)
 {
   uint64_t addr = page->va;
   struct uffdio_writeprotect wp;
@@ -316,88 +308,24 @@ hemem_wp_page(struct hemem_page *page, bool protect)
 }
 
 
-void
-handle_wp_fault(uint64_t page_boundry)
+void handle_wp_fault(uint64_t page_boundry)
 {
-  assert(!"wp fault handling not yet implemented\n");
-  /*
-  void* old_addr;
-  void* new_addr;
-  void* newptr;
-  struct timeval start, end;
-  int nvm_to_dram = 0;
+  //assert(!"wp fault handling not yet implemented\n");
   struct hemem_page *page;
-  uint64_t old_addr_offset, new_addr_offset;
-  
-
-  gettimeofday(&start, NULL);
-
-  // map virtual address to dax file offset
 
   page = find_page(page_boundry);
-  if (page == NULL) {
-    printf("handle_wp_fault: page == NULL\n");
-    assert(0);
-  }
-  old_addr_offset = page->devdax_offset;
-  nvm_to_dram = !(page->in_dram);
-  //printf("page boundry: 0x%llx\tcalculated offset in dax file: 0x%llx\n", page_boundry, offset);
+  assert(page != NULL);
 
-  new_addr_offset = (nvm_to_dram) ? fastmem_allocated : slowmem_allocated;
-
-  if (nvm_to_dram) {
-    old_addr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, old_addr_offset);
-    new_addr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, new_addr_offset);
-  }
-  else {
-    old_addr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, old_addr_offset);
-    new_addr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, new_addr_offset);
-  }
-
-  if (old_addr == MAP_FAILED) {
-    perror("old addr mmap");
-    assert(0);
-  }
-  if (new_addr == MAP_FAILED) {
-    perror("new addr mmap");
-    assert(0);
-  }
-
-  // copy page from faulting location to temp location
-  memcpy(new_addr, old_addr, PAGE_SIZE);
-
-  if (nvm_to_dram) {
-    newptr = mmap((void*)page_boundry, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, new_addr_offset);
-  }
-  else {
-    newptr = mmap((void*)page_boundry, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, new_addr_offset);
-  }
-  if (newptr == MAP_FAILED) {
-    perror("newptr mmap");
-    assert(0);
-  }
-  if (newptr != (void*)page_boundry) {
-    printf("mapped address is not same as faulting address\n");
-  }
-
-  munmap(old_addr, PAGE_SIZE);
-  munmap(new_addr, PAGE_SIZE);
-
-  gettimeofday(&end, NULL);
-  
-  wp_faults_handled++;
-*/
-
-/*
-  if (wp_faults_handled % 1000 == 0) {
-    printf("write protection fault took %.6f seconds\n", elapsed(&start, &end));
-  }
-*/
+  /* page is already being migrated by a background thread
+   * if it has been marked as write-protected, so we just
+   * wait for it to finish migrating
+   */
+  //TODO: Probably need some kind of barriers with this flag
+  while (page->migrating) {}
 }
 
 
-void
-handle_missing_fault(uint64_t page_boundry)
+void handle_missing_fault(uint64_t page_boundry)
 {
   // Page mising fault case - probably the first touch case
   // allocate in DRAM via LRU
@@ -442,7 +370,8 @@ handle_missing_fault(uint64_t page_boundry)
 
   // use mmap return addr to track new page's virtual address
   page->va = (uint64_t)newptr;
-
+  page->migrating = false;
+  
   mem_allocated += PAGE_SIZE;
   
   // place in hemem's page tracking list 
@@ -454,8 +383,7 @@ handle_missing_fault(uint64_t page_boundry)
 }
 
 
-void 
-*handle_fault()
+void *handle_fault()
 {
   static struct uffd_msg msg;
   ssize_t nread;
@@ -559,16 +487,14 @@ void
 }
 
 
-uint64_t 
-hemem_va_to_pa(uint64_t va)
+uint64_t hemem_va_to_pa(uint64_t va)
 {
   uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
   return va_to_pa(page_boundry);
 }
 
 
-void 
-hemem_clear_accessed_bit(uint64_t va)
+void hemem_clear_accessed_bit(uint64_t va)
 {
   uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
   struct uffdio_range range;
@@ -588,8 +514,7 @@ hemem_clear_accessed_bit(uint64_t va)
 }
 
 
-int 
-hemem_get_accessed_bit(uint64_t va)
+int hemem_get_accessed_bit(uint64_t va)
 {
   uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
 

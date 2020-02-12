@@ -24,6 +24,25 @@ bool dram_bitmap[FASTMEM_PAGES];
 bool nvm_bitmap[SLOWMEM_PAGES];
 struct timeval runtime;
 
+void lru_migrate_up(struct lru_node *n, uint64_t i)
+{
+  n->page->migrating = true;
+  hemem_wp_page(n->page, true);
+  hemem_migrate_up(n->page, i * PAGE_SIZE);
+  n->framenum = i;
+  n->page->devdax_offset = (n->framenum * PAGE_SIZE);
+  n->page->migrating = false;
+}
+
+void lru_migrate_down(struct lru_node *n, uint64_t i)
+{
+  n->page->migrating = true;
+  hemem_wp_page(n->page, true);
+  hemem_migrate_down(n->page, i * PAGE_SIZE);
+  n->framenum = i;
+  n->page->devdax_offset = (n->framenum * PAGE_SIZE);
+  n->page->migrating = false;
+}
 
 void lru_list_add(struct lru_list *list, struct lru_node *node)
 {
@@ -192,10 +211,7 @@ uint64_t lru_allocate_page(struct lru_node *n)
         // found a free slowmem page, grab it
         nvm_bitmap[i] = true;
         dram_bitmap[cn->framenum] = false;
-        hemem_wp_page(cn->page, true);
-        hemem_migrate_down(cn->page, i * PAGE_SIZE);
-        cn->framenum = i;
-        cn->page->devdax_offset = (cn->framenum * PAGE_SIZE);
+        lru_migrate_down(cn, i);
         last_nvm_framenum = i;
 
         lru_list_add(&nvm_inactive_list, cn);
@@ -210,10 +226,7 @@ uint64_t lru_allocate_page(struct lru_node *n)
           LOG("\tmoving va: 0x%lx\n", cn->page->va);
           nvm_bitmap[i] = true;
           dram_bitmap[cn->framenum] = false;
-          hemem_wp_page(cn->page, true);
-          hemem_migrate_down(cn->page, i * PAGE_SIZE);
-          cn->framenum = i;
-          cn->page->devdax_offset = (cn->framenum * PAGE_SIZE);
+          lru_migrate_down(cn, i);
           last_nvm_framenum = i;
 
           lru_list_add(&nvm_inactive_list, cn);
@@ -268,16 +281,12 @@ void *lru_kswapd()
         for (i = last_dram_framenum; i < FASTMEM_PAGES; i++) {
           if (dram_bitmap[i] == false) {
             dram_bitmap[i] = true;
-
             nvm_bitmap[n->framenum] = false;
             
             LOG("cold %lu -> hot %lu\t slowmem.active: %lu, slowmem.inactive %lu\t hotmem.active: %lu, hotmem.inactive: %lu\n",
                 n->framenum, i, nvm_active_list.numentries, nvm_inactive_list.numentries, active_list.numentries, inactive_list.numentries);
 
-            hemem_wp_page(n->page, true);
-            hemem_migrate_up(n->page, i * PAGE_SIZE);
-            n->framenum = i;
-            n->page->devdax_offset = (n->framenum * PAGE_SIZE);
+            lru_migrate_up(n, i);
 
             lru_list_add(&active_list, n);
 
@@ -288,16 +297,12 @@ void *lru_kswapd()
         for (i = 0; i < last_dram_framenum; i++) {
           if (dram_bitmap[i] == false) {
             dram_bitmap[i] = true;
-
             nvm_bitmap[n->framenum] = false;
             
             LOG("cold %lu -> hot %lu\t slowmem.active: %lu, slowmem.inactive %lu\t hotmem.active: %lu, hotmem.inactive: %lu\n", 
                 n->framenum, i, nvm_active_list.numentries, nvm_inactive_list.numentries, active_list.numentries, inactive_list.numentries);
 
-            hemem_wp_page(n->page, true);
-            hemem_migrate_up(n->page, i * PAGE_SIZE);
-            n->framenum = i;
-            n->page->devdax_offset = (n->framenum * PAGE_SIZE);
+            lru_migrate_up(n, i);
 
             lru_list_add(&active_list, n);
 
@@ -324,13 +329,9 @@ void *lru_kswapd()
         for (i = last_nvm_framenum; i < SLOWMEM_PAGES; i++) {
           if (nvm_bitmap[i] == false) {
             nvm_bitmap[i] = true;
-
             dram_bitmap[cn->framenum] = false;
 
-            hemem_wp_page(cn->page, true);
-            hemem_migrate_down(cn->page, i * PAGE_SIZE);
-            cn->framenum = i;
-            cn->page->devdax_offset = (cn->framenum * PAGE_SIZE);
+            lru_migrate_down(cn, i);
 
             lru_list_add(&nvm_inactive_list, cn);
             found = true;
@@ -342,14 +343,10 @@ void *lru_kswapd()
           for (i = last_nvm_framenum; i < SLOWMEM_PAGES; i++) {
             if (nvm_bitmap[i] == false) {
               nvm_bitmap[i] = true;
-
               dram_bitmap[cn->framenum] = false;
 
-              hemem_wp_page(cn->page, true);
-              hemem_migrate_down(cn->page, i * PAGE_SIZE);
-              cn->framenum = i;
-              cn->page->devdax_offset = (cn->framenum * PAGE_SIZE);
-
+              lru_migrate_down(cn, i);
+              
               lru_list_add(&nvm_inactive_list, cn);
 
               break;

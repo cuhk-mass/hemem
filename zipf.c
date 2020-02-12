@@ -38,8 +38,7 @@ int allowitemdecrease = 0;
 const long FNV_OFFSET_BASIS_64 = 0xCBF29CE484222325L;
 const long FNV_PRIME_64 = 1099511628211L;
 
-unsigned long
-fnvhash64(unsigned long val) {
+unsigned long fnvhash64(unsigned long val) {
   long hashval = FNV_OFFSET_BASIS_64;
 
   for (int i = 0; i < 8; i++) {
@@ -53,8 +52,7 @@ fnvhash64(unsigned long val) {
   return (unsigned long)abs(hashval);
 }
 
-double
-_zetastatic(unsigned long st, unsigned long n, double theta, double initialsum)
+double _zetastatic(unsigned long st, unsigned long n, double theta, double initialsum)
 {
   double sum = initialsum;
   for (unsigned long i = st; i < n; i++) {
@@ -63,29 +61,25 @@ _zetastatic(unsigned long st, unsigned long n, double theta, double initialsum)
   return sum;
 }
 
-double
-_zeta(unsigned long st, unsigned long n, double thetaVal, double initialsum)
+double _zeta(unsigned long st, unsigned long n, double thetaVal, double initialsum)
 {
   countforzeta = n;
   return _zetastatic(st, n, thetaVal, initialsum);
 }
 
-double
-zetastatic(unsigned long n, double theta)
+double zetastatic(unsigned long n, double theta)
 {
   return _zetastatic(0, n, theta, 0);
 }
 
-double
-zeta(unsigned long n, double thetaVal)
+double zeta(unsigned long n, double thetaVal)
 {
   countforzeta = n;
   return zetastatic(n, thetaVal);
 
 }
 
-unsigned long
-nextValue(unsigned long itemcount)
+unsigned long nextValue(unsigned long itemcount)
 {
   if (itemcount != countforzeta) {
     if (itemcount > countforzeta) {
@@ -115,8 +109,7 @@ nextValue(unsigned long itemcount)
   return ret;
 }
 
-void
-calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems)
+void calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems)
 {
   FILE* f;
   unsigned int i;
@@ -157,8 +150,7 @@ calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems
 
 #elif defined HOTSPOT
 
-void
-calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems)
+void calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems)
 {
   FILE* f;
   int i;
@@ -199,8 +191,7 @@ calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems
 
 #else // UNIFORM_RANDOM
 
-void
-calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems)
+void calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems)
 {
   unsigned int i;
   assert(indices != NULL);

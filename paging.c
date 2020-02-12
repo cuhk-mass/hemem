@@ -22,8 +22,7 @@
 #include "timer.h"
 #include "paging.h"
 
-uint64_t
-va_to_pa(uint64_t va)
+uint64_t va_to_pa(uint64_t va)
 {
   uint64_t pt_base = ((uint64_t)(base & ADDRESS_MASK));
   uint64_t *pgd;
@@ -105,8 +104,7 @@ va_to_pa(uint64_t va)
   return pte_entry;
 }
 
-void
-clear_bit(uint64_t va, uint64_t bit)
+void clear_bit(uint64_t va, uint64_t bit)
 {
   uint64_t pt_base = ((uint64_t)(base & ADDRESS_MASK));
   uint64_t *pgd;
@@ -193,8 +191,7 @@ clear_bit(uint64_t va, uint64_t bit)
   munmap(pgd, PAGE_SIZE);
 }
 
-uint64_t
-get_bit(uint64_t va, uint64_t bit)
+uint64_t get_bit(uint64_t va, uint64_t bit)
 {
   uint64_t pt_base = ((uint64_t)(base & ADDRESS_MASK));
   uint64_t *pgd;
@@ -285,29 +282,25 @@ get_bit(uint64_t va, uint64_t bit)
 }
 
 
-void
-clear_accessed_bit(uint64_t va)
+void clear_accessed_bit(uint64_t va)
 {
   clear_bit(va, HEMEM_ACCESSED_FLAG);
 }
 
 
-uint64_t
-get_accessed_bit(uint64_t va)
+uint64_t get_accessed_bit(uint64_t va)
 {
   return get_bit(va, HEMEM_ACCESSED_FLAG);
 }
 
 
-void
-clear_dirty_bit(uint64_t va)
+void clear_dirty_bit(uint64_t va)
 {
   clear_bit(va, HEMEM_DIRTY_FLAG);
 }
 
 
-uint64_t
-get_dirty_bit(uint64_t va)
+uint64_t get_dirty_bit(uint64_t va)
 {
   return get_bit(va, HEMEM_DIRTY_FLAG);
 }
@@ -316,8 +309,7 @@ get_dirty_bit(uint64_t va)
 FILE *ptes, *pdes, *pdtpes, *pml4es, *valid;
 
 
-void
-scan_fourth_level(uint64_t pde, bool clear_flag, uint64_t flag)
+void scan_fourth_level(uint64_t pde, bool clear_flag, uint64_t flag)
 {
   uint64_t *ptable4_ptr;
   uint64_t *pte_ptr;
@@ -351,8 +343,7 @@ scan_fourth_level(uint64_t pde, bool clear_flag, uint64_t flag)
 }
 
 
-void
-scan_third_level(uint64_t pdtpe, bool clear_flag, uint64_t flag)
+void scan_third_level(uint64_t pdtpe, bool clear_flag, uint64_t flag)
 {
   uint64_t *ptable3_ptr;
   uint64_t *pde_ptr;
@@ -383,8 +374,7 @@ scan_third_level(uint64_t pdtpe, bool clear_flag, uint64_t flag)
 }
 
 
-void
-scan_second_level(uint64_t pml4e, bool clear_flag, uint64_t flag)
+void scan_second_level(uint64_t pml4e, bool clear_flag, uint64_t flag)
 {
   uint64_t *ptable2_ptr;
   uint64_t *pdtpe_ptr;
@@ -415,8 +405,7 @@ scan_second_level(uint64_t pml4e, bool clear_flag, uint64_t flag)
 }
 
 
-void
-_scan_pagetable(bool clear_flag, uint64_t flag)
+void _scan_pagetable(bool clear_flag, uint64_t flag)
 {
   int *rootptr;
   uint64_t *pml4e_ptr;
@@ -475,15 +464,13 @@ _scan_pagetable(bool clear_flag, uint64_t flag)
   munmap(rootptr, PAGE_SIZE);
 }
 
-void
-scan_pagetable()
+void scan_pagetable()
 {
   _scan_pagetable(false, 0);
 }
 
 #ifdef EXAMINE_PGTABLES
-void
-*examine_pagetables()
+void *examine_pagetables()
 {
   FILE *maps;
   int pagemaps;

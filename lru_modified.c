@@ -25,6 +25,26 @@ bool nvm_bitmap[SLOWMEM_PAGES];
 struct timeval runtime;
 
 
+void modified_lru_migrate_down(struct modified_lru_node *n, uint64_t i)
+{
+  n->page->migrating = true;
+  hemem_wp_page(n->page, true);
+  hemem_migrate_down(n->page, i * PAGE_SIZE);
+  n->framenum = i;
+  n->page->devdax_offset = (n->framenum * PAGE_SIZE);
+  n->page->migrating = false; 
+}
+
+void modified_lru_migrate_up(struct modified_lru_node *n, uint64_t i)
+{
+  n->page->migrating = true;
+  hemem_wp_page(n->page, true);
+  hemem_migrate_up(n->page, i * PAGE_SIZE);
+  n->framenum = i;
+  n->page->devdax_offset = (n->framenum * PAGE_SIZE);
+  n->page->migrating = false;
+}
+
 void modified_lru_list_add(struct modified_lru_list *list, struct modified_lru_node *node)
 {
   assert(node->prev == NULL);
@@ -240,16 +260,12 @@ void *lru_modified_kswapd()
         for (i = last_dram_framenum; i < FASTMEM_PAGES; i++) {
           if (dram_bitmap[i] == false) {
             dram_bitmap[i] = true;
-
             nvm_bitmap[n->framenum] = false;
             
             LOG("cold %lu -> hot %lu\t slowmem.active: %lu, slowmem.inactive %lu\t hotmem.active: %lu, hotmem.inactive: %lu\n",
                 n->framenum, i, nvm_active_list.numentries, nvm_inactive_list.numentries, active_list.numentries, inactive_list.numentries);
 
-            hemem_wp_page(n->page, true);
-            hemem_migrate_up(n->page, i * PAGE_SIZE);
-            n->framenum = i;
-            n->page->devdax_offset = (n->framenum * PAGE_SIZE);
+            modified_lru_migrate_up(n, i);
 
             modified_lru_list_add(&active_list, n);
 
@@ -260,16 +276,12 @@ void *lru_modified_kswapd()
         for (i = 0; i < last_dram_framenum; i++) {
           if (dram_bitmap[i] == false) {
             dram_bitmap[i] = true;
-
             nvm_bitmap[n->framenum] = false;
             
             LOG("cold %lu -> hot %lu\t slowmem.active: %lu, slowmem.inactive %lu\t hotmem.active: %lu, hotmem.inactive: %lu\n", 
                 n->framenum, i, nvm_active_list.numentries, nvm_inactive_list.numentries, active_list.numentries, inactive_list.numentries);
 
-            hemem_wp_page(n->page, true);
-            hemem_migrate_up(n->page, i * PAGE_SIZE);
-            n->framenum = i;
-            n->page->devdax_offset = (n->framenum * PAGE_SIZE);
+            modified_lru_migrate_up(n, i);
 
             modified_lru_list_add(&active_list, n);
 
@@ -296,13 +308,9 @@ void *lru_modified_kswapd()
         for (i = last_nvm_framenum; i < SLOWMEM_PAGES; i++) {
           if (nvm_bitmap[i] == false) {
             nvm_bitmap[i] = true;
-
             dram_bitmap[cn->framenum] = false;
 
-            hemem_wp_page(cn->page, true);
-            hemem_migrate_down(cn->page, i * PAGE_SIZE);
-            cn->framenum = i;
-            cn->page->devdax_offset = (cn->framenum * PAGE_SIZE);
+            modified_lru_migrate_down(cn, i);
 
             modified_lru_list_add(&nvm_inactive_list, cn);
             found = true;
@@ -314,13 +322,9 @@ void *lru_modified_kswapd()
           for (i = last_nvm_framenum; i < SLOWMEM_PAGES; i++) {
             if (nvm_bitmap[i] == false) {
               nvm_bitmap[i] = true;
-
               dram_bitmap[cn->framenum] = false;
-
-              hemem_wp_page(cn->page, true);
-              hemem_migrate_down(cn->page, i * PAGE_SIZE);
-              cn->framenum = i;
-              cn->page->devdax_offset = (cn->framenum * PAGE_SIZE);
+              
+              modified_lru_migrate_down(cn, i);
 
               modified_lru_list_add(&nvm_inactive_list, cn);
 

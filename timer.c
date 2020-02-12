@@ -7,8 +7,7 @@
 #include "timer.h"
 
 /* Useful for doing arithmetic on struct timevals. M*/
-void
-timeDiff(struct timeval *d, struct timeval *a, struct timeval *b)
+void timeDiff(struct timeval *d, struct timeval *a, struct timeval *b)
 {
   d->tv_sec = a->tv_sec - b->tv_sec;
   d->tv_usec = a->tv_usec - b->tv_usec;
@@ -20,8 +19,7 @@ timeDiff(struct timeval *d, struct timeval *a, struct timeval *b)
 
 
 /* Return the no. of elapsed seconds between Starttime and Endtime. */
-double
-elapsed(struct timeval *starttime, struct timeval *endtime)
+double elapsed(struct timeval *starttime, struct timeval *endtime)
 {
   struct timeval diff;
 

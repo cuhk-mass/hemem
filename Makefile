@@ -47,5 +47,5 @@ tester: test.c
 	$(CC) -o tester test.c $(LIBS)
 
 clean:
-	$(RM) *.o gups-lru gups-simple tester memsim/mmgr_simple mmgr_linux
+	$(RM) *.o gups-lru gups-simple gups-lru-modified tester memsim/mmgr_simple mmgr_linux
 

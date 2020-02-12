@@ -47,8 +47,7 @@ struct gups_args {
 };
 
 
-void
-*do_gups(void *arguments)
+void *do_gups(void *arguments)
 {
   //printf("do_gups entered\n");
   struct gups_args *args = (struct gups_args*)arguments;
@@ -70,8 +69,7 @@ void
 }
 
 
-int
-main(int argc, char **argv)
+int main(int argc, char **argv)
 {
   int threads;
   unsigned long updates, expt;
