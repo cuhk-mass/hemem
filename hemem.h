@@ -15,7 +15,7 @@
 #include "lru_modified.h"
 
 #define NVMSIZE   (128L * (1024L * 1024L * 1024L))
-#define DRAMSIZE  (1L * (1024L * 1024L * 1024L))
+#define DRAMSIZE  (8L * (1024L * 1024L * 1024L))
 
 #define DRAMPATH "/dev/dax0.0"
 #define NVMPATH "/dev/dax1.0"
