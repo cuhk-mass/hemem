@@ -21,7 +21,7 @@
 struct bucket {
   uint64_t value;
   uint16_t value2;
-  uint16_t value3;
+  uint32_t value3;
   struct bucket* next;
 };
 
@@ -78,7 +78,7 @@ static inline struct bucket* ht_search(struct hash_table* ht, uint64_t value){
   struct bucket* bucket = &(ht->buckets[index]);
 
   do {
-    if (bucket->value = value) return bucket;
+    if (bucket->value == value) return bucket;
   } while (bucket->next != NULL);
 
   return 0;

@@ -10,8 +10,8 @@ all: gups-simple gups-lru tester
 gups-lru: gups.o hemem-lru.o timer.o paging.o lru.o
 	$(CC) $(CFLAGS) $(INCLUDES) -o gups-lru gups.o zipf.o hemem-lru.o timer.o paging.o lru.o $(LIBS)
 
-gups-simple: gups.o hemem-simple.o timer.o paging.o simple.o
-	$(CC) $(CFLAGS) $(INCLUDES) -o gups-simple gups.o zipf.o hemem-simple.o timer.o paging.o simple.o $(LIBS)
+gups-simple: gups.o hemem-simple.o timer.o paging.o simple.o coalesce.o
+	$(CC) $(CFLAGS) $(INCLUDES) -o gups-simple gups.o zipf.o hemem-simple.o timer.o paging.o simple.o coalesce.o $(LIBS)
 
 gups.o: gups.c zipf.c hemem.h timer.h
 	$(CC) $(CFLAGS) $(INCLUDES) -c gups.c zipf.c
@@ -33,6 +33,9 @@ lru.o: lru.c lru.h hemem.h
 
 simple.o: simple.c simple.h hemem.h
 	$(CC) $(CFLAGS) $(INCLUDES) -c simple.c
+
+coalesce.o: coalesce.c hash.h
+	$(CC) $(CFLAGS) $(INCLUDES) -c coalesce.c
 
 tester: test.c
 	$(CC) -o tester test.c $(LIBS)

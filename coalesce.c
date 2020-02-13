@@ -18,6 +18,12 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/mman.h>
+#include <linux/userfaultfd.h>
+#include <sys/ioctl.h>
+#include <sys/syscall.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #include "hemem.h"
 #include "paging.h"
@@ -33,10 +39,13 @@ struct huge_page {
 };
 
 struct hash_table* hp_ht;
+extern long uffd;
 
-void coalesce_pages(uint64_t addr, int fd){
-  int i;
+void coalesce_pages(uint64_t addr, uint32_t fd){
+  int i, ret2;
   void* ret;
+  struct uffdio_range range;
+
   //lock pages??
 
   for(i = 0; i < NUM_SMPAGES; i++){
@@ -44,7 +53,13 @@ void coalesce_pages(uint64_t addr, int fd){
   }
   ret = mmap((void*) addr, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, fd, 0);
 
-  if(ret == NULL) perror("coalesce problem");
+  if(ret == NULL) perror("coalesce mmap");
+
+  range.start = addr;
+  range.len = HUGEPAGE_SIZE;
+  ret2 = ioctl(uffd, UFFDIO_TLBFLUSH, &range);
+
+  if(ret2 < 0) perror("coalesce ioctl");
 }
 
 void coalesce_thread() {
@@ -52,7 +67,8 @@ void coalesce_thread() {
   struct bucket* ht_bucket;
 
   hp_ht = ht_alloc(HASHTABLE_SIZE);
-  
+  uffd = syscall(__NR_userfaultfd, O_CLOEXEC | O_NONBLOCK);
+
   while(1){
     for(i = 0; i<HASHTABLE_SIZE; i++){
       if(hp_ht->buckets[i].value2 == NUM_SMPAGES) coalesce_pages(hp_ht->buckets[i].value, hp_ht->buckets[i].value3);
@@ -68,7 +84,7 @@ void coalesce_thread() {
   }
 }
 
-void check_huge_page (uint64_t addr, int fd){
+void check_huge_page (uint64_t addr, uint32_t fd){
   addr = addr % HUGEPAGE_SIZE;
 
   struct huge_page* this_hp = (struct huge_page*) ht_search(hp_ht, addr); 
