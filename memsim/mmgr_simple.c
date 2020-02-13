@@ -1,3 +1,8 @@
+/*
+ * Simple memory allocator that only allocates base pages, allocates
+ * physical memory linearly (first fast, then slow), and cannot free memory.
+ */
+
 #include <stdint.h>
 #include <stdbool.h>
 #include <assert.h>
@@ -21,6 +26,7 @@ static uint64_t getmem(uint64_t addr, struct pte *pte)
     slowmem += BASE_PAGE_SIZE;
   }
 
+  assert((ret & BASE_PAGE_MASK) == 0);	// Must be aligned
   return ret;
 }
 
