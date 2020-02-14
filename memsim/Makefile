@@ -1,5 +1,5 @@
 #CFLAGS = -g -Wall -pthread
-CFLAGS = -O2 -Wall -pthread
+CFLAGS = -O2 -g -Wall -pthread
 # CFLAGS = -g -Wall -pthread -DLOG_DEBUG
 LDFLAGS = -pthread
 
@@ -20,7 +20,7 @@ mmgr_simple: mmgr_simple.o memsim.o
 mmgr_linux: mmgr_linux.o memsim.o
 
 bench: all
-	/bin/echo -ne "Benchmark\ttime [us]\tDRAM\tNVM\tTLB misses\tTLB hits\tpagefaults\n" > results.txt
+	/bin/echo -ne "Benchmark\ttime [us]\tDRAM accesses\tNVM accesses\tTLB misses\tTLB hits\tpagefaults\t(MMM misses)\n" > results.txt
 	./mmgr_simple >> results.txt
 	./mmgr_linux >> results.txt
 	./mmgr_simple_mmm >> results.txt
