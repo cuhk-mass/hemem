@@ -23,8 +23,8 @@
 #define INDEX_FILE "indices.txt"
 
 //#define ZIPFIAN
-//#define HOTSPOT
-#define UNIFORM_RANDOM
+#define HOTSPOT
+//#define UNIFORM_RANDOM
 
 #ifdef ZIPFIAN
 
@@ -159,8 +159,8 @@ void calc_indices(unsigned long* indices, unsigned long updates, unsigned long n
   unsigned long upperBound;
   unsigned long hotInterval;
   unsigned long coldInterval;
-  double hotsetFraction = 0.2;
-  double hotopFraction = 0.8;
+  double hotsetFraction = 0.1;
+  double hotopFraction = 0.9;
 
   srand(0);
 

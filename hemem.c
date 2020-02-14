@@ -364,7 +364,10 @@ void handle_missing_fault(uint64_t page_boundry)
   page = (struct hemem_page*)calloc(1, sizeof(struct hemem_page));
 
   // let policy algorithm do most of the heavy lifting of finding a free page
+  gettimeofday(&start, NULL);
   pagefault(page); 
+  gettimeofday(&end, NULL);
+  LOG_TIME("page_fault: %f s\n", elapsed(&start, &end));
   offset = page->devdax_offset;
   in_dram = page->in_dram;
   
@@ -406,8 +409,8 @@ void handle_missing_fault(uint64_t page_boundry)
   pthread_mutex_init(&(page->page_lock), NULL);
 
   mem_allocated += PAGE_SIZE;
-  
-  // place in hemem's page tracking list 
+
+  // place in hemem's page tracking list
   enqueue_page(page);
 
   gettimeofday(&end, NULL);
