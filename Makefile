@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -g -Wall
+CFLAGS = -g -Wall -O3
 INCLUDES = -I/root/hmem/linux/usr/include
 LIBS = -lm -lpthread
 

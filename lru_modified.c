@@ -22,27 +22,31 @@ uint64_t last_dram_framenum = 0;
 uint64_t last_nvm_framenum = 0;
 bool dram_bitmap[FASTMEM_PAGES];
 bool nvm_bitmap[SLOWMEM_PAGES];
-struct timeval runtime;
+struct timeval kswapdruntime;
 
 
 void modified_lru_migrate_down(struct modified_lru_node *n, uint64_t i)
 {
+  pthread_mutex_lock(&(n->page->page_lock));
   n->page->migrating = true;
   hemem_wp_page(n->page, true);
   hemem_migrate_down(n->page, i * PAGE_SIZE);
   n->framenum = i;
   n->page->devdax_offset = (n->framenum * PAGE_SIZE);
   n->page->migrating = false; 
+  pthread_mutex_unlock(&(n->page->page_lock));
 }
 
 void modified_lru_migrate_up(struct modified_lru_node *n, uint64_t i)
 {
+  pthread_mutex_lock(&(n->page->page_lock));
   n->page->migrating = true;
   hemem_wp_page(n->page, true);
   hemem_migrate_up(n->page, i * PAGE_SIZE);
   n->framenum = i;
   n->page->devdax_offset = (n->framenum * PAGE_SIZE);
   n->page->migrating = false;
+  pthread_mutex_unlock(&(n->page->page_lock));
 }
 
 void modified_lru_list_add(struct modified_lru_list *list, struct modified_lru_node *node)
@@ -222,7 +226,6 @@ uint64_t lru_modified_allocate_page(struct modified_lru_node *n)
 
 void *lru_modified_kswapd()
 {
-  //size_t oldruntime = 0;
   bool moved;
   int tries;
   uint64_t i;
@@ -235,7 +238,7 @@ void *lru_modified_kswapd()
 
   for (;;) {
     gettimeofday(&curtime, NULL);
-    while(elapsed(&runtime, &curtime) < KSWAPD_INTERVAL) {
+    while(elapsed(&kswapdruntime, &curtime) < KSWAPD_INTERVAL) {
       gettimeofday(&curtime, NULL);
     }
 
@@ -338,7 +341,7 @@ void *lru_modified_kswapd()
 out:
     pthread_mutex_unlock(&global_lock);
   
-    gettimeofday(&runtime, NULL);
+    gettimeofday(&kswapdruntime, NULL);
   }
 
   return NULL;
@@ -372,6 +375,6 @@ void lru_modified_init(void)
   r = pthread_create(&kswapd_thread, NULL, lru_modified_kswapd, NULL);
   assert(r == 0);
   
-  gettimeofday(&runtime, NULL);
+  gettimeofday(&kswapdruntime, NULL);
   printf("Memory management policy is Modified LRU\n");
 }

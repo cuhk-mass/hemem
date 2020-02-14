@@ -37,8 +37,10 @@ int missing_faults_handled = 0;
 uint64_t base = 0;
 int devmemfd = -1;
 struct page_list list;
-uint64_t runtime = 0;
 bool base_set = false;
+
+void *dram_devdax_mmap;
+void *nvm_devdax_mmap;
 
 
 void hemem_init()
@@ -83,9 +85,21 @@ void hemem_init()
     assert(0);
   }
 
-  timef = fopen("times.txt", "w+");
+  timef = fopen("logs/times.txt", "w+");
   if (timef == NULL) {
     perror("time file fopen\n");
+    assert(0);
+  }
+
+  dram_devdax_mmap = mmap(NULL, DRAMSIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
+  if (dram_devdax_mmap == MAP_FAILED) {
+    perror("dram devdax mmap");
+    assert(0);
+  }
+
+  nvm_devdax_mmap = mmap(NULL, NVMSIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
+  if (nvm_devdax_mmap == MAP_FAILED) {
+    perror("nvm devdax mmap");
     assert(0);
   }
 
@@ -109,14 +123,11 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
   assert(init);
 
   // reserve block of memory
-  gettimeofday(&mmap_start, NULL);
   p = mmap(addr, length, prot, MAP_SHARED, dramfd, offset);
   if (p == NULL || p == MAP_FAILED) {
     perror("mmap");
   }  
   assert(p != NULL && p != MAP_FAILED);
-  gettimeofday(&end, NULL);
-  LOG_TIME("mmap_dram: %f s\n", elapsed(&mmap_start, &end));
 
   // register with uffd
   gettimeofday(&start, NULL);
@@ -200,24 +211,9 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
   old_addr_offset = page->devdax_offset;
   new_addr_offset = dram_offset;
 
-  gettimeofday(&start, NULL);
-  old_addr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, old_addr_offset);
-  gettimeofday(&end, NULL);
-  LOG_TIME("mmap_nvm: %f s\n", elapsed(&start, &end));
+  old_addr = nvm_devdax_mmap + old_addr_offset;
 
-  gettimeofday(&start, NULL);
-  new_addr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, new_addr_offset);
-  gettimeofday(&end, NULL);
-  LOG_TIME("mmap_dram: %f s\n", elapsed(&start, &end));
-
-  if (old_addr == MAP_FAILED) {
-    perror("old addr mmap");
-    assert(0);
-  }
-  if (new_addr == MAP_FAILED) {
-    perror("new addr mmap");
-    assert(0);
-  }
+  new_addr = dram_devdax_mmap + new_addr_offset;
 
   // copy page from faulting location to temp location
   gettimeofday(&start, NULL);
@@ -252,16 +248,6 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
   gettimeofday(&end, NULL);
   LOG_TIME("uffdio_register: %f s\n", elapsed(&start, &end));
   
-  gettimeofday(&start, NULL);
-  munmap(old_addr, PAGE_SIZE);
-  gettimeofday(&end, NULL);
-  LOG_TIME("munmap: %f s\n", elapsed(&start, &end));
-
-  gettimeofday(&start, NULL);
-  munmap(new_addr, PAGE_SIZE);
-  gettimeofday(&end, NULL);
-  LOG_TIME("munmap: %f s\n", elapsed(&start, &end));
-
   gettimeofday(&migrate_end, NULL);  
   LOG_TIME("hemem_migrate_up: %f s\n", elapsed(&migrate_start, &migrate_end));
 }
@@ -282,24 +268,9 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
   old_addr_offset = page->devdax_offset;
   new_addr_offset = nvm_offset;
 
-  gettimeofday(&start, NULL);
-  old_addr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, old_addr_offset);
-  gettimeofday(&end, NULL);
-  LOG_TIME("mmap_dram: %f s\n", elapsed(&start, &end));
+  old_addr = dram_devdax_mmap + old_addr_offset;
 
-  gettimeofday(&start, NULL);
-  new_addr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, new_addr_offset);
-  gettimeofday(&end, NULL);
-  LOG_TIME("mmap_nvm: %f s\n", elapsed(&start, &end));
-
-  if (old_addr == MAP_FAILED) {
-    perror("old addr mmap");
-    assert(0);
-  }
-  if (new_addr == MAP_FAILED) {
-    perror("new addr mmap");
-    assert(0);
-  }
+  new_addr = nvm_devdax_mmap + new_addr_offset;
 
   // copy page from faulting location to temp location
   gettimeofday(&start, NULL);
@@ -334,16 +305,6 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
   gettimeofday(&end, NULL);
   LOG_TIME("uffdio_register: %f s\n", elapsed(&start, &end));
   
-  gettimeofday(&start, NULL);
-  munmap(old_addr, PAGE_SIZE);
-  gettimeofday(&end, NULL);
-  LOG_TIME("munmap: %f s\n", elapsed(&start, &end));
-
-  gettimeofday(&start, NULL);
-  munmap(new_addr, PAGE_SIZE);
-  gettimeofday(&end, NULL);
-  LOG_TIME("munmap: %f s\n", elapsed(&start, &end));
-
   gettimeofday(&migrate_end, NULL);  
   LOG_TIME("hemem_migrate_down: %f s\n", elapsed(&migrate_start, &migrate_end));
 }
@@ -380,14 +341,11 @@ void handle_wp_fault(uint64_t page_boundry)
   page = find_page(page_boundry);
   assert(page != NULL);
 
-  /* page is already being migrated by a background thread
-   * if it has been marked as write-protected, so we just
-   * wait for it to finish migrating
-   */
-  //TODO: Probably need some kind of barriers with this flag
-  LOG("Write-protection fault: waiting for migration to finish\n");
-  while (page->migrating) {}
-  LOG("Write-protection fault: migration finished\n");
+  pthread_mutex_lock(&(page->page_lock));
+
+  assert(!page->migrating);
+
+  pthread_mutex_unlock(&(page->page_lock));
 }
 
 
@@ -406,10 +364,7 @@ void handle_missing_fault(uint64_t page_boundry)
   page = (struct hemem_page*)calloc(1, sizeof(struct hemem_page));
 
   // let policy algorithm do most of the heavy lifting of finding a free page
-  gettimeofday(&start, NULL);
   pagefault(page); 
-  gettimeofday(&end, NULL);
-  LOG_TIME("page_fault: %f s\n", elapsed(&start, &end));
   offset = page->devdax_offset;
   in_dram = page->in_dram;
   
@@ -447,7 +402,9 @@ void handle_missing_fault(uint64_t page_boundry)
   // use mmap return addr to track new page's virtual address
   page->va = (uint64_t)newptr;
   page->migrating = false;
-  
+ 
+  pthread_mutex_init(&(page->page_lock), NULL);
+
   mem_allocated += PAGE_SIZE;
   
   // place in hemem's page tracking list 
