@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <inttypes.h>
+#include <pthread.h>
 
 #include "shared.h"
 
@@ -26,6 +27,7 @@ struct tlbe {
 
 static struct tlbe l1tlb_1g[4], l1tlb_2m[32], l1tlb_4k[64];
 static struct tlbe l2tlb_1g[16], l2tlb_2m4k[1536];
+static pthread_mutex_t tlb_lock = PTHREAD_MUTEX_INITIALIZER;
 
 // Statistics
 static size_t accesses[NMEMTYPES], tlbmisses = 0, tlbhits = 0, pagefaults = 0;
@@ -34,6 +36,7 @@ static size_t accesses[NMEMTYPES], tlbmisses = 0, tlbhits = 0, pagefaults = 0;
 #	define	MMM_TAGS_SIZE	(FASTMEM_SIZE / CACHELINE_SIZE)
 
 static uint64_t	mmm_tags[MMM_TAGS_SIZE];
+static size_t mmm_misses = 0;
 #endif
 
 // From Wikipedia
@@ -61,11 +64,13 @@ static unsigned int tlb_hash(uint64_t addr)
 
 void tlb_shootdown(uint64_t addr)
 {
+  pthread_mutex_lock(&tlb_lock);
   memset(l1tlb_1g, 0, sizeof(l1tlb_1g));
   memset(l1tlb_2m, 0, sizeof(l1tlb_2m));
   memset(l1tlb_4k, 0, sizeof(l1tlb_4k));
   memset(l2tlb_1g, 0, sizeof(l2tlb_1g));
   memset(l2tlb_2m4k, 0, sizeof(l2tlb_2m4k));
+  pthread_mutex_unlock(&tlb_lock);
 
   runtime += TIME_TLBSHOOTDOWN;
 }
@@ -73,12 +78,66 @@ void tlb_shootdown(uint64_t addr)
 static struct tlbe *tlb_lookup(struct tlbe *tlb, unsigned int size,
 			       uint64_t vpfn)
 {
+  struct tlbe *ret;
+  
+  pthread_mutex_lock(&tlb_lock);
   struct tlbe *te = &tlb[tlb_hash(vpfn) % size];
   if(te->present && te->vpfn == vpfn) {
-    return te;
+    ret = te;
   } else {
-    return NULL;
+    ret = NULL;
   }
+
+  pthread_mutex_unlock(&tlb_lock);
+  return ret;
+}
+
+static struct tlbe *alltlb_lookup(uint64_t vaddr, int *level)
+{
+  struct tlbe *ret = NULL;
+
+  // 1G L1 TLB
+  ret = tlb_lookup(l1tlb_1g, 4, vaddr & GIGA_PFN_MASK);
+  if(ret != NULL) {
+    *level = 2;
+    return ret;
+  }
+
+  // 2M L1 TLB
+  ret = tlb_lookup(l1tlb_2m, 32, vaddr & HUGE_PFN_MASK);
+  if(ret != NULL) {
+    *level = 3;
+    return ret;
+  }
+
+  // 4K L1 TLB
+  ret = tlb_lookup(l1tlb_4k, 64, vaddr & BASE_PFN_MASK);
+  if(ret != NULL) {
+    *level = 4;
+    return ret;
+  }
+
+  // 1G L2 TLB
+  ret = tlb_lookup(l2tlb_1g, 16, vaddr & GIGA_PFN_MASK);
+  if(ret != NULL) {
+    *level = 2;
+    return ret;
+  }
+
+  // 2M L2 TLB
+  ret = tlb_lookup(l2tlb_2m4k, 1536, vaddr & HUGE_PFN_MASK);
+  if(ret != NULL) {
+    *level = 3;
+    return ret;
+  }
+
+  ret = tlb_lookup(l2tlb_2m4k, 1536, vaddr & BASE_PFN_MASK);
+  if(ret != NULL) {
+    *level = 4;
+    return ret;
+  }
+
+  return NULL;
 }
 
 static void tlb_insert(uint64_t vaddr, uint64_t paddr, unsigned int level)
@@ -87,7 +146,9 @@ static void tlb_insert(uint64_t vaddr, uint64_t paddr, unsigned int level)
   uint64_t vpfn = 0, ppfn = 0;
 
   assert(level >= 2 && level <= 4);
-  
+
+  pthread_mutex_lock(&tlb_lock);
+
   switch(level) {
   case 2:	// 1GB page
     vpfn = vaddr & GIGA_PFN_MASK;
@@ -123,11 +184,13 @@ static void tlb_insert(uint64_t vaddr, uint64_t paddr, unsigned int level)
   te->present = true;
   te->vpfn = vpfn;
   te->ppfn = ppfn;
+  
+  pthread_mutex_unlock(&tlb_lock);
 }
 
 static void memaccess(uint64_t addr, enum access_type type)
 {
-  int level = 2;
+  int level;
 
   // Must be canonical addr
   assert((addr >> 48) == 0);
@@ -135,12 +198,7 @@ static void memaccess(uint64_t addr, enum access_type type)
   // In TLB?
   struct tlbe *te = NULL;
   uint64_t paddr;
-  if((te = tlb_lookup(l1tlb_1g, 4, addr & GIGA_PFN_MASK)) == NULL && (level = 3) &&
-     (te = tlb_lookup(l1tlb_2m, 32, addr & HUGE_PFN_MASK)) == NULL && (level = 4) &&
-     (te = tlb_lookup(l1tlb_4k, 64, addr & BASE_PFN_MASK)) == NULL && (level = 2) &&
-     (te = tlb_lookup(l2tlb_1g, 16, addr & GIGA_PFN_MASK)) == NULL && (level = 3) &&
-     (te = tlb_lookup(l2tlb_2m4k, 1536, addr & HUGE_PFN_MASK)) == NULL && (level = 4) &&
-     (te = tlb_lookup(l2tlb_2m4k, 1536, addr & BASE_PFN_MASK)) == NULL) {
+  if((te = alltlb_lookup(addr, &level)) == NULL) {
     tlbmisses++;
 
     // 4-level page walk
@@ -192,6 +250,7 @@ static void memaccess(uint64_t addr, enum access_type type)
 
   // MMM miss? Write back and (maybe) load new
   if(!in_fastmem) {
+    mmm_misses++;
     if(mmm_tags[mmm_idx] != (uint64_t)-1) {
       runtime += TIME_SLOWMEM_WRITE;	// Write back
       accesses[SLOWMEM]++;
@@ -234,6 +293,8 @@ static void memaccess(uint64_t addr, enum access_type type)
 static void gups(size_t iters, uint64_t hotset_start, uint64_t hotset_size,
 		 double hotset_prob)
 {
+  assert(hotset_start + hotset_size <= WORKSET_SIZE);
+  
   // GUPS with hotset
   for(size_t i = 0; i < iters; i++) {
     uint64_t a;
@@ -262,6 +323,9 @@ static void reset_stats(void)
   accesses[FASTMEM] = accesses[SLOWMEM] = 0;
   tlbmisses = tlbhits = 0;
   pagefaults = 0;
+#ifdef MMM
+  mmm_misses = 0;
+#endif
 }
 
 int main(int argc, char *argv[])
@@ -278,20 +342,32 @@ int main(int argc, char *argv[])
   // Get memory traces from Onur's group at ETH? membench? Replay them here?
 
   // GUPS!
-  gups(10000000, 0, MB(2), 0.9);
+  gups(10000000, 0, MB(1), 0.9);
 
+#ifdef MMM
+  printf("%s\t%.2f\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\n", argv[0],
+	 (double)runtime / 1000000.0, accesses[FASTMEM], accesses[SLOWMEM],
+	 tlbmisses, tlbhits, pagefaults, mmm_misses);
+#else
   printf("%s\t%.2f\t%zu\t%zu\t%zu\t%zu\t%zu\n", argv[0],
 	 (double)runtime / 1000000.0, accesses[FASTMEM], accesses[SLOWMEM],
 	 tlbmisses, tlbhits, pagefaults);
+#endif
 
   reset_stats();
 
   // Move hotset up
-  gups(10000000, MB(9), MB(2), 0.9);
+  gups(10000000, MB(9), MB(1), 0.9);
 
+#ifdef MMM
+  printf("%s\t%.2f\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\n", argv[0],
+	 (double)runtime / 1000000.0, accesses[FASTMEM], accesses[SLOWMEM],
+	 tlbmisses, tlbhits, pagefaults, mmm_misses);
+#else
   printf("%s\t%.2f\t%zu\t%zu\t%zu\t%zu\t%zu\n", argv[0],
 	 (double)runtime / 1000000.0, accesses[FASTMEM], accesses[SLOWMEM],
 	 tlbmisses, tlbhits, pagefaults);
+#endif
 
   return 0;
 }
