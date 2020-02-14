@@ -175,7 +175,7 @@ int main(int argc, char **argv)
   r = pthread_join(pagetable_thread, NULL);
   assert(r == 0);
 #endif
-
+/*
   scan_pagetable();
 
   uint64_t pa = hemem_va_to_pa((uint64_t)p);
@@ -197,13 +197,13 @@ int main(int argc, char **argv)
   
   ac = hemem_get_accessed_bit((uint64_t)p);
   printf("hemem pa accessed bit: %016lx\n", ac);
-  
+*/
   for (i = 0; i < threads; i++) {
     free(ga[i]->indices);
     free(ga[i]);
   }
   free(ga);
-
+  
   hemem_munmap(p, size);
 
   return 0;

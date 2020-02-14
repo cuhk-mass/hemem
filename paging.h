@@ -38,7 +38,7 @@
 #define HEMEM_PAGE_SHIFT  12
 #define HEMEM_PTRS_PER_PTE  512
 
-#define EXAMINE_PGTABLES
+//#define EXAMINE_PGTABLES
 
 
 void scan_pagetable();
