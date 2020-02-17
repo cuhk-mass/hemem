@@ -139,8 +139,11 @@ uint64_t lru_allocate_page(struct lru_node *n)
   uint64_t i;
   struct lru_node *cn;
   bool found = false;
+  struct timeval start, end;
 
   pthread_mutex_lock(&global_lock);
+
+  gettimeofday(&start, NULL);
 
   for (tries = 0; tries < 2; tries++) {
     found = false;
@@ -170,6 +173,9 @@ uint64_t lru_allocate_page(struct lru_node *n)
         pthread_mutex_unlock(&global_lock);
         last_dram_framenum = i;
 
+        gettimeofday(&end, NULL);
+        LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
+        
         // return offset in devdax file -- done!
         return i * PAGE_SIZE;
       }
@@ -183,6 +189,9 @@ uint64_t lru_allocate_page(struct lru_node *n)
         lru_list_add(&active_list, n);
         pthread_mutex_unlock(&global_lock);
         last_dram_framenum = i;
+
+        gettimeofday(&end, NULL);
+        LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
 
         // return offset in devdax file -- done!
         return i * PAGE_SIZE;

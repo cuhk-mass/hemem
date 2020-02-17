@@ -40,7 +40,7 @@
 
 #ifdef HOTSPOT
 extern uint64_t hotset_start;
-extern uint64_t hotset_fraction;
+extern double hotset_fraction;
 #endif
 
 extern void calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems);
@@ -176,7 +176,7 @@ int main(int argc, char **argv)
   printf("GUPS = %.10f\n", gups);
 
 #ifdef HOTSPOT
-  hotset_start = nelems / 2;
+  hotset_start = nelems - (uint64_t)(nelems * hotset_fraction) - 1;
 
   for (i = 0; i < threads; ++i) {
     calc_indices(ga[i]->indices, updates, nelems);

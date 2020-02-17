@@ -157,6 +157,10 @@ void calc_indices(unsigned long* indices, unsigned long updates, unsigned long n
 {
   int i;
   uint64_t hotset_size = (uint64_t)(hotset_fraction * nelems);
+
+  assert(hotset_start + hotset_size <= nelems);
+
+  printf("hotset start: %lu\thotset size: %lu\thotset probability: %f\n", hotset_start, hotset_size, hotset_prob);
   
   srand(0);
 

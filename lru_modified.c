@@ -169,7 +169,7 @@ uint64_t lru_modified_allocate_page(struct modified_lru_node *n)
       last_dram_framenum = i;
 
       gettimeofday(&end, NULL);
-      LOG("lru_modified_allocate_page: %f s\n", elapsed(&start, &end));
+      LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
       
       // return offset in devdax file -- done!
       return i * PAGE_SIZE;
@@ -187,7 +187,7 @@ uint64_t lru_modified_allocate_page(struct modified_lru_node *n)
       last_dram_framenum = i;
       
       gettimeofday(&end, NULL);
-      LOG("lru_modified_allocate_page: %f s\n", elapsed(&start, &end));
+      LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
 
       // return offset in devdax file -- done!
       return i * PAGE_SIZE;
@@ -212,7 +212,7 @@ uint64_t lru_modified_allocate_page(struct modified_lru_node *n)
       last_nvm_framenum = i;
 
       gettimeofday(&end, NULL);
-      LOG("lru_modified_allocate_page: %f s\n", elapsed(&start, &end));
+      LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
       
       return i * PAGE_SIZE;
     }
@@ -227,7 +227,7 @@ uint64_t lru_modified_allocate_page(struct modified_lru_node *n)
       last_nvm_framenum = i;
       
       gettimeofday(&end, NULL);
-      LOG("lru_modified_allocate_page: %f s\n", elapsed(&start, &end));
+      LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
 
       return i * PAGE_SIZE;
     }

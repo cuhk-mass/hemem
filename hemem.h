@@ -14,7 +14,7 @@
 #include "simple.h"
 #include "lru_modified.h"
 
-#define NVMSIZE   (128L * (1024L * 1024L * 1024L))
+#define NVMSIZE   (256L * (1024L * 1024L * 1024L))
 #define DRAMSIZE  (8L * (1024L * 1024L * 1024L))
 
 #define DRAMPATH "/dev/dax0.0"
@@ -24,7 +24,7 @@
 //#define PAGE_SIZE (2 * (1024 * 1024))
 #define BASEPAGE_SIZE (4 * 1024)
 #define HUGEPAGE_SIZE (2 * 1024 * 1024)
-#define PAGE_SIZE BASEPAGE_SIZE
+#define PAGE_SIZE HUGEPAGE_SIZE
 
 #define FASTMEM_PAGES ((DRAMSIZE) / (PAGE_SIZE))
 #define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
