@@ -137,6 +137,7 @@ void modified_expand_caches(struct modified_lru_list *active, struct modified_lr
 uint64_t lru_modified_allocate_page(struct modified_lru_node *n)
 {
   uint64_t i;
+  struct timeval start, end;
   
   pthread_mutex_lock(&global_lock);
   /* last_dram_framenum remembers the last dram frame number
@@ -156,6 +157,7 @@ uint64_t lru_modified_allocate_page(struct modified_lru_node *n)
   if (last_dram_framenum >= FASTMEM_PAGES) {
     last_dram_framenum = 0;
   }
+  gettimeofday(&start, NULL);
   // last_dram_framenum -> end of dram pages bitmap
   for (i = last_dram_framenum; i < FASTMEM_PAGES; i++) {
     if (dram_bitmap[i] == false) {
@@ -166,6 +168,9 @@ uint64_t lru_modified_allocate_page(struct modified_lru_node *n)
       pthread_mutex_unlock(&global_lock);
       last_dram_framenum = i;
 
+      gettimeofday(&end, NULL);
+      LOG("lru_modified_allocate_page: %f s\n", elapsed(&start, &end));
+      
       // return offset in devdax file -- done!
       return i * PAGE_SIZE;
     }
@@ -180,6 +185,9 @@ uint64_t lru_modified_allocate_page(struct modified_lru_node *n)
       modified_lru_list_add(&active_list, n);
       pthread_mutex_unlock(&global_lock);
       last_dram_framenum = i;
+      
+      gettimeofday(&end, NULL);
+      LOG("lru_modified_allocate_page: %f s\n", elapsed(&start, &end));
 
       // return offset in devdax file -- done!
       return i * PAGE_SIZE;
@@ -203,6 +211,9 @@ uint64_t lru_modified_allocate_page(struct modified_lru_node *n)
       pthread_mutex_unlock(&global_lock);
       last_nvm_framenum = i;
 
+      gettimeofday(&end, NULL);
+      LOG("lru_modified_allocate_page: %f s\n", elapsed(&start, &end));
+      
       return i * PAGE_SIZE;
     }
   }
@@ -214,6 +225,9 @@ uint64_t lru_modified_allocate_page(struct modified_lru_node *n)
       modified_lru_list_add(&nvm_active_list, n);
       pthread_mutex_unlock(&global_lock);
       last_nvm_framenum = i;
+      
+      gettimeofday(&end, NULL);
+      LOG("lru_modified_allocate_page: %f s\n", elapsed(&start, &end));
 
       return i * PAGE_SIZE;
     }
