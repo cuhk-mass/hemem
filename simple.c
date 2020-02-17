@@ -55,6 +55,7 @@ void simple_allocate_page(struct hemem_page *page)
 
 void simple_pagefault(struct hemem_page *page)
 {
+  assert(page != NULL);
   simple_allocate_page(page);
 }
 

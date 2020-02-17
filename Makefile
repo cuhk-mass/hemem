@@ -16,7 +16,7 @@ gups-simple: gups.o hemem-simple.o timer.o paging.o simple.o
 gups-modified-lru: gups.o hemem-modified-lru.o timer.o paging.o lru_modified.o
 	$(CC) $(CFLAGS) $(INCLUDES) -o gups-lru-modified gups.o zipf.o hemem-modified-lru.o timer.o paging.o lru_modified.o $(LIBS)
 
-gups.o: gups.c zipf.c hemem.h timer.h
+gups.o: gups.c zipf.c hemem.h timer.h gups.h
 	$(CC) $(CFLAGS) $(INCLUDES) -c gups.c zipf.c
 
 hemem-lru.o: hemem.c hemem.h paging.h lru.h

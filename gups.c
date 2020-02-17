@@ -35,6 +35,14 @@
 #include "timer.h"
 #include "hemem.h"
 
+
+#include "gups.h"
+
+#ifdef HOTSPOT
+extern uint64_t hotset_start;
+extern uint64_t hotset_fraction;
+#endif
+
 extern void calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems);
 
 struct gups_args {
@@ -166,6 +174,40 @@ int main(int argc, char **argv)
   printf("Elapsed time: %.4f seconds.\n", secs);
   gups = threads * ((double)updates) / (secs * 1.0e9);
   printf("GUPS = %.10f\n", gups);
+
+#ifdef HOTSPOT
+  hotset_start = nelems / 2;
+
+  for (i = 0; i < threads; ++i) {
+    calc_indices(ga[i]->indices, updates, nelems);
+  }
+  
+  printf("Re-timing.\n");
+  gettimeofday(&starttime, NULL);
+  
+  // spawn gups worker threads
+  for (i = 0; i < threads; i++) {
+    ga[i]->tid = i; 
+    ga[i]->iters = updates;
+    ga[i]->size = nelems;
+    ga[i]->elt_size = elt_size;
+    int r = pthread_create(&t[i], NULL, do_gups, (void*)ga[i]);
+    assert(r == 0);
+  }
+
+  // wait for worker threads
+  for (i = 0; i < threads; i++) {
+    int r = pthread_join(t[i], NULL);
+    assert(r == 0);
+  }
+
+  gettimeofday(&stoptime, NULL);
+
+  secs = elapsed(&starttime, &stoptime);
+  printf("Elapsed time: %.4f seconds.\n", secs);
+  gups = threads * ((double)updates) / (secs * 1.0e9);
+  printf("GUPS = %.10f\n", gups);
+#endif
 
 #ifdef EXAMINE_PGTABLES
   pthread_t pagetable_thread;
