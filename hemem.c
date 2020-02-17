@@ -117,8 +117,8 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
 {
   void *p;
   struct uffdio_base uffdio_base;
-  struct timeval start, end;
-  struct timeval mmap_start, mmap_end;
+  //struct timeval start, end;
+  //struct timeval mmap_start, mmap_end;
   
   assert(init);
 
@@ -130,7 +130,7 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
   assert(p != NULL && p != MAP_FAILED);
 
   // register with uffd
-  gettimeofday(&start, NULL);
+  //gettimeofday(&start, NULL);
   struct uffdio_register uffdio_register;
   uffdio_register.range.start = (uint64_t)p;
   uffdio_register.range.len = length;
@@ -140,8 +140,8 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
     perror("ioctl uffdio_register");
     assert(0);
   }
-  gettimeofday(&end, NULL);
-  LOG_TIME("uffdio_register: %f s\n", elapsed(&start, &end));
+  //gettimeofday(&end, NULL);
+  //LOG_TIME("uffdio_register: %f s\n", elapsed(&start, &end));
 
   uffdio_base.range.start = (uint64_t)p;
   uffdio_base.range.len = length;
@@ -151,8 +151,9 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
     assert(0);
   }
   base = uffdio_base.base;
-  gettimeofday(&mmap_end, NULL);
-  LOG_TIME("hemem_mmap: %f s\n", elapsed(&mmap_start, &mmap_end));
+  printf("Page table base: 0x%lx\n", base);
+  //gettimeofday(&mmap_end, NULL);
+  //LOG_TIME("hemem_mmap: %f s\n", elapsed(&mmap_start, &mmap_end));
   return p;
 }
 
@@ -362,6 +363,10 @@ void handle_missing_fault(uint64_t page_boundry)
 
   gettimeofday(&missing_start, NULL);
   page = (struct hemem_page*)calloc(1, sizeof(struct hemem_page));
+  if (page == NULL) {
+    perror("page calloc");
+    assert(0);
+  }
 
   // let policy algorithm do most of the heavy lifting of finding a free page
   gettimeofday(&start, NULL);

@@ -19,12 +19,9 @@
 #include <math.h>
 #include <stdio.h>
 #include <assert.h>
+#include <stdint.h>
 
-#define INDEX_FILE "indices.txt"
-
-//#define ZIPFIAN
-#define HOTSPOT
-//#define UNIFORM_RANDOM
+#include "gups.h"
 
 #ifdef ZIPFIAN
 
@@ -150,43 +147,27 @@ void calc_indices(unsigned long* indices, unsigned long updates, unsigned long n
 
 #elif defined HOTSPOT
 
+#define RAND_WITHIN(x)	(((double)rand() / RAND_MAX) * (x))
+
+uint64_t hotset_start = 0;
+double hotset_fraction = 0.1;
+double hotset_prob = 0.9;
+
 void calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems)
 {
-  FILE* f;
   int i;
-  unsigned long interval;
-  unsigned long lowerBound;
-  unsigned long upperBound;
-  unsigned long hotInterval;
-  unsigned long coldInterval;
-  double hotsetFraction = 0.1;
-  double hotopFraction = 0.9;
-
+  uint64_t hotset_size = (uint64_t)(hotset_fraction * nelems);
+  
   srand(0);
 
-  f = fopen(INDEX_FILE, "w");
-  if (f == NULL) {
-    perror("fopen");
-    assert(0);
-  }
-
-  lowerBound = 0;
-  upperBound = nelems - 1;
-  interval = upperBound - lowerBound + 1;
-  hotInterval = (int)(interval * hotsetFraction);
-  coldInterval = interval - hotInterval;
-
   for (i = 0; i < updates; i++) {
-    if (((double)rand() / RAND_MAX) < hotopFraction) {
-      indices[i] = lowerBound + abs(rand()) % hotInterval;
-      //fprintf(f, "hot: %d\n", indices[i]);
+    if (RAND_WITHIN(1) < hotset_prob) {
+      indices[i] = hotset_start + (uint64_t)RAND_WITHIN(hotset_size);
     }
     else {
-      indices[i] = lowerBound + hotInterval + abs(rand()) % coldInterval;
-      //fprintf(f, "cold: %d\n", indices[i]);
+      indices[i] = (uint64_t)RAND_WITHIN(nelems);
     }
   }
-  fclose(f);
 }
 
 #else // UNIFORM_RANDOM

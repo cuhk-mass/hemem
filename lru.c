@@ -374,8 +374,14 @@ void lru_pagefault(struct hemem_page *page)
   uint64_t offset;
   struct lru_node *node;
 
+  assert(page != NULL);
+
   // set up the lru node for the lru lists
   node = (struct lru_node*)calloc(1, sizeof(struct lru_node));
+  if(node == NULL) {
+    perror("node calloc");
+    assert(0);
+  }
   node->next = NULL;
   node->prev = NULL;
   node->page = page;
