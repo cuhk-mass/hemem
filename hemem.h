@@ -13,6 +13,7 @@
 #include "lru.h"
 #include "simple.h"
 #include "lru_modified.h"
+#include "timer.h"
 
 #define NVMSIZE   (256L * (1024L * 1024L * 1024L))
 #define DRAMSIZE  (8L * (1024L * 1024L * 1024L))

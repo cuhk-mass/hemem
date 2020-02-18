@@ -1,23 +1,33 @@
 CC = gcc
-CFLAGS = -g -Wall -O3
+CFLAGS = -g -Wall -O2 -fPIC
+LDFLAGS = -shared
 INCLUDES = -I/root/hmem/linux/usr/include
 LIBS = -lm -lpthread
 
 default: all
 
-all: gups-simple gups-lru gups-modified-lru tester
+all: gups-simple gups-lru gups-modified-lru 
 
-gups-lru: gups.o hemem-lru.o timer.o paging.o lru.o
-	$(CC) $(CFLAGS) $(INCLUDES) -o gups-lru gups.o zipf.o hemem-lru.o timer.o paging.o lru.o $(LIBS)
+gups-lru: gups.o libhemem-lru.so
+	$(CC) $(CFLAGS) $(INCLUDES) -o gups-lru gups.o zipf.o $(LIBS) -L. -lhemem-lru
 
-gups-simple: gups.o hemem-simple.o timer.o paging.o simple.o
-	$(CC) $(CFLAGS) $(INCLUDES) -o gups-simple gups.o zipf.o hemem-simple.o timer.o paging.o simple.o $(LIBS)
+gups-simple: gups.o libhemem-simple.so
+	$(CC) $(CFLAGS) $(INCLUDES) -o gups-simple gups.o zipf.o $(LIBS) -L. -lhemem-simple
 
-gups-modified-lru: gups.o hemem-modified-lru.o timer.o paging.o lru_modified.o
-	$(CC) $(CFLAGS) $(INCLUDES) -o gups-lru-modified gups.o zipf.o hemem-modified-lru.o timer.o paging.o lru_modified.o $(LIBS)
+gups-modified-lru: gups.o libhemem-modified-lru.so
+	$(CC) $(CFLAGS) $(INCLUDES) -o gups-lru-modified gups.o zipf.o $(LIBS) -L. -lhemem-modified-lru
 
 gups.o: gups.c zipf.c hemem.h timer.h gups.h
 	$(CC) $(CFLAGS) $(INCLUDES) -c gups.c zipf.c
+
+libhemem-lru.so: hemem-lru.o lru.o timer.o paging.o
+	$(CC) $(LDFLAGS) -o libhemem-lru.so hemem-lru.o timer.o paging.o lru.o
+
+libhemem-simple.so: hemem-simple.o simple.o timer.o paging.o
+	$(CC) $(LDFLAGS) -o libhemem-simple.so hemem-simple.o timer.o paging.o simple.o
+	
+libhemem-modified-lru.so: hemem-modified-lru.o lru_modified.o timer.o paging.o
+	$(CC) $(LDFLAGS) -o libhemem-modified-lru.so hemem-modified-lru.o timer.o paging.o lru_modified.o
 
 hemem-lru.o: hemem.c hemem.h paging.h lru.h
 	$(CC) $(CFLAGS) $(INCLUDES) -D ALLOC_LRU -c hemem.c -o hemem-lru.o
@@ -43,9 +53,6 @@ simple.o: simple.c simple.h hemem.h
 lru_modified.o: lru_modified.c lru_modified.h hemem.h
 	$(CC) $(CFLAGS) $(INCLUDES) -c lru_modified.c
 
-tester: test.c
-	$(CC) -o tester test.c $(LIBS)
-
 clean:
-	$(RM) *.o gups-lru gups-simple gups-lru-modified tester memsim/mmgr_simple mmgr_linux
+	$(RM) *.o *.so gups-lru gups-simple gups-lru-modified tester memsim/mmgr_simple mmgr_linux
 
