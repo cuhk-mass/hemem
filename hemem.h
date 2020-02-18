@@ -15,6 +15,8 @@
 #include "lru_modified.h"
 #include "timer.h"
 
+#define MEM_BARRIER() __asm__ volatile("" ::: "memory")
+
 #define NVMSIZE   (256L * (1024L * 1024L * 1024L))
 #define DRAMSIZE  (8L * (1024L * 1024L * 1024L))
 
@@ -30,8 +32,8 @@
 #define FASTMEM_PAGES ((DRAMSIZE) / (PAGE_SIZE))
 #define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
 
-//#define LOG(...)	printf(__VA_ARGS__)
-#define LOG(str, ...) while(0) {}
+#define LOG(...)	printf(__VA_ARGS__)
+//#define LOG(str, ...) while(0) {}
 
 
 FILE *timef;

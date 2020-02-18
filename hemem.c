@@ -28,7 +28,7 @@ pthread_t fault_thread;
 int dramfd = -1;
 int nvmfd = -1;
 long uffd = -1;
-int init = 0;
+static bool init = false;
 uint64_t mem_allocated = 0;
 uint64_t fastmem_allocated = 0;
 uint64_t slowmem_allocated = 0;
@@ -102,14 +102,10 @@ void hemem_init()
     perror("nvm devdax mmap");
     assert(0);
   }
-
-
-  //close(nvmfd);
-  //close(dramfd);
-
+  
   paging_init();
-
-  init = 1;
+  
+  init = true;
 }
 
 
@@ -117,9 +113,7 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
 {
   void *p;
   struct uffdio_base uffdio_base;
-  //struct timeval start, end;
-  //struct timeval mmap_start, mmap_end;
-  
+ 
   assert(init);
 
   // reserve block of memory
@@ -130,7 +124,6 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
   assert(p != NULL && p != MAP_FAILED);
 
   // register with uffd
-  //gettimeofday(&start, NULL);
   struct uffdio_register uffdio_register;
   uffdio_register.range.start = (uint64_t)p;
   uffdio_register.range.len = length;
@@ -140,8 +133,6 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
     perror("ioctl uffdio_register");
     assert(0);
   }
-  //gettimeofday(&end, NULL);
-  //LOG_TIME("uffdio_register: %f s\n", elapsed(&start, &end));
 
   uffdio_base.range.start = (uint64_t)p;
   uffdio_base.range.len = length;
@@ -151,9 +142,6 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
     assert(0);
   }
   base = uffdio_base.base;
-  printf("Page table base: 0x%lx\n", base);
-  //gettimeofday(&mmap_end, NULL);
-  //LOG_TIME("hemem_mmap: %f s\n", elapsed(&mmap_start, &mmap_end));
   return p;
 }
 

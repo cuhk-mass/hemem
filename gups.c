@@ -112,13 +112,11 @@ int main(int argc, char **argv)
   assert(size > 0 && (size % 256 == 0));
   elt_size = atoi(argv[4]);
 
-  hemem_init();
-
   printf("%lu updates per thread (%d threads)\n", updates, threads);
   printf("field of 2^%lu (%lu) bytes\n", expt, size);
   printf("%ld byte element size (%ld elements total)\n", elt_size, size / elt_size);
 
-  p = hemem_mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, -1, 0);
+  p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 
   gettimeofday(&stoptime, NULL);
   printf("Init took %.4f seconds\n", elapsed(&starttime, &stoptime));
@@ -208,45 +206,14 @@ int main(int argc, char **argv)
   gups = threads * ((double)updates) / (secs * 1.0e9);
   printf("GUPS = %.10f\n", gups);
 #endif
-
-#ifdef EXAMINE_PGTABLES
-  pthread_t pagetable_thread;
-  int r = pthread_create(&pagetable_thread, NULL, examine_pagetables, NULL);
-  assert(r == 0);
-
-  r = pthread_join(pagetable_thread, NULL);
-  assert(r == 0);
-#endif
-/*
-  scan_pagetable();
-
-  uint64_t pa = hemem_va_to_pa((uint64_t)p);
-  printf("hemem va to pa: %016lx -> %016lx\n", (uint64_t)p, pa);
-
-  uint64_t ac = hemem_get_accessed_bit((uint64_t)p);
-
-  printf("hemem pa accessed bit: %016lx\n", ac);
   
-  hemem_clear_accessed_bit((uint64_t)p);
-
-  sleep(3);
-
-  ac = hemem_get_accessed_bit((uint64_t)p);
-
-  printf("hemem pa accessed bit: %016lx\n", ac);
-
-  memset(p, 'a', 4096);
-  
-  ac = hemem_get_accessed_bit((uint64_t)p);
-  printf("hemem pa accessed bit: %016lx\n", ac);
-*/
   for (i = 0; i < threads; i++) {
     free(ga[i]->indices);
     free(ga[i]);
   }
   free(ga);
   
-  hemem_munmap(p, size);
+  munmap(p, size);
 
   return 0;
 }

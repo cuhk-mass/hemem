@@ -2,7 +2,7 @@ CC = gcc
 CFLAGS = -g -Wall -O2 -fPIC
 LDFLAGS = -shared
 INCLUDES = -I/root/hmem/linux/usr/include
-LIBS = -lm -lpthread
+LIBS = -lm -lpthread -ldl
 
 default: all
 
@@ -20,14 +20,14 @@ gups-modified-lru: gups.o libhemem-modified-lru.so
 gups.o: gups.c zipf.c hemem.h timer.h gups.h
 	$(CC) $(CFLAGS) $(INCLUDES) -c gups.c zipf.c
 
-libhemem-lru.so: hemem-lru.o lru.o timer.o paging.o
-	$(CC) $(LDFLAGS) -o libhemem-lru.so hemem-lru.o timer.o paging.o lru.o
+libhemem-lru.so: hemem-lru.o lru.o timer.o paging.o interpose.o
+	$(CC) $(LDFLAGS) -o libhemem-lru.so hemem-lru.o timer.o paging.o lru.o interpose.o
 
-libhemem-simple.so: hemem-simple.o simple.o timer.o paging.o
-	$(CC) $(LDFLAGS) -o libhemem-simple.so hemem-simple.o timer.o paging.o simple.o
+libhemem-simple.so: hemem-simple.o simple.o timer.o paging.o interpose.o
+	$(CC) $(LDFLAGS) -o libhemem-simple.so hemem-simple.o timer.o paging.o simple.o interpose.o
 	
-libhemem-modified-lru.so: hemem-modified-lru.o lru_modified.o timer.o paging.o
-	$(CC) $(LDFLAGS) -o libhemem-modified-lru.so hemem-modified-lru.o timer.o paging.o lru_modified.o
+libhemem-modified-lru.so: hemem-modified-lru.o lru_modified.o timer.o paging.o interpose.o
+	$(CC) $(LDFLAGS) -o libhemem-modified-lru.so hemem-modified-lru.o timer.o paging.o lru_modified.o interpose.o
 
 hemem-lru.o: hemem.c hemem.h paging.h lru.h
 	$(CC) $(CFLAGS) $(INCLUDES) -D ALLOC_LRU -c hemem.c -o hemem-lru.o
@@ -37,6 +37,9 @@ hemem-simple.o: hemem.c hemem.h paging.h simple.h
 
 hemem-modified-lru.o: hemem.c hemem.h paging.h lru_modified.h
 	$(CC) $(CFLAGS) $(INCLUDES) -D ALLOC_LRU_MODIFIED -c hemem.c -o hemem-modified-lru.o
+
+interpose.o: interpose.c
+	$(CC) $(CFLAGS) $(INCLUDES) -c interpose.c
 
 timer.o: timer.c timer.h
 	$(CC) $(CFLAGS) $(INCLUDES) -c timer.c
@@ -54,5 +57,4 @@ lru_modified.o: lru_modified.c lru_modified.h hemem.h
 	$(CC) $(CFLAGS) $(INCLUDES) -c lru_modified.c
 
 clean:
-	$(RM) *.o *.so gups-lru gups-simple gups-lru-modified tester memsim/mmgr_simple mmgr_linux
-
+	$(RM) *.o *.so gups-lru gups-simple gups-lru-modified
