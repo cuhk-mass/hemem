@@ -1,2 +1,5 @@
 A memory management system for heterogeneous memory systems
 
+To run with an application:
+  LD_PRELOAD=libhemem-[simple|lru|modified-lru].so <applicaiton>
+

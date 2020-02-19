@@ -32,8 +32,8 @@
 #define FASTMEM_PAGES ((DRAMSIZE) / (PAGE_SIZE))
 #define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
 
-#define LOG(...)	printf(__VA_ARGS__)
-//#define LOG(str, ...) while(0) {}
+//#define LOG(...)	printf(__VA_ARGS__)
+#define LOG(str, ...) while(0) {}
 
 
 FILE *timef;
