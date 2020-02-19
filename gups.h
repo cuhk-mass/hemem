@@ -24,4 +24,11 @@
 #define HOTSPOT
 //#define UNIFORM_RANDOM
 
+void calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems);
+
+#ifdef HOTSPOT
+extern uint64_t hotset_start;
+extern double hotset_fraction;
+#endif
+
 #endif

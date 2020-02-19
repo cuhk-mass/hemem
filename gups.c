@@ -38,12 +38,12 @@
 
 #include "gups.h"
 
+#define MAX_THREADS	64
+
 #ifdef HOTSPOT
 extern uint64_t hotset_start;
 extern double hotset_fraction;
 #endif
-
-extern void calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems);
 
 struct gups_args {
   int tid;                      // thread id
@@ -54,8 +54,9 @@ struct gups_args {
   unsigned long elt_size;       // size of elements
 };
 
+static unsigned long updates, nelems;
 
-void *do_gups(void *arguments)
+static void *do_gups(void *arguments)
 {
   //printf("do_gups entered\n");
   struct gups_args *args = (struct gups_args*)arguments;
@@ -76,17 +77,24 @@ void *do_gups(void *arguments)
   return 0;
 }
 
+static void *calc_indices_thread(void *arg)
+{
+  struct gups_args *gai = arg;
+  calc_indices(gai->indices, updates, nelems);
+  return NULL;
+}
 
 int main(int argc, char **argv)
 {
   int threads;
-  unsigned long updates, expt;
-  unsigned long size, elt_size, nelems;
+  unsigned long expt;
+  unsigned long size, elt_size;
   struct timeval starttime, stoptime;
   double secs, gups;
   int i;
   void *p;
   struct gups_args** ga;
+  pthread_t t[MAX_THREADS];
 
   if (argc != 5) {
     printf("Usage: %s [threads] [updates per thread] [exponent] [data size (bytes)] [noremap/remap]\n", argv[0]);
@@ -100,6 +108,7 @@ int main(int argc, char **argv)
   gettimeofday(&starttime, NULL);
   
   threads = atoi(argv[1]);
+  assert(threads <= MAX_THREADS);
   ga = (struct gups_args**)malloc(threads * sizeof(struct gups_args*));
   
   updates = atol(argv[2]);
@@ -137,15 +146,21 @@ int main(int argc, char **argv)
       perror("malloc");
       exit(1);
     }
-    calc_indices(ga[i]->indices, updates, nelems);
+    int r = pthread_create(&t[i], NULL, calc_indices_thread, (void*)ga[i]);
+    assert(r == 0);
   }
   
+  // wait for worker threads
+  for (i = 0; i < threads; i++) {
+    int r = pthread_join(t[i], NULL);
+    assert(r == 0);
+  }
+
   gettimeofday(&stoptime, NULL);
   secs = elapsed(&starttime, &stoptime);
   printf("Initialization time: %.4f seconds.\n", secs);
 
   printf("Timing.\n");
-  pthread_t t[threads];
   gettimeofday(&starttime, NULL);
   
   // spawn gups worker threads
@@ -177,7 +192,13 @@ int main(int argc, char **argv)
   hotset_start = nelems - (uint64_t)(nelems * hotset_fraction) - 1;
 
   for (i = 0; i < threads; ++i) {
-    calc_indices(ga[i]->indices, updates, nelems);
+    int r = pthread_create(&t[i], NULL, calc_indices_thread, (void*)ga[i]);
+    assert(r == 0);
+  }
+  // wait for worker threads
+  for (i = 0; i < threads; i++) {
+    int r = pthread_join(t[i], NULL);
+    assert(r == 0);
   }
   
   printf("Re-timing.\n");

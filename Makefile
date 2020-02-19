@@ -1,12 +1,13 @@
 CC = gcc
-CFLAGS = -g -Wall -O2 -fPIC
+#CFLAGS = -g -Wall -O2 -fPIC
+CFLAGS = -g -Wall -fPIC
 LDFLAGS = -shared
 INCLUDES = -I/root/hmem/linux/usr/include
 LIBS = -lm -lpthread -ldl
 
 default: all
 
-all: gups-simple gups-lru gups-modified-lru 
+all: gups-simple gups-lru gups-lru-modified
 
 gups-lru: gups.o libhemem-lru.so
 	$(CC) $(CFLAGS) $(INCLUDES) -o gups-lru gups.o zipf.o $(LIBS) -L. -lhemem-lru
@@ -14,7 +15,7 @@ gups-lru: gups.o libhemem-lru.so
 gups-simple: gups.o libhemem-simple.so
 	$(CC) $(CFLAGS) $(INCLUDES) -o gups-simple gups.o zipf.o $(LIBS) -L. -lhemem-simple
 
-gups-modified-lru: gups.o libhemem-modified-lru.so
+gups-lru-modified: gups.o libhemem-modified-lru.so
 	$(CC) $(CFLAGS) $(INCLUDES) -o gups-lru-modified gups.o zipf.o $(LIBS) -L. -lhemem-modified-lru
 
 gups.o: gups.c zipf.c hemem.h timer.h gups.h
@@ -25,7 +26,7 @@ libhemem-lru.so: hemem-lru.o lru.o timer.o paging.o interpose.o
 
 libhemem-simple.so: hemem-simple.o simple.o timer.o paging.o interpose.o
 	$(CC) $(LDFLAGS) -o libhemem-simple.so hemem-simple.o timer.o paging.o simple.o interpose.o
-	
+
 libhemem-modified-lru.so: hemem-modified-lru.o lru_modified.o timer.o paging.o interpose.o
 	$(CC) $(LDFLAGS) -o libhemem-modified-lru.so hemem-modified-lru.o timer.o paging.o lru_modified.o interpose.o
 
