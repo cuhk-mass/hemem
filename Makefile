@@ -30,16 +30,16 @@ libhemem-simple.so: hemem-simple.o simple.o timer.o paging.o interpose.o
 libhemem-modified-lru.so: hemem-modified-lru.o lru_modified.o timer.o paging.o interpose.o
 	$(CC) $(LDFLAGS) -o libhemem-modified-lru.so hemem-modified-lru.o timer.o paging.o lru_modified.o interpose.o
 
-hemem-lru.o: hemem.c hemem.h paging.h lru.h
+hemem-lru.o: hemem.c hemem.h paging.h lru.h interpose.h
 	$(CC) $(CFLAGS) $(INCLUDES) -D ALLOC_LRU -c hemem.c -o hemem-lru.o
 
-hemem-simple.o: hemem.c hemem.h paging.h simple.h
+hemem-simple.o: hemem.c hemem.h paging.h simple.h interpose.h
 	$(CC) $(CFLAGS) $(INCLUDES) -D ALLOC_SIMPLE -c hemem.c -o hemem-simple.o
 
-hemem-modified-lru.o: hemem.c hemem.h paging.h lru_modified.h
+hemem-modified-lru.o: hemem.c hemem.h paging.h lru_modified.h interpose.h
 	$(CC) $(CFLAGS) $(INCLUDES) -D ALLOC_LRU_MODIFIED -c hemem.c -o hemem-modified-lru.o
 
-interpose.o: interpose.c
+interpose.o: interpose.c interpose.h
 	$(CC) $(CFLAGS) $(INCLUDES) -c interpose.c
 
 timer.o: timer.c timer.h

@@ -8,10 +8,10 @@
 #include <sys/mman.h>
 
 #include "hemem.h"
+#include "interpose.h"
 
-// function pointers to libc functions
-static void* (*libc_mmap)(void *addr, size_t length, int prot, int flags, int fd, off_t offset) = NULL;
-static int (*libc_munmap)(void *addr, size_t length) = NULL;
+void* (*libc_mmap)(void *addr, size_t length, int prot, int flags, int fd, off_t offset) = NULL;
+int (*libc_munmap)(void *addr, size_t length) = NULL;
 
 static void* bind_symbol(const char *sym)
 {
@@ -65,6 +65,7 @@ void* mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
   //TODO: figure out which mmap calls should go to libc vs hemem
   // non-anonymous mappings should probably go to libc (e.g., file mappings)
   if ((flags & MAP_ANONYMOUS) != MAP_ANONYMOUS) {
+    LOG("hemem interpose: calling libc mmap\n");
     return libc_mmap(addr, length, prot, flags, fd, offset);
   }
 

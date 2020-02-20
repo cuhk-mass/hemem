@@ -85,19 +85,19 @@ void hemem_init()
     assert(0);
   }
 
-  timef = fopen("logs/times.txt", "w+");
+  timef = fopen("times.txt", "w+");
   if (timef == NULL) {
     perror("time file fopen\n");
     assert(0);
   }
 
-  dram_devdax_mmap = mmap(NULL, DRAMSIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
+  dram_devdax_mmap =libc_mmap(NULL, DRAMSIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
   if (dram_devdax_mmap == MAP_FAILED) {
     perror("dram devdax mmap");
     assert(0);
   }
 
-  nvm_devdax_mmap = mmap(NULL, NVMSIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
+  nvm_devdax_mmap =libc_mmap(NULL, NVMSIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
   if (nvm_devdax_mmap == MAP_FAILED) {
     perror("nvm devdax mmap");
     assert(0);
@@ -116,8 +116,24 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
  
   assert(init);
 
+  if ((flags & MAP_PRIVATE) == MAP_PRIVATE) {
+    flags &= ~MAP_PRIVATE;
+    flags |= MAP_SHARED;
+    LOG("hemem_mmap: changed flags to MAP_SHARED\n");
+  }
+
+  if ((flags & MAP_ANONYMOUS) == MAP_ANONYMOUS) {
+    flags &= ~MAP_ANONYMOUS;
+    LOG("hemem_mmap: unset MAP_ANONYMOUS\n");
+  }
+
+  if ((flags & MAP_HUGETLB) == MAP_HUGETLB) {
+    flags &= ~MAP_HUGETLB;
+    LOG("hemem_mmap: unset MAP_HUGETLB\n");
+  }
+  
   // reserve block of memory
-  p = mmap(addr, length, prot, MAP_SHARED, dramfd, offset);
+  p = libc_mmap(addr, length, prot, flags, dramfd, offset);
   if (p == NULL || p == MAP_FAILED) {
     perror("mmap");
   }  
@@ -211,7 +227,7 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
   LOG_TIME("memcpy_to_dram: %f s\n", elapsed(&start, &end));
 
   gettimeofday(&start, NULL);
-  newptr = mmap((void*)page->va, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, new_addr_offset);
+  newptr = libc_mmap((void*)page->va, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, new_addr_offset);
   if (newptr == MAP_FAILED) {
     perror("newptr mmap");
     assert(0);
@@ -268,7 +284,7 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
   LOG_TIME("memcpy_to_nvm: %f s\n", elapsed(&start, &end));
 
   gettimeofday(&start, NULL);
-  newptr = mmap((void*)page->va, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, new_addr_offset);
+  newptr = libc_mmap((void*)page->va, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, new_addr_offset);
   if (newptr == MAP_FAILED) {
     perror("newptr mmap");
     assert(0);
@@ -369,7 +385,7 @@ void handle_missing_fault(uint64_t page_boundry)
   // now that we have an offset determined via the policy algorithm, actually map
   // the page for the application
   gettimeofday(&start, NULL);
-  newptr = mmap((void*)page_boundry, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, (in_dram ? dramfd : nvmfd), offset);
+  newptr = libc_mmap((void*)page_boundry, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, (in_dram ? dramfd : nvmfd), offset);
   if (newptr == MAP_FAILED) {
     perror("newptr mmap");
     free(page);
