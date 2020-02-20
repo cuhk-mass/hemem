@@ -327,6 +327,8 @@ void handle_wp_fault(uint64_t page_boundry)
   //assert(!"wp fault handling not yet implemented\n");
   struct hemem_page *page;
 
+  assert(!"NYI");
+
   page = find_page(page_boundry);
   assert(page != NULL);
 

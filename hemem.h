@@ -25,9 +25,9 @@
 
 //#define PAGE_SIZE (1024 * 1024 * 1024)
 //#define PAGE_SIZE (2 * (1024 * 1024))
-#define BASEPAGE_SIZE (4 * 1024)
-#define HUGEPAGE_SIZE (2 * 1024 * 1024)
-#define PAGE_SIZE HUGEPAGE_SIZE
+#define BASEPAGE_SIZE	(4 * 1024)
+#define HUGEPAGE_SIZE 	(2 * 1024 * 1024)
+#define PAGE_SIZE 	BASEPAGE_SIZE
 
 #define FASTMEM_PAGES ((DRAMSIZE) / (PAGE_SIZE))
 #define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
@@ -37,7 +37,8 @@
 
 
 FILE *timef;
-#define LOG_TIME(str, ...) fprintf(timef, str, __VA_ARGS__)
+//#define LOG_TIME(str, ...) fprintf(timef, str, __VA_ARGS__)
+#define LOG_TIME(str, ...) while(0) {}
 
 #if defined (ALLOC_LRU)
   #define pagefault(...) lru_pagefault(__VA_ARGS__)
@@ -53,6 +54,7 @@ FILE *timef;
 
 extern uint64_t base;
 extern int devmemfd;
+extern uint64_t missing_faults_handled;
 
 struct hemem_page {
   uint64_t va;

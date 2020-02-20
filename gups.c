@@ -236,5 +236,7 @@ int main(int argc, char **argv)
   
   munmap(p, size);
 
+  printf("Missing faults handled: %" PRIu64 "\n", missing_faults_handled);
+
   return 0;
 }
