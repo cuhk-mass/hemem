@@ -71,8 +71,8 @@ void* mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 
   if ((ret = hemem_mmap(addr, length, prot, flags, fd, offset)) == MAP_FAILED) {
     // hemem failed for some reason, try libc
-    LOG("hemem interpose: calling libc mmap\n");
-    return libc_mmap(addr, length, prot, flags, fd, offset);
+    LOG("hemem mmap failed\n\tmmap(0x%lx, %ld, %x, %x, %d, %ld)\n", (uint64_t)addr, length, prot, flags, fd, offset);
+    //return libc_mmap(addr, length, prot, flags, fd, offset);
   }
   return ret;
 }

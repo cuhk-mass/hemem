@@ -85,6 +85,12 @@ void hemem_init()
     assert(0);
   }
 
+  hememlogf = fopen("logs.txt", "w+");
+  if (hememlogf == NULL) {
+    perror("log file open\n");
+    assert(0);
+  }
+
   timef = fopen("times.txt", "w+");
   if (timef == NULL) {
     perror("time file fopen\n");
@@ -217,8 +223,12 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
   new_addr_offset = dram_offset;
 
   old_addr = nvm_devdax_mmap + old_addr_offset;
+  assert((uint64_t)old_addr < NVMSIZE);
+  assert((uint64_t)old_addr + PAGE_SIZE < NVMSIZE);
 
   new_addr = dram_devdax_mmap + new_addr_offset;
+  assert((uint64_t)new_addr < DRAMSIZE);
+  assert((uint64_t)new_addr + PAGE_SIZE < DRAMSIZE);
 
   // copy page from faulting location to temp location
   gettimeofday(&start, NULL);
@@ -274,8 +284,12 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
   new_addr_offset = nvm_offset;
 
   old_addr = dram_devdax_mmap + old_addr_offset;
+  assert((uint64_t)old_addr_offset < DRAMSIZE);
+  assert((uint64_t)old_addr_offset + PAGE_SIZE < DRAMSIZE);
 
   new_addr = nvm_devdax_mmap + new_addr_offset;
+  assert((uint64_t)new_addr_offset < NVMSIZE);
+  assert((uint64_t)new_addr_offset + PAGE_SIZE < NVMSIZE);
 
   // copy page from faulting location to temp location
   gettimeofday(&start, NULL);
@@ -343,7 +357,7 @@ void handle_wp_fault(uint64_t page_boundry)
   //assert(!"wp fault handling not yet implemented\n");
   struct hemem_page *page;
 
-  assert(!"NYI");
+  //assert(!"NYI");
 
   page = find_page(page_boundry);
   assert(page != NULL);

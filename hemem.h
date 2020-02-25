@@ -18,8 +18,8 @@
 
 #define MEM_BARRIER() __asm__ volatile("" ::: "memory")
 
-#define NVMSIZE   (256L * (1024L * 1024L * 1024L))
-#define DRAMSIZE  (8L * (1024L * 1024L * 1024L))
+#define NVMSIZE   (2800L * (1024L * 1024L * 1024L))
+#define DRAMSIZE  (120L * (1024L * 1024L * 1024L))
 
 #define DRAMPATH "/dev/dax0.0"
 #define NVMPATH "/dev/dax1.0"
@@ -33,7 +33,8 @@
 #define FASTMEM_PAGES ((DRAMSIZE) / (PAGE_SIZE))
 #define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
 
-//#define LOG(...)	printf(__VA_ARGS__)
+FILE *hememlogf;
+//#define LOG(...)	fprintf(hememlogf, __VA_ARGS__)
 #define LOG(str, ...) while(0) {}
 
 
