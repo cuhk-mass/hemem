@@ -223,12 +223,12 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
   new_addr_offset = dram_offset;
 
   old_addr = nvm_devdax_mmap + old_addr_offset;
-  assert((uint64_t)old_addr < NVMSIZE);
-  assert((uint64_t)old_addr + PAGE_SIZE < NVMSIZE);
+  assert((uint64_t)old_addr_offset < NVMSIZE);
+  assert((uint64_t)old_addr_offset + PAGE_SIZE < NVMSIZE);
 
   new_addr = dram_devdax_mmap + new_addr_offset;
-  assert((uint64_t)new_addr < DRAMSIZE);
-  assert((uint64_t)new_addr + PAGE_SIZE < DRAMSIZE);
+  assert((uint64_t)new_addr_offset < DRAMSIZE);
+  assert((uint64_t)new_addr_offset + PAGE_SIZE < DRAMSIZE);
 
   // copy page from faulting location to temp location
   gettimeofday(&start, NULL);
@@ -448,13 +448,15 @@ void handle_missing_fault(uint64_t page_boundry)
 
 void *handle_fault()
 {
-  static struct uffd_msg msg;
+  static struct uffd_msg msg[MAX_UFFD_MSGS];
   ssize_t nread;
   uint64_t fault_addr;
   uint64_t fault_flags;
   uint64_t page_boundry;
   struct uffdio_range range;
   int ret;
+  int nmsgs;
+  int i;
 
   //printf("fault handler entered\n");
 
@@ -492,7 +494,7 @@ void *handle_fault()
       continue;
     }
 
-    nread = read(uffd, &msg, sizeof(msg));
+    nread = read(uffd, &msg[0], MAX_UFFD_MSGS * sizeof(struct uffd_msg));
     if (nread == 0) {
       printf("EOF on userfaultfd\n");
       assert(0);
@@ -507,44 +509,48 @@ void *handle_fault()
     }
 
     //printf("nread: %d\tsize of uffd msg: %d\n", nread, sizeof(msg));
-    if (nread != sizeof(msg)) {
-      printf("invalid msg size\n");
+    if ((nread % sizeof(struct uffd_msg)) != 0) {
+      printf("invalid msg size: [%ld]\n", nread);
       assert(0);
     }
 
-    //TODO: check page fault event, handle it
-    if (msg.event & UFFD_EVENT_PAGEFAULT) {
-      //printf("received a page fault event\n");
-      fault_addr = (uint64_t)msg.arg.pagefault.address;
-      fault_flags = msg.arg.pagefault.flags;
+    nmsgs = nread / sizeof(struct uffd_msg);
 
-      // allign faulting address to page boundry
-      // huge page boundry in this case due to dax allignment
-      page_boundry = fault_addr & ~(PAGE_SIZE - 1);
-      //printf("page boundry is 0x%lx\n", page_boundry);
+    for (i = 0; i < nmsgs; i++) {
+      //TODO: check page fault event, handle it
+      if (msg[i].event & UFFD_EVENT_PAGEFAULT) {
+        //printf("received a page fault event\n");
+        fault_addr = (uint64_t)msg[i].arg.pagefault.address;
+        fault_flags = msg[i].arg.pagefault.flags;
 
-      if (fault_flags & UFFD_PAGEFAULT_FLAG_WP) {
-        //printf("received a write-protection fault at addr 0x%lx\n", fault_addr);
-        handle_wp_fault(page_boundry);
+        // allign faulting address to page boundry
+        // huge page boundry in this case due to dax allignment
+        page_boundry = fault_addr & ~(PAGE_SIZE - 1);
+        //printf("page boundry is 0x%lx\n", page_boundry);
+
+        if (fault_flags & UFFD_PAGEFAULT_FLAG_WP) {
+          //printf("received a write-protection fault at addr 0x%lx\n", fault_addr);
+          handle_wp_fault(page_boundry);
+        }
+        else {
+          handle_missing_fault(page_boundry);
+        }
+
+        //printf("waking thread\n");
+        // wake the faulting thread
+        range.start = (uint64_t)page_boundry;
+        range.len = PAGE_SIZE;
+
+        ret = ioctl(uffd, UFFDIO_WAKE, &range);
+
+        if (ret < 0) {
+          perror("uffdio wake");
+          assert(0);
+        }
       }
       else {
-        handle_missing_fault(page_boundry);
+        printf("Received a non page fault event\n");
       }
-
-      //printf("waking thread\n");
-      // wake the faulting thread
-      range.start = (uint64_t)page_boundry;
-      range.len = PAGE_SIZE;
-
-      ret = ioctl(uffd, UFFDIO_WAKE, &range);
-
-      if (ret < 0) {
-        perror("uffdio wake");
-        assert(0);
-      }
-    }
-    else {
-      printf("Received a non page fault event\n");
     }
   }
 }

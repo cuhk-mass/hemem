@@ -18,16 +18,16 @@
 
 #define MEM_BARRIER() __asm__ volatile("" ::: "memory")
 
-#define NVMSIZE   (2800L * (1024L * 1024L * 1024L))
-#define DRAMSIZE  (120L * (1024L * 1024L * 1024L))
+#define NVMSIZE   (2750L * (1024L * 1024L * 1024L))
+#define DRAMSIZE  (115L * (1024L * 1024L * 1024L))
 
 #define DRAMPATH "/dev/dax0.0"
 #define NVMPATH "/dev/dax1.0"
 
 //#define PAGE_SIZE (1024 * 1024 * 1024)
 //#define PAGE_SIZE (2 * (1024 * 1024))
-#define BASEPAGE_SIZE	(4 * 1024)
-#define HUGEPAGE_SIZE 	(2 * 1024 * 1024)
+#define BASEPAGE_SIZE	(4L * 1024L)
+#define HUGEPAGE_SIZE 	(2L * 1024L * 1024L)
 #define PAGE_SIZE 	HUGEPAGE_SIZE
 
 #define FASTMEM_PAGES ((DRAMSIZE) / (PAGE_SIZE))
@@ -53,6 +53,8 @@ FILE *timef;
   #define paging_init(...) lru_modified_init(__VA_ARGS__)
 #endif
 
+
+#define MAX_UFFD_MSGS		(100)
 
 extern uint64_t base;
 extern int devmemfd;
