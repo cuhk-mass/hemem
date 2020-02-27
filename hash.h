@@ -20,8 +20,9 @@
 
 struct bucket {
   uint64_t value;
-  uint16_t value2;
+  uint64_t value2;
   uint32_t value3;
+  uint16_t value4;
   struct bucket* next;
 };
 
@@ -41,7 +42,7 @@ static inline struct hash_table* ht_alloc(uint16_t size) {
   struct hash_table* new_ht = malloc(sizeof(struct hash_table));
   int i = 0;
 
-  new_ht->buckets = malloc(sizeof(uint64_t) * size);
+  new_ht->buckets = malloc(sizeof(struct bucket) * size);
   new_ht->n_buckets = size;
 
   for(i = 0; i<size; i++){
@@ -51,7 +52,7 @@ static inline struct hash_table* ht_alloc(uint16_t size) {
   return new_ht;
 }
 
-static inline void ht_insert(struct hash_table* ht, uint64_t value, uint16_t value2, uint16_t value3){
+static inline void ht_insert(struct hash_table* ht, uint64_t value, uint64_t value2, uint32_t value3, uint16_t value4){
   uint16_t index = hash(value, ht->n_buckets);
   struct bucket* bucket = &(ht->buckets[index]);
 
@@ -59,6 +60,7 @@ static inline void ht_insert(struct hash_table* ht, uint64_t value, uint16_t val
     bucket->value = value;
     bucket->value2 = value2;
     bucket->value3 = value3;
+    bucket->value4 = value4;
   } 
   else {
     struct bucket* new_bucket = malloc(sizeof(struct bucket));
@@ -67,6 +69,7 @@ static inline void ht_insert(struct hash_table* ht, uint64_t value, uint16_t val
     new_bucket->value = value;
     new_bucket->value2 = value2;
     new_bucket->value3 = value3;
+    new_bucket->value4 = value4;
 
     while(bucket->next != NULL) bucket = bucket->next;
     bucket->next = new_bucket;
@@ -82,5 +85,17 @@ static inline struct bucket* ht_search(struct hash_table* ht, uint64_t value){
   } while (bucket->next != NULL);
 
   return 0;
+}
+
+static inline void ht_delete(struct hash_table* ht, struct bucket* bucket){
+  if(bucket->next == NULL) bucket->value = -1;
+  else {
+    bucket->value = bucket->next->value;
+    bucket->value2 = bucket->next->value2;
+    bucket->value3 = bucket->next->value3;
+    bucket->value4 = bucket->next->value4;
+    bucket->next = bucket->next->next;
+  }
+
 }
 #endif

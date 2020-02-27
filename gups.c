@@ -106,6 +106,7 @@ main(int argc, char **argv)
   assert(size > 0 && (size % 256 == 0));
   elt_size = atoi(argv[4]);
 
+  printf("hemem_init\n");
   hemem_init();
 
   printf("%lu updates per thread (%d threads)\n", updates, threads);

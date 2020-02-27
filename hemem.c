@@ -23,6 +23,8 @@
 #include "timer.h"
 #include "paging.h"
 #include "lru.h"
+#include "coalesce.h"
+#include "aligned.h"
 
 pthread_t fault_thread;
 
@@ -89,6 +91,8 @@ hemem_init()
   //close(dramfd);
 
   paging_init();
+  printf("coalesce_init\n");
+  coalesce_init();
 
   init = 1;
 }
@@ -98,7 +102,7 @@ void*
 hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 {
   void* p;
-  struct uffdio_register uffdio_register;
+  struct uffdio_base uffdio_base;
   
   assert(init);
 
@@ -110,18 +114,24 @@ hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
   assert(p != NULL && p != MAP_FAILED);
 
   // register with uffd
+  struct uffdio_register uffdio_register;
   uffdio_register.range.start = (uint64_t)p;
   uffdio_register.range.len = length;
   uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
   uffdio_register.ioctls = 0;
-  uffdio_register.base = 0;
   if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
     perror("ioctl uffdio_register");
     assert(0);
   }
 
-  base = uffdio_register.base;
-  
+  uffdio_base.range.start = (uint64_t)p;
+  uffdio_base.range.len = length;
+
+  if (ioctl(uffd, UFFDIO_BASE, &uffdio_base) < 0) {
+    perror("ioctl uffdio_base");
+    assert(0);
+  }
+  base = uffdio_base.base;
   return p;
 }
 
@@ -352,12 +362,24 @@ handle_missing_fault(uint64_t page_boundry)
   page = (struct hemem_page*)calloc(1, sizeof(struct hemem_page));
 
   // let policy algorithm do most of the heavy lifting of finding a free page
-  pagefault(page); 
+  page->va = page_boundry; 
+  
+  void* huge_page = check_aligned(page_boundry);
+
+  if(huge_page) {
+    aligned_pagefault(page, huge_page);
+    check_in_dram(page, huge_page, dramfd, nvmfd);
+  } else {
+    pagefault(page); 
+  }
+
   offset = page->devdax_offset;
   
   // now that we have an offset determined via the policy algorithm, actually map
   // the page for the application
-  newptr = mmap((void*)page_boundry, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, offset);
+
+  newptr = mmap((void*)page_boundry, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, (page->in_dram ? dramfd : nvmfd), offset);
+
   if (newptr == MAP_FAILED) {
     perror("newptr mmap");
     free(page);
@@ -370,6 +392,7 @@ handle_missing_fault(uint64_t page_boundry)
 
   // use mmap return addr to track new page's virtual address
   page->va = (uint64_t)newptr;
+  check_huge_page(page->va, page->in_dram ? dramfd : nvmfd, offset);
 
   mem_allocated += PAGE_SIZE;
   

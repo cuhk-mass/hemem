@@ -12,6 +12,7 @@
 #include "paging.h"
 #include "lru.h"
 #include "simple.h"
+#include "aligned.h"
 
 #define NVMSIZE   (128L * (1024L * 1024L * 1024L))
 #define DRAMSIZE  (8L * (1024L * 1024L * 1024L))
@@ -23,7 +24,8 @@
 //#define PAGE_SIZE (2 * (1024 * 1024))
 #define BASEPAGE_SIZE (4 * 1024)
 #define HUGEPAGE_SIZE (2 * 1024 * 1024)
-#define PAGE_SIZE HUGEPAGE_SIZE
+#define HUGEPAGE_MASK (HUGEPAGE_SIZE - 1)
+#define PAGE_SIZE BASEPAGE_SIZE
 
 #define FASTMEM_PAGES ((DRAMSIZE) / (PAGE_SIZE))
 #define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
