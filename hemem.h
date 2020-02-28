@@ -26,11 +26,11 @@
 
 //#define PAGE_SIZE (1024 * 1024 * 1024)
 //#define PAGE_SIZE (2 * (1024 * 1024))
-#define BASEPAGE_SIZE	(4L * 1024L)
+#define BASEPAGE_SIZE	  (4L * 1024L)
 #define HUGEPAGE_SIZE 	(2L * 1024L * 1024L)
-#define PAGE_SIZE 	HUGEPAGE_SIZE
+#define PAGE_SIZE 	    HUGEPAGE_SIZE
 
-#define FASTMEM_PAGES ((DRAMSIZE) / (PAGE_SIZE))
+#define FASTMEM_PAGES   ((DRAMSIZE) / (PAGE_SIZE))
 #define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
 
 FILE *hememlogf;
@@ -54,11 +54,14 @@ FILE *timef;
 #endif
 
 
-#define MAX_UFFD_MSGS		(100)
+#define MAX_UFFD_MSGS	    (100)
+#define MAX_COPY_THREADS  (8)
 
 extern uint64_t base;
 extern int devmemfd;
 extern uint64_t missing_faults_handled;
+extern uint64_t migrations_up;
+extern uint64_t migrations_down;
 
 struct hemem_page {
   uint64_t va;
@@ -66,6 +69,7 @@ struct hemem_page {
   bool in_dram;
   bool migrating;
   pthread_mutex_t page_lock;
+  uint64_t migrations_up, migrations_down;
 
   struct hemem_page *next, *prev;
 };
@@ -86,5 +90,7 @@ void hemem_wp_page(struct hemem_page *page, bool protect);
 uint64_t hemem_va_to_pa(uint64_t va);
 void hemem_clear_accessed_bit(uint64_t va);
 int hemem_get_accessed_bit(uint64_t va);
+
+void hemem_print_stats();
 
 #endif /* HEMEM_H */

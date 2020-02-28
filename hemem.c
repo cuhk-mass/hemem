@@ -34,18 +34,56 @@ uint64_t fastmem_allocated = 0;
 uint64_t slowmem_allocated = 0;
 uint64_t wp_faults_handled = 0;
 uint64_t missing_faults_handled = 0;
+uint64_t migrations_up = 0;
+uint64_t migrations_down = 0;
 uint64_t base = 0;
 int devmemfd = -1;
 struct page_list list;
-bool base_set = false;
+pthread_t copy_threads[MAX_COPY_THREADS];
 
 void *dram_devdax_mmap;
 void *nvm_devdax_mmap;
+
+struct pmemcpy {
+  _Atomic bool activate;
+  _Atomic bool done_bitmap[MAX_COPY_THREADS];
+  void *src, *dst;
+  size_t length;
+};
+
+static struct pmemcpy pmemcpy;
+
+
+void *hemem_parallel_memcpy_thread(void *arg)
+{
+  uint64_t tid = (uint64_t)arg;
+  void *src;
+  void *dst;
+  size_t length;
+  size_t chunk_size;
+
+  assert(tid < MAX_COPY_THREADS);
+
+  for(;;) {
+    // wait for copy command
+    while (!pmemcpy.activate && pmemcpy.done_bitmap[tid]);
+
+    // grab data out of shared struct
+    src = pmemcpy.src;
+    dst = pmemcpy.dst;
+    length = pmemcpy.length;
+    chunk_size = length / MAX_COPY_THREADS;
+
+    memcpy(src + (tid * chunk_size), dst + (tid * chunk_size), chunk_size);
+    pmemcpy.done_bitmap[tid] = true;
+  }
+}
 
 
 void hemem_init()
 {
   struct uffdio_api uffdio_api;
+  uint64_t i;
 
   dramfd = open(DRAMPATH, O_RDWR);
   if (dramfd < 0) {
@@ -110,6 +148,16 @@ void hemem_init()
   }
   
   paging_init();
+
+  pmemcpy.activate = false;
+  for (i = 0; i < MAX_COPY_THREADS; i++) {
+    pmemcpy.done_bitmap[i] = false;
+  }
+
+  for (i = 0; i < MAX_COPY_THREADS; i++) {
+    s = pthread_create(&copy_threads[i], NULL, hemem_parallel_memcpy_thread, (void*)i);
+    assert(s == 0);
+  }
   
   init = true;
 }
@@ -207,6 +255,32 @@ struct hemem_page* find_page(uint64_t va)
 }
 
 
+static void hemem_parallel_memcpy(void *src, void *dst, size_t length)
+{
+  bool threads_done = false;
+  int i;
+
+  pmemcpy.src = src;
+  pmemcpy.dst = dst;
+  pmemcpy.length = length;
+  pmemcpy.activate = true;
+
+  while (!threads_done) {
+    threads_done = true;
+    for (i = 0; i < MAX_COPY_THREADS; i++) {
+      if (!pmemcpy.done_bitmap[i]) {
+        threads_done = false;
+      }
+    }
+  }
+
+  pmemcpy.activate = false;
+  for (i = 0; i < MAX_COPY_THREADS; i++) {
+    pmemcpy.done_bitmap[i] = false;
+  }
+}
+
+
 void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
 {
   void *old_addr;
@@ -232,7 +306,7 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
 
   // copy page from faulting location to temp location
   gettimeofday(&start, NULL);
-  memcpy(new_addr, old_addr, PAGE_SIZE);
+  hemem_parallel_memcpy(new_addr, old_addr, PAGE_SIZE);
   gettimeofday(&end, NULL);
   LOG_TIME("memcpy_to_dram: %f s\n", elapsed(&start, &end));
 
@@ -255,14 +329,16 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
   uffdio_register.range.len = PAGE_SIZE;
   uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
   uffdio_register.ioctls = 0;
-  /* fprintf(stderr, "re-register start: 0x%llx\tend: 0x%llx\tlength: %lld\n", uffdio_register.range.start, uffdio_register.range.start + uffdio_register.range.len, uffdio_register.range.len); */
   if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
     perror("ioctl uffdio_register");
     assert(0);
   }
   gettimeofday(&end, NULL);
   LOG_TIME("uffdio_register: %f s\n", elapsed(&start, &end));
-  
+
+  page->migrations_up++;
+  migrations_up++;
+
   gettimeofday(&migrate_end, NULL);  
   LOG_TIME("hemem_migrate_up: %f s\n", elapsed(&migrate_start, &migrate_end));
 }
@@ -293,7 +369,7 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
 
   // copy page from faulting location to temp location
   gettimeofday(&start, NULL);
-  memcpy(new_addr, old_addr, PAGE_SIZE);
+  hemem_parallel_memcpy(new_addr, old_addr, PAGE_SIZE);
   gettimeofday(&end, NULL);
   LOG_TIME("memcpy_to_nvm: %f s\n", elapsed(&start, &end));
 
@@ -316,13 +392,15 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
   uffdio_register.range.len = PAGE_SIZE;
   uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
   uffdio_register.ioctls = 0;
-  /* fprintf(stderr, "re-register start: 0x%llx\tend: 0x%llx\tlength: %lld\n", uffdio_register.range.start, uffdio_register.range.start + uffdio_register.range.len, uffdio_register.range.len); */
   if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
     perror("ioctl uffdio_register");
     assert(0);
   }
   gettimeofday(&end, NULL);
   LOG_TIME("uffdio_register: %f s\n", elapsed(&start, &end));
+
+  page->migrations_down++;
+  migrations_down++;
   
   gettimeofday(&migrate_end, NULL);  
   LOG_TIME("hemem_migrate_down: %f s\n", elapsed(&migrate_start, &migrate_end));
@@ -412,14 +490,13 @@ void handle_missing_fault(uint64_t page_boundry)
     printf("hemem: handle missing fault: warning, newptr != page boundry\n");
   }
 
-  gettimeofday(&end, NULL);
+  gettimeofday(&start, NULL);
   // re-register new mmap region with userfaultfd
   struct uffdio_register uffdio_register;
   uffdio_register.range.start = (uint64_t)newptr;
   uffdio_register.range.len = PAGE_SIZE;
   uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
   uffdio_register.ioctls = 0;
-  /* fprintf(stderr, "re-register start: 0x%llx\tend: 0x%llx\tlength: %lld\n", uffdio_register.range.start, uffdio_register.range.start + uffdio_register.range.len, uffdio_register.range.len); */
   if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
     perror("ioctl uffdio_register");
     assert(0);
@@ -438,7 +515,6 @@ void handle_missing_fault(uint64_t page_boundry)
   // place in hemem's page tracking list
   enqueue_page(page);
 
-  gettimeofday(&end, NULL);
   missing_faults_handled++;
   gettimeofday(&missing_end, NULL);
   LOG_TIME("hemem_missing_fault: %f s\n", elapsed(&missing_start, &missing_end));
@@ -588,4 +664,10 @@ int hemem_get_accessed_bit(uint64_t va)
   uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
 
   return get_accessed_bit(page_boundry);
+}
+
+
+void hemem_print_stats()
+{
+  printf("missing_faults_handled: [%ld]\tmigrations_up: [%ld]\tmigrations_down: [%ld]\n", missing_faults_handled, migrations_up, migrations_down);
 }

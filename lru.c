@@ -413,5 +413,5 @@ void lru_init(void)
   assert(r == 0);
   
   gettimeofday(&kswapdruntime, NULL);
-  printf("Memory management policy is LRU\n");
+  LOG("Memory management policy is LRU\n");
 }

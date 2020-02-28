@@ -188,6 +188,8 @@ int main(int argc, char **argv)
   gups = threads * ((double)updates) / (secs * 1.0e9);
   printf("GUPS = %.10f\n", gups);
 
+  hemem_print_stats();
+
 #ifdef HOTSPOT
   hotset_start = nelems - (uint64_t)(nelems * hotset_fraction) - 1;
 
@@ -236,7 +238,7 @@ int main(int argc, char **argv)
   
   munmap(p, size);
 
-  printf("Missing faults handled: %" PRIu64 "\n", missing_faults_handled);
+  hemem_print_stats();
 
   return 0;
 }
