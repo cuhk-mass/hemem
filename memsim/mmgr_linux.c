@@ -126,6 +126,7 @@ static void shrink_caches(struct fifo_queue *pages_active,
     if(p->pte->accessed) {
       // XXX: Dangerous. Introduce soft accessed bit instead, like Linux?
       p->pte->accessed = false;
+      tlb_shootdown(p->framenum * BASE_PAGE_SIZE);
       enqueue_fifo(pages_active, p);
     } else {
       // XXX: Dangerous. Introduce soft accessed bit instead, like Linux?

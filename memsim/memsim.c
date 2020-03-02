@@ -17,7 +17,7 @@
 #include "shared.h"
 
 struct pte	*cr3 = NULL;
-_Atomic size_t	runtime = 0;		// Elapsed simulation time
+_Atomic size_t	runtime = 0;		// Elapsed simulation time (ns)
 
 // Hardware 2-level TLB emulating Cascade Lake
 struct tlbe {
