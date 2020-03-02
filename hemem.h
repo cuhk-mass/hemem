@@ -2,6 +2,10 @@
 
 #define HEMEM_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <pthread.h>
 #include <stdint.h>
 #include <inttypes.h>
@@ -92,5 +96,11 @@ void hemem_clear_accessed_bit(uint64_t va);
 int hemem_get_accessed_bit(uint64_t va);
 
 void hemem_print_stats();
+void hemem_clear_stats();
+
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* HEMEM_H */

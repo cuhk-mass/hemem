@@ -236,7 +236,7 @@ int main(int argc, char **argv)
   }
   free(ga);
   
-  munmap(p, size);
+  //munmap(p, size);
 
   hemem_print_stats();
 

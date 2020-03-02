@@ -151,7 +151,7 @@ void hemem_init()
 
   pmemcpy.activate = false;
   for (i = 0; i < MAX_COPY_THREADS; i++) {
-    pmemcpy.done_bitmap[i] = false;
+    pmemcpy.done_bitmap[i] = true;
   }
 
   for (i = 0; i < MAX_COPY_THREADS; i++) {
@@ -270,6 +270,7 @@ static void hemem_parallel_memcpy(void *src, void *dst, size_t length)
     for (i = 0; i < MAX_COPY_THREADS; i++) {
       if (!pmemcpy.done_bitmap[i]) {
         threads_done = false;
+	break;
       }
     }
   }
@@ -670,4 +671,12 @@ int hemem_get_accessed_bit(uint64_t va)
 void hemem_print_stats()
 {
   printf("missing_faults_handled: [%ld]\tmigrations_up: [%ld]\tmigrations_down: [%ld]\n", missing_faults_handled, migrations_up, migrations_down);
+}
+
+
+void hemem_clear_stats()
+{
+  missing_faults_handled = 0;
+  migrations_up = 0;
+  migrations_down = 0;
 }
