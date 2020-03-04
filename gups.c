@@ -47,25 +47,63 @@ extern double hotset_fraction;
 
 struct gups_args {
   int tid;                      // thread id
-  unsigned long *indices;       // array of indices to access
+  uint64_t *indices;       // array of indices to access
   void* field;                  // pointer to start of thread's region
-  unsigned long iters;          // iterations to perform
-  unsigned long size;           // size of region
-  unsigned long elt_size;       // size of elements
+  uint64_t iters;          // iterations to perform
+  uint64_t size;           // size of region
+  uint64_t elt_size;       // size of elements
 };
 
 static unsigned long updates, nelems;
+
+
+static uint64_t lfsr_fast(uint64_t lfsr)
+{
+  lfsr ^= lfsr >> 7;
+  lfsr ^= lfsr << 9;
+  lfsr ^= lfsr >> 13;
+  return lfsr;
+}
+
 
 static void *do_gups(void *arguments)
 {
   //printf("do_gups entered\n");
   struct gups_args *args = (struct gups_args*)arguments;
   char *field = (char*)(args->field);
-  unsigned long i;
-  unsigned long long index;
-  unsigned long elt_size = args->elt_size;
+  uint64_t i, j;
+  uint64_t index1, index2;
+  uint64_t elt_size = args->elt_size;
   char data[elt_size];
+  uint64_t hotsize;
+  uint64_t lfsr;
+  uint64_t hot_num;
 
+  srand(0);
+  lfsr = rand();
+
+  index1 = 0;
+  hotsize = (args->size) / 10;
+  index2 = 0;
+
+  for (i = 0; i < args->iters; i++) {
+    hot_num = lfsr % 4 + 8;
+    for (j = 0; j < hot_num; j++) {
+      lfsr = lfsr_fast(lfsr);
+      index1 = lfsr % hotsize;
+      memcpy(data, &field[index1 * elt_size], elt_size);
+      memset(data, data[0] + i, elt_size);
+      memcpy(&field[index1 * elt_size], data, elt_size);
+    }
+    i += hot_num;
+
+    lfsr = lfsr_fast(lfsr);
+    index2 = lfsr % (args->size);
+    memcpy(data, &field[index2 * elt_size], elt_size);
+    memset(data, data[0] + i, elt_size);
+    memcpy(&field[index2 * elt_size], data, elt_size);
+  }
+/*
   //printf("Thread [%d] starting: field: [%llx]\n", args->tid, field);
   for (i = 0; i < args->iters; i++) {
     index = args->indices[i];
@@ -73,13 +111,13 @@ static void *do_gups(void *arguments)
     memset(data, data[0] + i, elt_size);
     memcpy(&field[index * elt_size], data, elt_size);
   }
-
+*/
   return 0;
 }
 
 static void *calc_indices_thread(void *arg)
 {
-  struct gups_args *gai = arg;
+  struct gups_args *gai = (struct gups_args*)arg;
   calc_indices(gai->indices, updates, nelems);
   return NULL;
 }
@@ -141,20 +179,22 @@ int main(int argc, char **argv)
     ga[i]->field = p + (i * nelems * elt_size);
     //printf("Thread [%d] starting address: %llx\n", i, ga[i]->field);
     //printf("thread %d start address: %llu\n", i, (unsigned long)td[i].field);
+    /*
     ga[i]->indices = (unsigned long*)malloc(updates * sizeof(unsigned long));
     if (ga[i]->indices == NULL) {
       perror("malloc");
       exit(1);
     }
     int r = pthread_create(&t[i], NULL, calc_indices_thread, (void*)ga[i]);
-    assert(r == 0);
+    assert(r == 0); 
+    */
   }
   
   // wait for worker threads
-  for (i = 0; i < threads; i++) {
-    int r = pthread_join(t[i], NULL);
-    assert(r == 0);
-  }
+  //for (i = 0; i < threads; i++) {
+    //int r = pthread_join(t[i], NULL);
+    //assert(r == 0);
+  //}
 
   gettimeofday(&stoptime, NULL);
   secs = elapsed(&starttime, &stoptime);
@@ -189,7 +229,8 @@ int main(int argc, char **argv)
   printf("GUPS = %.10f\n", gups);
 
   hemem_print_stats();
-
+  hemem_clear_stats();
+#if 0
 #ifdef HOTSPOT
   hotset_start = nelems - (uint64_t)(nelems * hotset_fraction) - 1;
 
@@ -228,6 +269,7 @@ int main(int argc, char **argv)
   printf("Elapsed time: %.4f seconds.\n", secs);
   gups = threads * ((double)updates) / (secs * 1.0e9);
   printf("GUPS = %.10f\n", gups);
+#endif
 #endif
   
   for (i = 0; i < threads; i++) {

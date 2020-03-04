@@ -11,3 +11,6 @@ tester
 memsim/mmgr_simple
 memsim/mmgr_linux
 apps/
+logs/
+results/
+scripts/
