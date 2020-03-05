@@ -9,8 +9,6 @@
 #include "paging.h"
 
 
-#define KSWAPD_INTERVAL           (1.0)
-
 struct modified_lru_node {
   struct hemem_page *page;
   uint64_t framenum;

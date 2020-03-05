@@ -58,8 +58,10 @@ FILE *timef;
 #endif
 
 
-#define MAX_UFFD_MSGS	    (100)
+#define MAX_UFFD_MSGS	    (16)
 #define MAX_COPY_THREADS  (8)
+
+#define KSWAPD_INTERVAL   (1.0)
 
 extern uint64_t base;
 extern int devmemfd;
