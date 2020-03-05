@@ -7,8 +7,8 @@ default: all
 
 all: gups-simple gups-lru tester
 
-gups-lru: gups.o hemem-lru.o timer.o paging.o lru.o
-	$(CC) $(CFLAGS) $(INCLUDES) -o gups-lru gups.o zipf.o hemem-lru.o timer.o paging.o lru.o $(LIBS)
+gups-lru: gups.o hemem-lru.o timer.o paging.o lru.o coalesce.o aligned.o
+	$(CC) $(CFLAGS) $(INCLUDES) -o gups-lru gups.o zipf.o hemem-lru.o timer.o paging.o lru.o coalesce.o aligned.o $(LIBS)
 
 gups-simple: gups.o hemem-simple.o timer.o paging.o simple.o coalesce.o aligned.o
 	$(CC) $(CFLAGS) $(INCLUDES) -o gups-simple gups.o zipf.o hemem-simple.o timer.o paging.o simple.o coalesce.o aligned.o $(LIBS)

@@ -219,6 +219,7 @@ hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
 
   munmap(old_addr, PAGE_SIZE);
   munmap(new_addr, PAGE_SIZE);
+  migrate_to_dram_hp(newptr, dramfd, new_addr_offset);
 
   gettimeofday(&end, NULL);  
 }
@@ -266,6 +267,7 @@ hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
   munmap(old_addr, PAGE_SIZE);
   munmap(new_addr, PAGE_SIZE);
 
+  migrate_to_nvm_hp(newptr, nvmfd, new_addr_offset);
   gettimeofday(&end, NULL);  
 }
 
@@ -392,7 +394,8 @@ handle_missing_fault(uint64_t page_boundry)
 
   // use mmap return addr to track new page's virtual address
   page->va = (uint64_t)newptr;
-  check_huge_page(page->va, page->in_dram ? dramfd : nvmfd, offset);
+  if(page->in_dram) incr_dram_huge_page(page->va, dramfd, offset);
+  else incr_nvm_huge_page(page->va, nvmfd, offset);
 
   mem_allocated += PAGE_SIZE;
   

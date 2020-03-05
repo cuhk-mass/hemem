@@ -34,8 +34,11 @@ struct huge_page {
 extern long uffd;
 
 void coalesce_init();
-void check_huge_page(uint64_t addr, uint32_t fd, uint64_t offset);
+void incr_dram_huge_page(uint64_t addr, uint32_t fd, uint64_t offset);
+void incr_nvm_huge_page(uint64_t addr, uint32_t fd, uint64_t offset);
 void* check_aligned(uint64_t addr);
 void decrement_huge_page(uint64_t addr);
+void migrate_to_dram_hp(uint64_t addr, uint32_t fd, uint64_t offset);
+void migrate_to_nvm_hp(uint64_t addr, uint32_t fd, uint64_t offset);
 
 #endif // HEMEM_SIMPLE_H
