@@ -1,5 +1,7 @@
 --- Now ---
 
+* Implement paper description of memory management
+
 * Linux will move pages unmodified (whatever size they were)
 
 * We can move small 4K pages up, and space them out to allow the rest

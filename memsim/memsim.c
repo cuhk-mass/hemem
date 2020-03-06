@@ -330,6 +330,13 @@ static void reset_stats(void)
 
 int main(int argc, char *argv[])
 {
+  if(argc < 2) {
+    printf("Usage: %s HOTSET-SIZE\n", argv[0]);
+    exit(EXIT_FAILURE);
+  }
+
+  size_t hotset_size = atoi(argv[1]);
+
 #ifdef MMM
   // Clear MMM tags
   for(size_t i = 0; i < MMM_TAGS_SIZE; i++) {
@@ -341,8 +348,12 @@ int main(int argc, char *argv[])
 
   // Get memory traces from Onur's group at ETH? membench? Replay them here?
 
+  // Warmup
+  gups(100000, 0, 0, 0);
+  reset_stats();
+
   // GUPS!
-  gups(10000000, 0, MB(1), 0.9);
+  gups(10000000, 0, hotset_size, 0.9);
 
 #ifdef MMM
   printf("%s\t%.2f\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\n", argv[0],
@@ -357,7 +368,7 @@ int main(int argc, char *argv[])
   reset_stats();
 
   // Move hotset up
-  gups(10000000, MB(9), MB(1), 0.9);
+  gups(10000000, SLOWMEM_SIZE - hotset_size, hotset_size, 0.9);
 
 #ifdef MMM
   printf("%s\t%.2f\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\n", argv[0],

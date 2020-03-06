@@ -3,6 +3,9 @@ CFLAGS = -O2 -g -Wall -pthread
 # CFLAGS = -g -Wall -pthread -DLOG_DEBUG
 LDFLAGS = -pthread
 
+# 1MB hotset
+HOTSET_SIZE = 1048576
+
 all: mmgr_simple mmgr_linux mmgr_simple_mmm
 
 mmgr_simple.o: mmgr_simple.c shared.h
@@ -19,11 +22,16 @@ mmgr_simple_mmm: mmgr_simple_mmm.o memsim_mmm.o
 mmgr_simple: mmgr_simple.o memsim.o
 mmgr_linux: mmgr_linux.o memsim.o
 
-bench: all
+%.results.txt: %
+	./$< $(HOTSET_SIZE) > $@
+
+results.txt: mmgr_simple.results.txt mmgr_linux.results.txt mmgr_simple_mmm.results.txt
 	/bin/echo -ne "Benchmark\ttime [us]\tDRAM accesses\tNVM accesses\tTLB misses\tTLB hits\tpagefaults\t(MMM misses)\n" > results.txt
-	./mmgr_simple >> results.txt
-	./mmgr_linux >> results.txt
-	./mmgr_simple_mmm >> results.txt
+	cat $^ >> results.txt
+
+.PHONY: bench
+
+bench: results.txt
 	expand -t20 results.txt
 
 clean:
