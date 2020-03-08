@@ -1,15 +1,16 @@
-#CFLAGS = -g -Wall -pthread
-CFLAGS = -O2 -g -Wall -pthread
+CFLAGS = -g -Wall -pthread
+#CFLAGS = -O2 -g -Wall -pthread
 # CFLAGS = -g -Wall -pthread -DLOG_DEBUG
 LDFLAGS = -pthread
 
 # 1MB hotset
 HOTSET_SIZE = 1048576
 
-all: mmgr_simple mmgr_linux mmgr_simple_mmm
+all: mmgr_simple mmgr_linux mmgr_simple_mmm mmgr_hemem
 
 mmgr_simple.o: mmgr_simple.c shared.h
 mmgr_linux.o: mmgr_linux.c shared.h
+mmgr_hemem.o: mmgr_hemem.c shared.h
 memsim.o: memsim.c shared.h
 
 memsim_mmm.o: CFLAGS += -DMMM
@@ -21,6 +22,7 @@ mmgr_simple_mmm.o: mmgr_simple_mmm.c shared.h
 mmgr_simple_mmm: mmgr_simple_mmm.o memsim_mmm.o
 mmgr_simple: mmgr_simple.o memsim.o
 mmgr_linux: mmgr_linux.o memsim.o
+mmgr_hemem: mmgr_hemem.o memsim.o
 
 %.results.txt: %
 	./$< $(HOTSET_SIZE) > $@
@@ -35,4 +37,4 @@ bench: results.txt
 	expand -t20 results.txt
 
 clean:
-	rm -f *.o mmgr_simple mmgr_simple_mmm mmgr_linux
+	rm -f *.o mmgr_simple mmgr_simple_mmm mmgr_linux mmgr_hemem
