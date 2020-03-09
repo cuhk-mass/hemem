@@ -16,8 +16,9 @@
 
 #include "shared.h"
 
-struct pte	*cr3 = NULL;
-_Atomic size_t	runtime = 0;		// Elapsed simulation time (ns)
+struct pte		*cr3 = NULL;
+_Atomic size_t		runtime = 0;		// Elapsed simulation time (ns)
+static const char	*progname = NULL;
 
 // Hardware 2-level TLB emulating Cascade Lake
 struct tlbe {
@@ -30,7 +31,8 @@ static struct tlbe l2tlb_1g[16], l2tlb_2m4k[1536];
 static pthread_mutex_t tlb_lock = PTHREAD_MUTEX_INITIALIZER;
 
 // Statistics
-static size_t accesses[NMEMTYPES], tlbmisses = 0, tlbhits = 0, pagefaults = 0;
+static size_t accesses[NMEMTYPES], tlbmisses = 0, tlbhits = 0, pagefaults = 0,
+  tlbshootdowns = 0;
 
 #ifdef MMM
 #	define	MMM_TAGS_SIZE	(FASTMEM_SIZE / CACHELINE_SIZE)
@@ -70,6 +72,7 @@ void tlb_shootdown(uint64_t addr)
   memset(l1tlb_4k, 0, sizeof(l1tlb_4k));
   memset(l2tlb_1g, 0, sizeof(l2tlb_1g));
   memset(l2tlb_2m4k, 0, sizeof(l2tlb_2m4k));
+  tlbshootdowns++;
   pthread_mutex_unlock(&tlb_lock);
 
   runtime += TIME_TLBSHOOTDOWN;
@@ -286,7 +289,7 @@ static void memaccess(uint64_t addr, enum access_type type)
   /* } */
 }
 
-#define WORKSET_SIZE	MB(10)
+#define WORKSET_SIZE	SLOWMEM_SIZE
 
 #define RAND_WITHIN(x)	(((double)rand() / RAND_MAX) * (x))
 
@@ -321,10 +324,23 @@ static void reset_stats(void)
 
   runtime = 0;
   accesses[FASTMEM] = accesses[SLOWMEM] = 0;
-  tlbmisses = tlbhits = 0;
+  tlbmisses = tlbhits = tlbshootdowns = 0;
   pagefaults = 0;
 #ifdef MMM
   mmm_misses = 0;
+#endif
+}
+
+static void print_stats(void)
+{
+#ifdef MMM
+  printf("%s\t%.2f\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\n", progname,
+	 (double)runtime / 1000000.0, accesses[FASTMEM], accesses[SLOWMEM],
+	 tlbmisses, tlbhits, tlbshootdowns, pagefaults, mmm_misses);
+#else
+  printf("%s\t%.2f\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\n", progname,
+	 (double)runtime / 1000000.0, accesses[FASTMEM], accesses[SLOWMEM],
+	 tlbmisses, tlbhits, tlbshootdowns, pagefaults);
 #endif
 }
 
@@ -335,6 +351,7 @@ int main(int argc, char *argv[])
     exit(EXIT_FAILURE);
   }
 
+  progname = argv[0];
   size_t hotset_size = atoi(argv[1]);
 
 #ifdef MMM
@@ -348,37 +365,21 @@ int main(int argc, char *argv[])
 
   // Get memory traces from Onur's group at ETH? membench? Replay them here?
 
-  // Warmup
-  gups(100000, 0, 0, 0);
+  // Fault all pages in
+  for(uint64_t a = 0; a < WORKSET_SIZE; a += BASE_PAGE_SIZE) {
+    memaccess(a, TYPE_READ);
+  }
+  /* gups(100000, 0, 0, 0); */
   reset_stats();
 
   // GUPS!
   gups(10000000, 0, hotset_size, 0.9);
-
-#ifdef MMM
-  printf("%s\t%.2f\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\n", argv[0],
-	 (double)runtime / 1000000.0, accesses[FASTMEM], accesses[SLOWMEM],
-	 tlbmisses, tlbhits, pagefaults, mmm_misses);
-#else
-  printf("%s\t%.2f\t%zu\t%zu\t%zu\t%zu\t%zu\n", argv[0],
-	 (double)runtime / 1000000.0, accesses[FASTMEM], accesses[SLOWMEM],
-	 tlbmisses, tlbhits, pagefaults);
-#endif
-
+  print_stats();
   reset_stats();
 
   // Move hotset up
-  gups(10000000, SLOWMEM_SIZE - hotset_size, hotset_size, 0.9);
+  gups(10000000, WORKSET_SIZE - hotset_size, hotset_size, 0.9);
 
-#ifdef MMM
-  printf("%s\t%.2f\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\n", argv[0],
-	 (double)runtime / 1000000.0, accesses[FASTMEM], accesses[SLOWMEM],
-	 tlbmisses, tlbhits, pagefaults, mmm_misses);
-#else
-  printf("%s\t%.2f\t%zu\t%zu\t%zu\t%zu\t%zu\n", argv[0],
-	 (double)runtime / 1000000.0, accesses[FASTMEM], accesses[SLOWMEM],
-	 tlbmisses, tlbhits, pagefaults);
-#endif
-
+  print_stats();
   return 0;
 }

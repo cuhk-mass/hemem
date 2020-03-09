@@ -21,6 +21,7 @@
 #define HUGE_PAGE_MASK	(HUGE_PAGE_SIZE - 1)
 #define GIGA_PAGE_MASK	(GIGA_PAGE_SIZE - 1)
 
+// Page frame number masks
 #define BASE_PFN_MASK	(BASE_PAGE_MASK ^ UINT64_MAX)
 #define HUGE_PFN_MASK	(HUGE_PAGE_MASK ^ UINT64_MAX)
 #define GIGA_PFN_MASK	(GIGA_PAGE_MASK ^ UINT64_MAX)
@@ -65,6 +66,7 @@ struct pte {
 
   // Hardware bits
   bool present;
+  bool readonly;
   bool accessed;
   bool modified;
   bool pagemap;
