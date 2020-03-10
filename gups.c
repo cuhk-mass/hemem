@@ -45,6 +45,9 @@ extern uint64_t hotset_start;
 extern double hotset_fraction;
 #endif
 
+uint64_t hot_start = 0;
+uint64_t hotsize;
+
 struct gups_args {
   int tid;                      // thread id
   uint64_t *indices;       // array of indices to access
@@ -75,7 +78,6 @@ static void *do_gups(void *arguments)
   uint64_t index1, index2;
   uint64_t elt_size = args->elt_size;
   char data[elt_size];
-  uint64_t hotsize;
   uint64_t lfsr;
   uint64_t hot_num;
 
@@ -83,14 +85,13 @@ static void *do_gups(void *arguments)
   lfsr = rand();
 
   index1 = 0;
-  hotsize = (args->size) / 10;
   index2 = 0;
 
   for (i = 0; i < args->iters; i++) {
     hot_num = lfsr % 4 + 8;
     for (j = 0; j < hot_num; j++) {
       lfsr = lfsr_fast(lfsr);
-      index1 = lfsr % hotsize;
+      index1 = hot_start + (lfsr % hotsize);
       memcpy(data, &field[index1 * elt_size], elt_size);
       memset(data, data[0] + i, elt_size);
       memcpy(&field[index1 * elt_size], data, elt_size);
@@ -114,14 +115,14 @@ static void *do_gups(void *arguments)
 */
   return 0;
 }
-
+/*
 static void *calc_indices_thread(void *arg)
 {
   struct gups_args *gai = (struct gups_args*)arg;
   calc_indices(gai->indices, updates, nelems);
   return NULL;
 }
-
+*/
 int main(int argc, char **argv)
 {
   int threads;
@@ -200,9 +201,13 @@ int main(int argc, char **argv)
   secs = elapsed(&starttime, &stoptime);
   printf("Initialization time: %.4f seconds.\n", secs);
 
+  hot_start = 0;
+  hotsize = nelems / 10;
+  printf("hot_start: %lu\thot_size: %lu\n", hot_start, hotsize);
+
   printf("Timing.\n");
   gettimeofday(&starttime, NULL);
-  
+  hemem_clear_stats();
   // spawn gups worker threads
   for (i = 0; i < threads; i++) {
     //printf("starting thread [%d]\n", i);
@@ -220,31 +225,20 @@ int main(int argc, char **argv)
     int r = pthread_join(t[i], NULL);
     assert(r == 0);
   }
-
   gettimeofday(&stoptime, NULL);
+  hemem_print_stats();
+  hemem_clear_stats();
 
   secs = elapsed(&starttime, &stoptime);
   printf("Elapsed time: %.4f seconds.\n", secs);
   gups = threads * ((double)updates) / (secs * 1.0e9);
   printf("GUPS = %.10f\n", gups);
 
-  hemem_print_stats();
-  hemem_clear_stats();
-#if 0
 #ifdef HOTSPOT
-  hotset_start = nelems - (uint64_t)(nelems * hotset_fraction) - 1;
+  hot_start = nelems - (uint64_t)(hotsize) - 1;
+  printf("hot_start: %lu\thot_size: %lu\n", hot_start, hotsize);
 
-  for (i = 0; i < threads; ++i) {
-    int r = pthread_create(&t[i], NULL, calc_indices_thread, (void*)ga[i]);
-    assert(r == 0);
-  }
-  // wait for worker threads
-  for (i = 0; i < threads; i++) {
-    int r = pthread_join(t[i], NULL);
-    assert(r == 0);
-  }
-  
-  printf("Re-timing.\n");
+  printf("Timing.\n");
   gettimeofday(&starttime, NULL);
   
   // spawn gups worker threads
@@ -269,7 +263,6 @@ int main(int argc, char **argv)
   printf("Elapsed time: %.4f seconds.\n", secs);
   gups = threads * ((double)updates) / (secs * 1.0e9);
   printf("GUPS = %.10f\n", gups);
-#endif
 #endif
   
   for (i = 0; i < threads; i++) {

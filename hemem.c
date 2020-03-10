@@ -80,6 +80,39 @@ void *hemem_parallel_memcpy_thread(void *arg)
 }
 
 
+void enqueue_page(struct hemem_page *page)
+{
+  assert(page->prev == NULL);
+  page->next = list.first;
+  if (list.first != NULL) {
+    assert(list.first->prev == NULL);
+    list.first->prev = page;
+  }
+  else {
+    assert(list.last == NULL);
+    assert(list.numentries == 0);
+    list.last = page;
+  }
+  list.first = page;
+  list.numentries++;
+}
+
+
+struct hemem_page* find_page(uint64_t va)
+{
+  struct hemem_page *cur = list.first;
+
+  while (cur != NULL) {
+    if (cur->va == va) {
+      return cur;
+    }
+    cur = cur->next;
+  }
+
+  return NULL;
+}
+
+
 void hemem_init()
 {
   struct uffdio_api uffdio_api;
@@ -162,6 +195,73 @@ void hemem_init()
   init = true;
 }
 
+static void hemem_mmap_populate(void* addr, size_t length)
+{
+  // Page mising fault case - probably the first touch case
+  // allocate in DRAM via LRU
+  void* newptr;
+  uint64_t offset;
+  struct hemem_page *page;
+  bool in_dram;
+  void* page_boundry;
+  uint64_t npages;
+  int i;
+
+
+  npages = length / PAGE_SIZE;
+  page_boundry = addr;
+
+  LOG("hemem_mmap_populate: addr: 0x%lx, npages: %lu\n", (uint64_t)addr, npages);
+  for (i = 0; i < npages; i++) {
+    page = (struct hemem_page*)calloc(1, sizeof(struct hemem_page));
+    if (page == NULL) {
+      perror("page calloc");
+      assert(0);
+    }
+
+    // let policy algorithm do most of the heavy lifting of finding a free page
+    pagefault(page); 
+    offset = page->devdax_offset;
+    in_dram = page->in_dram;
+  
+    // now that we have an offset determined via the policy algorithm, actually map
+    // the page for the application
+    newptr = libc_mmap((void*)page_boundry, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, (in_dram ? dramfd : nvmfd), offset);
+    if (newptr == MAP_FAILED) {
+      perror("newptr mmap");
+      free(page);
+      assert(0);
+    }
+  
+    if (newptr != (void*)page_boundry) {
+      printf("hemem: mmap populate: warning, newptr != page boundry\n");
+    }
+
+    // re-register new mmap region with userfaultfd
+    struct uffdio_register uffdio_register;
+    uffdio_register.range.start = (uint64_t)newptr;
+    uffdio_register.range.len = PAGE_SIZE;
+    uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
+    uffdio_register.ioctls = 0;
+    if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
+      perror("ioctl uffdio_register");
+      assert(0);
+    }
+
+    // use mmap return addr to track new page's virtual address
+    page->va = (uint64_t)newptr;
+    page->migrating = false;
+ 
+    pthread_mutex_init(&(page->page_lock), NULL);
+
+    mem_allocated += PAGE_SIZE;
+
+    // place in hemem's page tracking list
+    enqueue_page(page);
+    page_boundry += PAGE_SIZE;
+  }
+}
+
 
 void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 {
@@ -212,6 +312,11 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
     assert(0);
   }
   base = uffdio_base.base;
+  
+  if ((flags & MAP_POPULATE) == MAP_POPULATE) {
+    hemem_mmap_populate(p, length);
+  }
+  
   return p;
 }
 
@@ -221,6 +326,7 @@ int hemem_munmap(void* addr, size_t length)
   return munmap(addr, length);
 }
 
+<<<<<<< HEAD
 
 void enqueue_page(struct hemem_page *page)
 {
