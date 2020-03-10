@@ -1,5 +1,5 @@
-#ifndef HEMEM_LRU_MODIFIED_H
-#define HEMEM_LRU_MODIFIED_H
+#ifndef HEMEM_LRU_H
+#define HEMEM_LRU_H
 
 #include <pthread.h>
 #include <stdint.h>
