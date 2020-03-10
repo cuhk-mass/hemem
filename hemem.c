@@ -326,40 +326,6 @@ int hemem_munmap(void* addr, size_t length)
   return munmap(addr, length);
 }
 
-<<<<<<< HEAD
-
-void enqueue_page(struct hemem_page *page)
-{
-  assert(page->prev == NULL);
-  page->next = list.first;
-  if (list.first != NULL) {
-    assert(list.first->prev == NULL);
-    list.first->prev = page;
-  }
-  else {
-    assert(list.last == NULL);
-    assert(list.numentries == 0);
-    list.last = page;
-  }
-  list.first = page;
-  list.numentries++;
-}
-
-
-struct hemem_page* find_page(uint64_t va)
-{
-  struct hemem_page *cur = list.first;
-
-  while (cur != NULL) {
-    if (cur->va == va) {
-      return cur;
-    }
-    cur = cur->next;
-  }
-
-  return NULL;
-}
-
 
 static void hemem_parallel_memcpy(void *dst, void *src, size_t length)
 {
@@ -376,7 +342,7 @@ static void hemem_parallel_memcpy(void *dst, void *src, size_t length)
     for (i = 0; i < MAX_COPY_THREADS; i++) {
       if (!pmemcpy.done_bitmap[i]) {
         threads_done = false;
-	break;
+	      break;
       }
     }
   }
