@@ -74,7 +74,7 @@ void *hemem_parallel_memcpy_thread(void *arg)
     length = pmemcpy.length;
     chunk_size = length / MAX_COPY_THREADS;
 
-    memcpy(src + (tid * chunk_size), dst + (tid * chunk_size), chunk_size);
+    memcpy(dst + (tid * chunk_size), src + (tid * chunk_size), chunk_size);
     pmemcpy.done_bitmap[tid] = true;
   }
 }
@@ -255,7 +255,7 @@ struct hemem_page* find_page(uint64_t va)
 }
 
 
-static void hemem_parallel_memcpy(void *src, void *dst, size_t length)
+static void hemem_parallel_memcpy(void *dst, void *src, size_t length)
 {
   bool threads_done = false;
   int i;
@@ -299,11 +299,11 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
 
   old_addr = nvm_devdax_mmap + old_addr_offset;
   assert((uint64_t)old_addr_offset < NVMSIZE);
-  assert((uint64_t)old_addr_offset + PAGE_SIZE < NVMSIZE);
+  assert((uint64_t)old_addr_offset + PAGE_SIZE <= NVMSIZE);
 
   new_addr = dram_devdax_mmap + new_addr_offset;
   assert((uint64_t)new_addr_offset < DRAMSIZE);
-  assert((uint64_t)new_addr_offset + PAGE_SIZE < DRAMSIZE);
+  assert((uint64_t)new_addr_offset + PAGE_SIZE <= DRAMSIZE);
 
   // copy page from faulting location to temp location
   gettimeofday(&start, NULL);
@@ -362,11 +362,11 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
 
   old_addr = dram_devdax_mmap + old_addr_offset;
   assert((uint64_t)old_addr_offset < DRAMSIZE);
-  assert((uint64_t)old_addr_offset + PAGE_SIZE < DRAMSIZE);
+  assert((uint64_t)old_addr_offset + PAGE_SIZE <= DRAMSIZE);
 
   new_addr = nvm_devdax_mmap + new_addr_offset;
   assert((uint64_t)new_addr_offset < NVMSIZE);
-  assert((uint64_t)new_addr_offset + PAGE_SIZE < NVMSIZE);
+  assert((uint64_t)new_addr_offset + PAGE_SIZE <= NVMSIZE);
 
   // copy page from faulting location to temp location
   gettimeofday(&start, NULL);

@@ -1,5 +1,5 @@
-#ifndef HEMEM_LRU_H
-#define HEMEM_LRU_H
+#ifndef HEMEM_LRU_MODIFIED_H
+#define HEMEM_LRU_MODIFIED_H
 
 #include <pthread.h>
 #include <stdint.h>
@@ -23,12 +23,8 @@ struct lru_list {
   size_t numentries;
 };
 
-void lru_list_add(struct lru_list *list, struct lru_node *node);
-struct lru_node* lru_list_remove(struct lru_list *list);
-
-uint64_t lru_allocate_page();
 void *lru_kswapd();
 void lru_pagefault(struct hemem_page *page);
 void lru_init(void);
 
-#endif /*  HEMEM_LRU_H  */
+#endif /*  HEMEM_LRU_MODIFIED_H  */

@@ -6,7 +6,7 @@
 gups
 gups-lru
 gups-simple
-gups-lru-modified
+gups-lru-swap
 tester
 memsim/mmgr_simple
 memsim/mmgr_linux

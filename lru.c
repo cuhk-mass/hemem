@@ -24,7 +24,20 @@ bool dram_bitmap[FASTMEM_PAGES];
 bool nvm_bitmap[SLOWMEM_PAGES];
 struct timeval kswapdruntime;
 
-void lru_migrate_up(struct lru_node *n, uint64_t i)
+
+static void lru_migrate_down(struct lru_node *n, uint64_t i)
+{
+  pthread_mutex_lock(&(n->page->page_lock));
+  n->page->migrating = true;
+  hemem_wp_page(n->page, true);
+  hemem_migrate_down(n->page, i * PAGE_SIZE);
+  n->framenum = i;
+  n->page->devdax_offset = (n->framenum * PAGE_SIZE);
+  n->page->migrating = false; 
+  pthread_mutex_unlock(&(n->page->page_lock));
+}
+
+static void lru_migrate_up(struct lru_node *n, uint64_t i)
 {
   pthread_mutex_lock(&(n->page->page_lock));
   n->page->migrating = true;
@@ -36,19 +49,7 @@ void lru_migrate_up(struct lru_node *n, uint64_t i)
   pthread_mutex_unlock(&(n->page->page_lock));
 }
 
-void lru_migrate_down(struct lru_node *n, uint64_t i)
-{
-  pthread_mutex_lock(&(n->page->page_lock));
-  n->page->migrating = true;
-  hemem_wp_page(n->page, true);
-  hemem_migrate_down(n->page, i * PAGE_SIZE);
-  n->framenum = i;
-  n->page->devdax_offset = (n->framenum * PAGE_SIZE);
-  n->page->migrating = false;
-  pthread_mutex_unlock(&(n->page->page_lock));
-}
-
-void lru_list_add(struct lru_list *list, struct lru_node *node)
+static void lru_list_add(struct lru_list *list, struct lru_node *node)
 {
   assert(node->prev == NULL);
   node->next = list->first;
@@ -67,7 +68,7 @@ void lru_list_add(struct lru_list *list, struct lru_node *node)
 }
 
 
-struct lru_node* lru_list_remove(struct lru_list *list)
+static struct lru_node* lru_list_remove(struct lru_list *list)
 {
   struct lru_node *ret = list->last;
 
@@ -92,7 +93,7 @@ struct lru_node* lru_list_remove(struct lru_list *list)
 }
 
 
-void shrink_caches(struct lru_list *active, struct lru_list *inactive)
+static void shrink_caches(struct lru_list *active, struct lru_list *inactive)
 {
   size_t nr_pages = 32;
 
@@ -113,7 +114,7 @@ void shrink_caches(struct lru_list *active, struct lru_list *inactive)
 }
 
 
-void expand_caches(struct lru_list *active, struct lru_list *inactive)
+static void expand_caches(struct lru_list *active, struct lru_list *inactive)
 {
   size_t nr_pages = inactive->numentries;
   size_t i;
@@ -133,34 +134,36 @@ void expand_caches(struct lru_list *active, struct lru_list *inactive)
 }
 
 
-uint64_t lru_allocate_page(struct lru_node *n)
+static uint64_t lru_allocate_page(struct lru_node *n)
 {
-  int tries;
   uint64_t i;
+  struct timeval start, end;
+#ifdef LRU_SWAP
   struct lru_node *cn;
   bool found = false;
-  struct timeval start, end;
-
+  int tries;
+#endif
+  
   pthread_mutex_lock(&global_lock);
-
+  /* last_dram_framenum remembers the last dram frame number
+   * we allocated. This should help speed up the search
+   * for a free frame because we don't iterate over frames
+   * that were already allocated and are probably still in
+   * use. If last_dram_framenum is equal to the number of
+   * dram pages, we wrap back around to 0. We iterate through
+   * the fastmem bitmap in two passes. The first pass starts
+   * at last_dram_framenum and goes to the end of the array
+   * to skip over probably already allocated and still in
+   * use pages. The second pass goes back to the start of the
+   * bitmap and scans up until last_dram_framenum to use any
+   * pages that have been freed in that range before resorting
+   * to slow memory
+   */
   gettimeofday(&start, NULL);
-
+#ifdef LRU_SWAP
   for (tries = 0; tries < 2; tries++) {
     found = false;
-    /* last_dram_framenum remembers the last dram frame number
-     * we allocated. This should help speed up the search
-     * for a free frame because we don't iterate over frames
-     * that were already allocated and are probably still in
-     * use. If last_dram_framenum is equal to the number of
-     * dram pages, we wrap back around to 0. We iterate through
-     * the fastmem bitmap in two passes. The first pass starts
-     * at last_dram_framenum and goes to the end of the array
-     * to skip over probably already allocated and still in
-     * use pages. The second pass goes back to the start of the
-     * bitmap and scans up until last_dram_framenum to use any
-     * pages that have been freed in that range before resorting
-     * to slow memory
-     */
+#endif
     if (last_dram_framenum >= FASTMEM_PAGES) {
       last_dram_framenum = 0;
     }
@@ -170,12 +173,13 @@ uint64_t lru_allocate_page(struct lru_node *n)
         dram_bitmap[i] = true;
         n->framenum = i;
         lru_list_add(&active_list, n);
+        n->page->in_dram = true;
         pthread_mutex_unlock(&global_lock);
         last_dram_framenum = i;
 
         gettimeofday(&end, NULL);
         LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
-        
+      
         // return offset in devdax file -- done!
         return i * PAGE_SIZE;
       }
@@ -186,20 +190,61 @@ uint64_t lru_allocate_page(struct lru_node *n)
       if (dram_bitmap[i] == false) {
         dram_bitmap[i] = true;
         n->framenum = i;
+        n->page->in_dram = true;
         lru_list_add(&active_list, n);
         pthread_mutex_unlock(&global_lock);
         last_dram_framenum = i;
-
+      
         gettimeofday(&end, NULL);
         LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
 
         // return offset in devdax file -- done!
         return i * PAGE_SIZE;
       }
-      
+    }
+#ifndef LRU_SWAP
+    // DRAM is full, fall back to NVM
+
+    /* last_nvm_framenum behaves the same way as last_dram_framenum
+     * (see above)
+     */
+    if (last_nvm_framenum >= SLOWMEM_PAGES) {
+      last_nvm_framenum = 0;
     }
 
-    // dram was full so move a page to cold memory
+    for (i = last_nvm_framenum; i < SLOWMEM_PAGES; i++) {
+      if (nvm_bitmap[i] == false) {
+        // found a free slowmem page, grab it
+        nvm_bitmap[i] = true;
+        n->framenum = i;
+        n->page->in_dram = false;
+        lru_list_add(&nvm_active_list, n);
+        pthread_mutex_unlock(&global_lock);
+        last_nvm_framenum = i;
+
+        gettimeofday(&end, NULL);
+        LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
+      
+        return i * PAGE_SIZE;
+      }
+    }
+    for (i = 0; i < last_nvm_framenum; i++) {
+      if (nvm_bitmap[i] == false) {
+        nvm_bitmap[i] = true;
+        n->framenum = i;
+        n->page->in_dram = false;
+        lru_list_add(&nvm_active_list, n);
+        pthread_mutex_unlock(&global_lock);
+        last_nvm_framenum = i;
+      
+        gettimeofday(&end, NULL);
+        LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
+
+        return i * PAGE_SIZE;
+      }
+    }
+#else
+    // DRAM was full, try to free some space by moving a cold page down
     if (inactive_list.numentries == 0){
       // force some pages down to slow memory/inactive list
       shrink_caches(&active_list, &inactive_list);
@@ -247,7 +292,10 @@ uint64_t lru_allocate_page(struct lru_node *n)
         }
       }
     }
+#endif
+#ifdef LRU_SWAP
   }
+#endif
 
   pthread_mutex_unlock(&global_lock);
   assert(!"Out of memory");
@@ -300,7 +348,7 @@ void *lru_kswapd()
 
             lru_migrate_up(n, i);
 
-            lru_list_add(&active_list, n);
+	    lru_list_add(&active_list, n);
 
             moved = true;
             break;
@@ -356,9 +404,9 @@ void *lru_kswapd()
             if (nvm_bitmap[i] == false) {
               nvm_bitmap[i] = true;
               dram_bitmap[cn->framenum] = false;
-
-              lru_migrate_down(cn, i);
               
+              lru_migrate_down(cn, i);
+
               lru_list_add(&nvm_inactive_list, cn);
 
               break;
@@ -387,7 +435,7 @@ void lru_pagefault(struct hemem_page *page)
 
   // set up the lru node for the lru lists
   node = (struct lru_node*)calloc(1, sizeof(struct lru_node));
-  if(node == NULL) {
+  if (node == NULL) {
     perror("node calloc");
     assert(0);
   }
@@ -397,7 +445,6 @@ void lru_pagefault(struct hemem_page *page)
   
   // do the heavy lifting of finding the devdax file offset to place the page
   offset = lru_allocate_page(node);
-  page->in_dram = true;         // LRU will always place a new page in dram
   page->devdax_offset = offset;
   page->next = NULL;
   page->prev = NULL;
@@ -413,5 +460,10 @@ void lru_init(void)
   assert(r == 0);
   
   gettimeofday(&kswapdruntime, NULL);
+#ifndef LRU_SWAP
   LOG("Memory management policy is LRU\n");
+#else
+  LOG("Memory management policy is LRU-swap\n");
+#endif
+
 }

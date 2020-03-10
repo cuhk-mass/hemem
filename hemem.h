@@ -16,14 +16,13 @@ extern "C" {
 #include "paging.h"
 #include "lru.h"
 #include "simple.h"
-#include "lru_modified.h"
 #include "timer.h"
 #include "interpose.h"
 
 #define MEM_BARRIER() __asm__ volatile("" ::: "memory")
 
 #define NVMSIZE   (2750L * (1024L * 1024L * 1024L))
-#define DRAMSIZE  (115L * (1024L * 1024L * 1024L))
+#define DRAMSIZE  (120L * (1024L * 1024L * 1024L))
 
 #define DRAMPATH "/dev/dax0.0"
 #define NVMPATH "/dev/dax1.0"
@@ -52,9 +51,6 @@ FILE *timef;
 #elif defined (ALLOC_SIMPLE)
   #define pagefault(...) simple_pagefault(__VA_ARGS__)
   #define paging_init(...) simple_init(__VA_ARGS__)
-#elif defined (ALLOC_LRU_MODIFIED)
-  #define pagefault(...) lru_modified_pagefault(__VA_ARGS__)
-  #define paging_init(...) lru_modified_init(__VA_ARGS__)
 #endif
 
 
