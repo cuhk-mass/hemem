@@ -47,8 +47,9 @@ void *nvm_devdax_mmap;
 struct pmemcpy {
   _Atomic bool activate;
   _Atomic bool done_bitmap[MAX_COPY_THREADS];
-  void *src, *dst;
-  size_t length;
+  _Atomic void *src;
+  _Atomic void  *dst;
+  _Atomic size_t length;
 };
 
 static struct pmemcpy pmemcpy;
@@ -332,8 +333,8 @@ static void hemem_parallel_memcpy(void *dst, void *src, size_t length)
   bool threads_done = false;
   int i;
 
-  pmemcpy.src = src;
   pmemcpy.dst = dst;
+  pmemcpy.src = src;
   pmemcpy.length = length;
   pmemcpy.activate = true;
 
@@ -512,6 +513,8 @@ void handle_wp_fault(uint64_t page_boundry)
 
   page = find_page(page_boundry);
   assert(page != NULL);
+
+  LOG("hemem: handle_wp_fault: waiting for migration\n");
 
   pthread_mutex_lock(&(page->page_lock));
 
