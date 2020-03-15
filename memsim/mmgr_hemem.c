@@ -12,7 +12,7 @@
 
 // Keep at least 10% of fastmem free
 #define HEMEM_FASTFREE		(FASTMEM_SIZE / 10)
-#define HEMEM_SWEEP_RATE	GB(1)
+#define HEMEM_MIGRATE_RATE	GB(1)
 
 #define FASTMEM_GIGA_PAGES     	(FASTMEM_SIZE / GIGA_PAGE_SIZE)
 #define FASTMEM_HUGE_PAGES     	(FASTMEM_SIZE / HUGE_PAGE_SIZE)
@@ -123,9 +123,13 @@ static struct pte *alloc_ptables(uint64_t addr, enum pagetypes ptype)
   for(int i = 1; i < level; i++) {
     pte = &ptable[(addr >> (48 - (i * 9))) & 511];
 
-    if(!pte->present) {
+    if(!pte->present || pte->pagemap) {
       pte->present = true;
       pte->next = calloc(512, sizeof(struct pte));
+      if(pte->pagemap) {
+	pte->pagemap = false;
+	pte->addr = 0;
+      }
     }
 
     ptable = pte->next;
@@ -150,15 +154,20 @@ static void *hemem_thread(void *arg)
 
     pthread_mutex_lock(&global_lock);
 
-#if 0
-    // Analyze HEMEM_SWEEP_RATE data for hot/cold
-    int64_t tosweep = HEMEM_SWEEP_RATE;
+    // Under memory pressure?
+    if(fastmem_freebytes >= HEMEM_FASTFREE) {
+      goto done;
+    }
+
+    // Analyze HEMEM_MIGRATE_RATE data for hot/cold
+    int64_t tosweep = HEMEM_MIGRATE_RATE;
     while(tosweep > 0) {
       // Analyze fastmem data for cold
-      // Spread evenly over all page size types (XXX: good idea?)
+      // Spread evenly over all page size types
+      // XXX: Probably better to sweep in physical memory to defragment
       for(enum pagetypes pt = GIGA; pt < NPAGETYPES; pt++) {
 	struct page *p = dequeue_fifo(&fastmem_active[pt]);
-
+	
 	if(p == NULL) {
 	  continue;
 	}
@@ -167,12 +176,16 @@ static void *hemem_thread(void *arg)
 	  p->pte->accessed = false;
 	  enqueue_fifo(&fastmem_active[pt], p);
 	} else {
-	  enqueue_fifo(&fastmem_inactive[pt], p);
+	  enqueue_fifo(&transition[pt], p);
+	  /* enqueue_fifo(&fastmem_inactive[pt], p); */
+	  tosweep -= page_size(pt);
+	  if(tosweep == 0) {
+	    break;
+	  }
 	}
-
-	tosweep -= page_size(pt);
       }
 
+#if 0
       // Analyze inactive pages for hot
       for(enum pagetypes pt = GIGA; pt < NPAGETYPES; pt++) {
 	struct page *p = dequeue_fifo(&fastmem_inactive[pt]);
@@ -191,18 +204,15 @@ static void *hemem_thread(void *arg)
       }
 
       // TODO: Check slowmem, too
-    }
 #endif
-
-    // Under memory pressure?
-    if(fastmem_freebytes >= HEMEM_FASTFREE) {
-      goto done;
     }
 
+#if 0
     // Identify cold pages in fastmem
     while(fastmem_freebytes < HEMEM_FASTFREE) {
       // Start with smallest, then larger page sizes
-      for(enum pagetypes pt = BASE; pt >= GIGA; pt--) {
+      for(enum pagetypes rpt = GIGA; rpt < NPAGETYPES; rpt++) {
+	enum pagetypes pt = BASE - rpt;	// Go in reverse size order to realize small to large
 	struct page *p;
 	while((p = dequeue_fifo(&fastmem_active[pt])) != NULL) {
 	  if(p->pte->accessed) {
@@ -215,10 +225,11 @@ static void *hemem_thread(void *arg)
 	}
       }
     }
+#endif
+    tlb_shootdown(0);	// Sync changes to page tables
 
     // Move pages down (and split them to base pages)
-    tlb_shootdown(0);
-    for(enum pagetypes pt = BASE; pt >= GIGA; pt--) {
+    for(enum pagetypes pt = GIGA; pt < NPAGETYPES; pt++) {
       struct page *p;
       while((p = dequeue_fifo(&transition[pt])) != NULL) {
 	size_t times = 1;
@@ -234,11 +245,12 @@ static void *hemem_thread(void *arg)
 	  struct page *np = dequeue_fifo(&slowmem_free[BASE]);
 	  assert(np != NULL);
 
-	  // XXX: Copy data in background
+	  // XXX: Move data in background
 	  slowmem_freebytes -= page_size(BASE);
+	  fastmem_freebytes += page_size(BASE);
 	  np->pte = alloc_ptables(p->vaddr + (i * BASE_PAGE_SIZE), BASE);
 	  assert(np->pte != NULL);
-	  np->pte->addr = np->paddr;
+	  np->pte->addr = np->paddr + (i * BASE_PAGE_SIZE);
 	  enqueue_fifo(&slowmem_inactive[pt], np);
 	}
 
@@ -246,7 +258,7 @@ static void *hemem_thread(void *arg)
 	enqueue_fifo(&fastmem_free[pt], p);
       }
     }
-    tlb_shootdown(0);
+    tlb_shootdown(0);	// sync
 
   done:
     pthread_mutex_unlock(&global_lock);
