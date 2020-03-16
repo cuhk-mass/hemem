@@ -65,16 +65,20 @@ struct pte {
   struct pte *next;		// Next page table pointer
 
   // Hardware bits
-  bool present;
+  _Atomic bool present;
   bool readonly;
   bool accessed;
   bool modified;
-  bool pagemap;
+  _Atomic bool pagemap;
 };
 
-void pagefault(uint64_t addr);
+// readonly is set if the page was a write to a read-only
+// page. Otherwise, it was any access to a non-present page.
+void pagefault(uint64_t addr, bool readonly);
 void tlb_shootdown(uint64_t addr);
 void mmgr_init(void);
+void add_runtime(size_t delta);
+void memsim_nanosleep(size_t sleeptime);
 
 // XXX: Debug
 int listnum(struct pte *pte);

@@ -156,12 +156,10 @@ static void expand_caches(struct fifo_queue *pages_active,
 
 static void *kswapd(void *arg)
 {
-  size_t oldruntime = 0;
-
   in_kswapd = true;
 
   for(;;) {
-    while(runtime - oldruntime < KSWAPD_INTERVAL);
+    memsim_nanosleep(KSWAPD_INTERVAL);
 
     pthread_mutex_lock(&global_lock);
 
@@ -243,8 +241,6 @@ static void *kswapd(void *arg)
 
   out:
     pthread_mutex_unlock(&global_lock);
-    
-    oldruntime = runtime;
   }
 
   return NULL;
@@ -285,7 +281,7 @@ static uint64_t getmem(uint64_t addr, struct pte *pte)
 
 	// Emulate memory copy from fast to slow mem
 	if(!in_kswapd) {
-	  runtime += TIME_SLOWMOVE;
+	  add_runtime(TIME_SLOWMOVE);
 	}
 
 	// Free fastmem
@@ -332,8 +328,9 @@ static struct pte *alloc_ptables(uint64_t addr)
   return &ptable[(addr >> (48 - (4 * 9))) & 511];
 }
 
-void pagefault(uint64_t addr)
+void pagefault(uint64_t addr, bool readonly)
 {
+  assert(!readonly);
   // Allocate page tables
   struct pte *pte = alloc_ptables(addr);
   pte->present = true;

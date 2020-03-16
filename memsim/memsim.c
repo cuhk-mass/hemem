@@ -13,6 +13,7 @@
 #include <string.h>
 #include <inttypes.h>
 #include <pthread.h>
+#include <semaphore.h>
 
 #include "shared.h"
 
@@ -40,6 +41,33 @@ static size_t accesses[NMEMTYPES], tlbmisses = 0, tlbhits = 0, pagefaults = 0,
 static uint64_t	mmm_tags[MMM_TAGS_SIZE];
 static size_t mmm_misses = 0;
 #endif
+
+static _Atomic size_t wakeup_time = 0;
+static sem_t wakeup_sem;
+
+void memsim_nanosleep(size_t sleeptime)
+{
+  assert(wakeup_time == 0);
+  wakeup_time = runtime + sleeptime;
+  sem_wait(&wakeup_sem);
+}
+
+void add_runtime(size_t delta)
+{
+  static size_t oldruntime = 0;
+  
+  runtime += delta;
+
+  if(wakeup_time != 0 && runtime >= wakeup_time) {
+    wakeup_time = 0;
+    sem_post(&wakeup_sem);
+  }
+  
+  if(runtime - oldruntime > 1000000) {	// Every millisecond
+    fprintf(stderr, "Runtime: %.3f       \r", (float)runtime / 1000000000.0);
+    oldruntime = runtime;
+  }
+}
 
 // From Wikipedia
 static uint32_t jenkins_one_at_a_time_hash(const uint8_t *key, size_t length) {
@@ -75,7 +103,7 @@ void tlb_shootdown(uint64_t addr)
   tlbshootdowns++;
   pthread_mutex_unlock(&tlb_lock);
 
-  runtime += TIME_TLBSHOOTDOWN;
+  add_runtime(TIME_TLBSHOOTDOWN);
 }
 
 static struct tlbe *tlb_lookup(struct tlbe *tlb, unsigned int size,
@@ -213,11 +241,11 @@ static void memaccess(uint64_t addr, enum access_type type)
     for(level = 1; level <= 4 && ptable != NULL; level++) {
       pte = &ptable[(addr >> (48 - (level * 9))) & 511];
 
-      runtime += TIME_PAGEWALK;
+      add_runtime(TIME_PAGEWALK);
 
-      if(!pte->present) {
-	pagefault(addr);
-	runtime += TIME_PAGEFAULT;
+      if(!pte->present || (pte->readonly && type == TYPE_WRITE)) {
+	pagefault(addr, pte->readonly && type == TYPE_WRITE);
+	add_runtime(TIME_PAGEFAULT);
 	pagefaults++;
 	assert(pte->present);
       }
@@ -257,24 +285,24 @@ static void memaccess(uint64_t addr, enum access_type type)
   if(!in_fastmem) {
     mmm_misses++;
     if(mmm_tags[mmm_idx] != (uint64_t)-1) {
-      runtime += TIME_SLOWMEM_WRITE;	// Write back
+      add_runtime(TIME_SLOWMEM_WRITE);	// Write back
       accesses[SLOWMEM]++;
     }
     if(type == TYPE_READ) {
-      runtime += TIME_SLOWMEM_READ;	// Load new
+      add_runtime(TIME_SLOWMEM_READ);	// Load new
       accesses[SLOWMEM]++;
     }
     
     mmm_tags[mmm_idx] = cline;
   }
 
-  runtime += (type == TYPE_READ) ? TIME_FASTMEM_READ : TIME_FASTMEM_WRITE;
+  add_runtime((type == TYPE_READ) ? TIME_FASTMEM_READ : TIME_FASTMEM_WRITE);
   accesses[FASTMEM]++;
 #else
   if(type == TYPE_READ) {
-    runtime += (paddr & SLOWMEM_BIT) ? TIME_SLOWMEM_READ : TIME_FASTMEM_READ;
+    add_runtime((paddr & SLOWMEM_BIT) ? TIME_SLOWMEM_READ : TIME_FASTMEM_READ);
   } else {
-    runtime += (paddr & SLOWMEM_BIT) ? TIME_SLOWMEM_WRITE : TIME_FASTMEM_WRITE;
+    add_runtime((paddr & SLOWMEM_BIT) ? TIME_SLOWMEM_WRITE : TIME_FASTMEM_WRITE);
   }
 
   accesses[(paddr & SLOWMEM_BIT) ? SLOWMEM : FASTMEM]++;
@@ -316,7 +344,7 @@ static void gups(size_t iters, uint64_t hotset_start, uint64_t hotset_size,
     memaccess(a, TYPE_READ);
     memaccess(a, TYPE_WRITE);
 
-    runtime += 100;	// 100ns program time per update
+    add_runtime(100);	// 100ns program time per update
   }
 }
 
@@ -363,6 +391,9 @@ int main(int argc, char *argv[])
   }
 #endif
 
+  int r = sem_init(&wakeup_sem, 0, 0);
+  assert(r == 0);
+  
   mmgr_init();
 
   // Get memory traces from Onur's group at ETH? membench? Replay them here?

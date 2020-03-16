@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <assert.h>
 #include <inttypes.h>
+#include <string.h>
 
 #include "shared.h"
 
@@ -29,6 +30,7 @@ enum pagetypes {
 
 struct page {
   struct page	*next, *prev;
+  // XXX: 1 vaddr per paddr, sharing not supported yet!
   uint64_t	paddr, vaddr;
   struct pte	*pte;
 };
@@ -111,24 +113,26 @@ static uint64_t pfn_mask(enum pagetypes pt)
   }
 }
 
-static struct pte *alloc_ptables(uint64_t addr, enum pagetypes ptype)
+static struct pte *alloc_ptables(uint64_t addr, enum pagetypes ptype,
+				 uint64_t paddr)
 {
-  struct pte *ptable = pml4, *pte;
+  struct pte *ptable = pml4, *pte, *pivot = NULL;
   int level = ptype + 2;
 
   assert(level >= 2 && level <= 4);
-  
+
   // Allocate page tables down to the leaf
   for(int i = 1; i < level; i++) {
     pte = &ptable[(addr >> (48 - (i * 9))) & 511];
 
     if(!pte->present || pte->pagemap) {
-      pte->present = true;
-      pte->next = calloc(512, sizeof(struct pte));
-      if(pte->pagemap) {
-	pte->pagemap = false;
-	pte->addr = 0;
+      if(pivot == NULL) {
+	pivot = pte;
+      } else {
+	assert(!pte->pagemap);
+	pte->present = true;
       }
+      pte->next = calloc(512, sizeof(struct pte));
     }
 
     ptable = pte->next;
@@ -136,9 +140,19 @@ static struct pte *alloc_ptables(uint64_t addr, enum pagetypes ptype)
 
   // Return last-level PTE corresponding to addr
   pte = &ptable[(addr >> (48 - (level * 9))) & 511];
-  pte->present = true;
+  pte->addr = paddr;
   pte->pagemap = true;
+  pte->present = true;
 
+  // Update pivot PTE to guarantee atomic page table updates without locks
+  if(pivot != NULL) {
+    if(pivot->pagemap) {
+      pivot->pagemap = false;
+      pivot->addr = 0;
+    }
+    pivot->present = true;
+  }
+  
   return pte;
 }
 
@@ -171,9 +185,8 @@ static void move_hot(void)
     // XXX: Move data in background
     fastmem_freebytes -= page_size(BASE);
     slowmem_freebytes += page_size(BASE);
-    np->pte = alloc_ptables(p->vaddr, BASE);
+    np->pte = alloc_ptables(p->vaddr, BASE, np->paddr);
     assert(np->pte != NULL);
-    np->pte->addr = np->paddr;
     enqueue_fifo(&mem_active[FASTMEM][BASE], np);
     enqueue_fifo(&mem_free[SLOWMEM][BASE], p);
 
@@ -186,10 +199,37 @@ static void move_hot(void)
 
 static void move_cold(void)
 {
-  // Move cold pages down (and split them to base pages)
+  struct fifo_queue transition[NPAGETYPES];
+  size_t transition_bytes = 0;
+
+  memset(transition, 0, NPAGETYPES * sizeof(struct fifo_queue));
+  
+  // Identify pages for movement and mark read-only
   for(enum pagetypes pt = GIGA; pt < NPAGETYPES; pt++) {
     struct page *p;
     while((p = dequeue_fifo(&mem_inactive[FASTMEM][pt])) != NULL) {
+      enqueue_fifo(&transition[pt], p);
+
+      p->pte->readonly = true;
+      // Until enough free fastmem
+      transition_bytes += page_size(pt);
+      if(fastmem_freebytes + transition_bytes >= HEMEM_FASTFREE) {
+	goto move;
+      }
+    }
+  }
+
+ move:
+  if(transition_bytes == 0) {
+    // Everything is hot -- nothing to move
+    return;
+  }
+  tlb_shootdown(0);	// Sync
+
+  // Move cold pages down (and split them to base pages)
+  for(enum pagetypes pt = GIGA; pt < NPAGETYPES; pt++) {
+    struct page *p;
+    while((p = dequeue_fifo(&transition[pt])) != NULL) {
       size_t times = 1;
 
       switch(pt) {
@@ -207,19 +247,13 @@ static void move_cold(void)
 	slowmem_freebytes -= page_size(BASE);
 	fastmem_freebytes += page_size(BASE);
 	np->vaddr = p->vaddr + (i * BASE_PAGE_SIZE);
-	np->pte = alloc_ptables(np->vaddr, BASE);
+	np->pte = alloc_ptables(np->vaddr, BASE, np->paddr + (i * BASE_PAGE_SIZE));
 	assert(np->pte != NULL);
-	np->pte->addr = np->paddr + (i * BASE_PAGE_SIZE);
 	enqueue_fifo(&mem_inactive[SLOWMEM][BASE], np);
       }
 
       // Fastmem page is now free
       enqueue_fifo(&mem_free[FASTMEM][pt], p);
-
-      // Until enough free fastmem
-      if(fastmem_freebytes >= HEMEM_FASTFREE) {
-	return;
-      }
     }
   }
 }
@@ -299,12 +333,10 @@ static void thaw(void)
 
 static void *hemem_thread(void *arg)
 {
-  size_t oldruntime = 0;
-
   in_background = true;
 
   for(;;) {
-    while(runtime - oldruntime < HEMEM_INTERVAL);
+    memsim_nanosleep(HEMEM_INTERVAL);
 
     pthread_mutex_lock(&global_lock);
 
@@ -324,7 +356,6 @@ static void *hemem_thread(void *arg)
     tlb_shootdown(0);	// sync
 
     pthread_mutex_unlock(&global_lock);
-    oldruntime = runtime;
   }
 
   return NULL;
@@ -356,17 +387,17 @@ static struct page *getmem(uint64_t addr)
     slowmem_freebytes -= page_size(pt);
   }
 
-  p->pte = alloc_ptables(addr, pt);
+  p->pte = alloc_ptables(addr, pt, p->paddr);
   assert(p->pte != NULL);
-  p->pte->addr = p->paddr;
   p->vaddr = addr & pfn_mask(pt);
 
   pthread_mutex_unlock(&global_lock);
   return p;
 }
 
-void pagefault(uint64_t addr)
+void pagefault(uint64_t addr, bool readonly)
 {
+  assert(!readonly);
   getmem(addr);
 }
 

@@ -50,8 +50,9 @@ static struct pte *alloc_ptables(uint64_t addr)
   return &ptable[(addr >> (48 - (4 * 9))) & 511];
 }
 
-void pagefault(uint64_t addr)
+void pagefault(uint64_t addr, bool readonly)
 {
+  assert(!readonly);
   // Allocate page tables
   struct pte *pte = alloc_ptables(addr);
   pte->present = true;
