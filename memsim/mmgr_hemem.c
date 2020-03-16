@@ -12,7 +12,8 @@
 
 // Keep at least 10% of fastmem free
 #define HEMEM_FASTFREE		(FASTMEM_SIZE / 10)
-#define HEMEM_MIGRATE_RATE	GB(1)
+#define HEMEM_COOL_RATE		GB(1)	// Cool bytes per HEMEM_INTERVAL
+#define HEMEM_THAW_RATE		GB(1)	// Warm bytes per HEMEM_INTERVAL
 
 #define FASTMEM_GIGA_PAGES     	(FASTMEM_SIZE / GIGA_PAGE_SIZE)
 #define FASTMEM_HUGE_PAGES     	(FASTMEM_SIZE / HUGE_PAGE_SIZE)
@@ -38,10 +39,8 @@ struct fifo_queue {
 };
 
 static struct pte pml4[512]; // Top-level page table (we only emulate one process)
-static struct fifo_queue fastmem_free[NPAGETYPES], slowmem_free[NPAGETYPES],
-  fastmem_active[NPAGETYPES], slowmem_active[NPAGETYPES],
-  /*fastmem_inactive[NPAGETYPES],*/ slowmem_inactive[NPAGETYPES],
-  transition[NPAGETYPES];
+static struct fifo_queue mem_free[NMEMTYPES][NPAGETYPES],
+  mem_active[NMEMTYPES][NPAGETYPES], mem_inactive[NMEMTYPES][NPAGETYPES];
 static pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
 static bool __thread in_background = false;
 static _Atomic uint64_t fastmem_freebytes = FASTMEM_SIZE;
@@ -143,6 +142,144 @@ static struct pte *alloc_ptables(uint64_t addr, enum pagetypes ptype)
   return pte;
 }
 
+static void move_hot(void)
+{
+  struct page *p;
+
+  // Move hot pages up (and defragment)
+  while((p = dequeue_fifo(&mem_active[SLOWMEM][BASE])) != NULL) {
+    struct page *np = dequeue_fifo(&mem_free[FASTMEM][BASE]);
+    assert(np != NULL);
+
+    // XXX: Move data in background
+    fastmem_freebytes -= page_size(BASE);
+    slowmem_freebytes += page_size(BASE);
+    np->pte = alloc_ptables(p->vaddr, BASE);
+    assert(np->pte != NULL);
+    np->pte->addr = np->paddr;
+    enqueue_fifo(&mem_active[FASTMEM][BASE], np);
+    enqueue_fifo(&mem_free[SLOWMEM][BASE], p);
+
+    // Stop if under memory pressure
+    if(fastmem_freebytes < HEMEM_FASTFREE) {
+      return;
+    }
+  }
+}
+
+static void move_cold(void)
+{
+  // Move cold pages down (and split them to base pages)
+  for(enum pagetypes pt = GIGA; pt < NPAGETYPES; pt++) {
+    struct page *p;
+    while((p = dequeue_fifo(&mem_inactive[FASTMEM][pt])) != NULL) {
+      size_t times = 1;
+
+      switch(pt) {
+      case BASE: times = 1; break;
+      case HUGE: times = 512; break;
+      case GIGA: times = 262144; break;
+      default: assert(!"Unknown page type"); break;
+      }
+
+      for(size_t i = 0; i < times; i++) {
+	struct page *np = dequeue_fifo(&mem_free[SLOWMEM][BASE]);
+	assert(np != NULL);
+
+	// XXX: Move data in background
+	slowmem_freebytes -= page_size(BASE);
+	fastmem_freebytes += page_size(BASE);
+	np->vaddr = p->vaddr + (i * BASE_PAGE_SIZE);
+	np->pte = alloc_ptables(np->vaddr, BASE);
+	assert(np->pte != NULL);
+	np->pte->addr = np->paddr + (i * BASE_PAGE_SIZE);
+	enqueue_fifo(&mem_inactive[SLOWMEM][BASE], np);
+      }
+
+      // Fastmem page is now free
+      enqueue_fifo(&mem_free[FASTMEM][pt], p);
+
+      // Until enough free fastmem
+      if(fastmem_freebytes >= HEMEM_FASTFREE) {
+	return;
+      }
+    }
+  }
+}
+
+static void cool(void)
+{
+  // Data cools at HEMEM_COOL_RATE per HEMEM_INTERVAL
+  for(uint64_t sweeped = 0; sweeped < HEMEM_COOL_RATE;) {
+    uint64_t oldsweeped = sweeped;
+
+    for(enum memtypes mt = FASTMEM; mt < NMEMTYPES; mt++) {
+      // Spread evenly over all page size types
+      // XXX: Probably better to sweep in physical memory to defragment
+      for(enum pagetypes pt = GIGA; pt < NPAGETYPES; pt++) {
+	struct page *p = dequeue_fifo(&mem_active[mt][pt]);
+
+	if(p == NULL) {
+	  continue;
+	}
+
+	if(p->pte->accessed) {
+	  p->pte->accessed = false;
+	  enqueue_fifo(&mem_active[mt][pt], p);
+	} else {
+	  enqueue_fifo(&mem_inactive[mt][pt], p);
+	}
+
+	sweeped += page_size(pt);
+	/* if(sweeped >= HEMEM_COOL_RATE) { */
+	/*   return; */
+	/* } */
+      }
+    }
+
+    // If no progress then bail out
+    if(sweeped == oldsweeped) {
+      return;
+    }
+  }
+}
+
+static void thaw(void)
+{
+  // Data thaws at HEMEM_THAW_RATE per HEMEM_INTERVAL
+  for(uint64_t sweeped = 0; sweeped < HEMEM_THAW_RATE;) {
+    uint64_t oldsweeped = sweeped;
+    
+    for(enum memtypes mt = FASTMEM; mt < NMEMTYPES; mt++) {
+      // Spread evenly over all page size types
+      // XXX: Probably better to sweep in physical memory to defragment
+      for(enum pagetypes pt = GIGA; pt < NPAGETYPES; pt++) {
+	struct page *p = dequeue_fifo(&mem_inactive[mt][pt]);
+
+	if(p == NULL) {
+	  continue;
+	}
+
+	if(p->pte->accessed) {
+	  enqueue_fifo(&mem_active[mt][pt], p);
+	} else {
+	  enqueue_fifo(&mem_inactive[mt][pt], p);
+	}
+
+	sweeped += page_size(pt);
+	/* if(sweeped >= HEMEM_THAW_RATE) { */
+	/*   return; */
+	/* } */
+      }
+    }
+
+    // If no progress then bail out
+    if(sweeped == oldsweeped) {
+      return;
+    }
+  }
+}
+
 static void *hemem_thread(void *arg)
 {
   size_t oldruntime = 0;
@@ -154,113 +291,21 @@ static void *hemem_thread(void *arg)
 
     pthread_mutex_lock(&global_lock);
 
+    cool();
+    thaw();
+
+    // XXX: Can comment out for less overhead & accuracy
+    tlb_shootdown(0);	// Sync active bit changes in TLB
+
     // Under memory pressure?
     if(fastmem_freebytes >= HEMEM_FASTFREE) {
-      goto done;
+      move_hot();
+    } else {
+      move_cold();
     }
 
-    // Analyze HEMEM_MIGRATE_RATE data for hot/cold
-    int64_t tosweep = HEMEM_MIGRATE_RATE;
-    while(tosweep > 0) {
-      // Analyze fastmem data for cold
-      // Spread evenly over all page size types
-      // XXX: Probably better to sweep in physical memory to defragment
-      for(enum pagetypes pt = GIGA; pt < NPAGETYPES; pt++) {
-	struct page *p = dequeue_fifo(&fastmem_active[pt]);
-	
-	if(p == NULL) {
-	  continue;
-	}
-
-	if(p->pte->accessed) {
-	  p->pte->accessed = false;
-	  enqueue_fifo(&fastmem_active[pt], p);
-	} else {
-	  enqueue_fifo(&transition[pt], p);
-	  /* enqueue_fifo(&fastmem_inactive[pt], p); */
-	  tosweep -= page_size(pt);
-	  if(tosweep == 0) {
-	    break;
-	  }
-	}
-      }
-
-#if 0
-      // Analyze inactive pages for hot
-      for(enum pagetypes pt = GIGA; pt < NPAGETYPES; pt++) {
-	struct page *p = dequeue_fifo(&fastmem_inactive[pt]);
-
-	if(p == NULL) {
-	  continue;
-	}
-
-	if(p->pte->accessed) {
-	  enqueue_fifo(&fastmem_active[pt], p);
-	} else {
-	  enqueue_fifo(&fastmem_inactive[pt], p);
-	}
-
-	tosweep -= page_size(pt);
-      }
-
-      // TODO: Check slowmem, too
-#endif
-    }
-
-#if 0
-    // Identify cold pages in fastmem
-    while(fastmem_freebytes < HEMEM_FASTFREE) {
-      // Start with smallest, then larger page sizes
-      for(enum pagetypes rpt = GIGA; rpt < NPAGETYPES; rpt++) {
-	enum pagetypes pt = BASE - rpt;	// Go in reverse size order to realize small to large
-	struct page *p;
-	while((p = dequeue_fifo(&fastmem_active[pt])) != NULL) {
-	  if(p->pte->accessed) {
-	    p->pte->accessed = false;
-	    enqueue_fifo(&fastmem_active[pt], p);
-	  } else {
-	    p->pte->readonly = true;
-	    enqueue_fifo(&transition[pt], p);
-	  }
-	}
-      }
-    }
-#endif
-    tlb_shootdown(0);	// Sync changes to page tables
-
-    // Move pages down (and split them to base pages)
-    for(enum pagetypes pt = GIGA; pt < NPAGETYPES; pt++) {
-      struct page *p;
-      while((p = dequeue_fifo(&transition[pt])) != NULL) {
-	size_t times = 1;
-	
-	switch(pt) {
-	case BASE: times = 1; break;
-	case HUGE: times = 512; break;
-	case GIGA: times = 262144; break;
-	default: assert(!"Unknown page type"); break;
-	}
-
-	for(size_t i = 0; i < times; i++) {
-	  struct page *np = dequeue_fifo(&slowmem_free[BASE]);
-	  assert(np != NULL);
-
-	  // XXX: Move data in background
-	  slowmem_freebytes -= page_size(BASE);
-	  fastmem_freebytes += page_size(BASE);
-	  np->pte = alloc_ptables(p->vaddr + (i * BASE_PAGE_SIZE), BASE);
-	  assert(np->pte != NULL);
-	  np->pte->addr = np->paddr + (i * BASE_PAGE_SIZE);
-	  enqueue_fifo(&slowmem_inactive[pt], np);
-	}
-
-	// Fastmem page is now free
-	enqueue_fifo(&fastmem_free[pt], p);
-      }
-    }
     tlb_shootdown(0);	// sync
 
-  done:
     pthread_mutex_unlock(&global_lock);
     oldruntime = runtime;
   }
@@ -277,9 +322,9 @@ static struct page *getmem(uint64_t addr)
 
   // Allocate from fastmem first, iterate over page types
   for(pt = GIGA; pt < NPAGETYPES; pt++) {
-    p = dequeue_fifo(&fastmem_free[pt]);
+    p = dequeue_fifo(&mem_free[FASTMEM][pt]);
     if(p != NULL) {
-      enqueue_fifo(&fastmem_active[pt], p);
+      enqueue_fifo(&mem_active[FASTMEM][pt], p);
       fastmem_freebytes -= page_size(pt);
       break;
     }
@@ -287,10 +332,10 @@ static struct page *getmem(uint64_t addr)
   if(p == NULL) {
     // If out of fastmem, look for slowmem
     pt = BASE;
-    p = dequeue_fifo(&slowmem_free[pt]);
+    p = dequeue_fifo(&mem_free[SLOWMEM][pt]);
     // If NULL, we're totally out of mem
     assert(p != NULL);
-    enqueue_fifo(&slowmem_active[pt], p);
+    enqueue_fifo(&mem_active[SLOWMEM][pt], p);
     slowmem_freebytes -= page_size(pt);
   }
 
@@ -316,14 +361,14 @@ void mmgr_init(void)
   for(int i = 0; i < FASTMEM_GIGA_PAGES; i++) {
     struct page *p = calloc(1, sizeof(struct page));
     p->paddr = i * GIGA_PAGE_SIZE;
-    enqueue_fifo(&fastmem_free[GIGA], p);
+    enqueue_fifo(&mem_free[FASTMEM][GIGA], p);
   }
   // Slowmem: Try with base pages (lots of memory use and likely slow,
   // but hey, it's slowmem!)
   for(int i = 0; i < SLOWMEM_BASE_PAGES; i++) {
     struct page *p = calloc(1, sizeof(struct page));
     p->paddr = (i * BASE_PAGE_SIZE) | SLOWMEM_BIT;
-    enqueue_fifo(&slowmem_free[BASE], p);
+    enqueue_fifo(&mem_free[SLOWMEM][BASE], p);
   }
   
   pthread_t thread;
