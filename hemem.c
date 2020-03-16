@@ -48,7 +48,7 @@ struct pmemcpy {
   _Atomic bool activate;
   _Atomic bool done_bitmap[MAX_COPY_THREADS];
   _Atomic void *src;
-  _Atomic void  *dst;
+  _Atomic void *dst;
   _Atomic size_t length;
 };
 
@@ -67,7 +67,7 @@ void *hemem_parallel_memcpy_thread(void *arg)
 
   for(;;) {
     // wait for copy command
-    while (!pmemcpy.activate && pmemcpy.done_bitmap[tid]);
+    while (!pmemcpy.activate && !pmemcpy.done_bitmap[tid]);
 
     // grab data out of shared struct
     src = pmemcpy.src;
@@ -355,7 +355,7 @@ static void hemem_parallel_memcpy(void *dst, void *src, size_t length)
 }
 
 
-void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
+void hemem_migrate_up(struct hemem_page *page, uint64_t dram_framenum)
 {
   void *old_addr;
   void *new_addr;
@@ -368,7 +368,7 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
   
   assert(page != NULL);
   old_addr_offset = page->devdax_offset;
-  new_addr_offset = dram_offset;
+  new_addr_offset = dram_framenum * PAGE_SIZE;
 
   old_addr = nvm_devdax_mmap + old_addr_offset;
   assert((uint64_t)old_addr_offset < NVMSIZE);
@@ -413,12 +413,17 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
   page->migrations_up++;
   migrations_up++;
 
+  page->devdax_offset = dram_framenum * PAGE_SIZE;
+  page->in_dram = true;
+
+  hemem_clear_accessed_bit(page->va);
+
   gettimeofday(&migrate_end, NULL);  
   LOG_TIME("hemem_migrate_up: %f s\n", elapsed(&migrate_start, &migrate_end));
 }
 
 
-void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
+void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_framenum)
 {
   void *old_addr;
   void *new_addr;
@@ -431,7 +436,7 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
   
   assert(page != NULL);
   old_addr_offset = page->devdax_offset;
-  new_addr_offset = nvm_offset;
+  new_addr_offset = nvm_framenum * PAGE_SIZE;
 
   old_addr = dram_devdax_mmap + old_addr_offset;
   assert((uint64_t)old_addr_offset < DRAMSIZE);
@@ -475,6 +480,11 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
 
   page->migrations_down++;
   migrations_down++;
+
+  page->devdax_offset = nvm_framenum * PAGE_SIZE;
+  page->in_dram = false;
+
+  hemem_clear_accessed_bit(page->va);
   
   gettimeofday(&migrate_end, NULL);  
   LOG_TIME("hemem_migrate_down: %f s\n", elapsed(&migrate_start, &migrate_end));
@@ -541,6 +551,7 @@ void handle_missing_fault(uint64_t page_boundry)
     perror("page calloc");
     assert(0);
   }
+  pthread_mutex_init(&(page->page_lock), NULL);
 
   // let policy algorithm do most of the heavy lifting of finding a free page
   gettimeofday(&start, NULL);
@@ -715,6 +726,23 @@ uint64_t hemem_va_to_pa(uint64_t va)
 }
 
 
+void hemem_tlb_shootdown(uint64_t va)
+{
+  uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
+  struct uffdio_range range;
+  int ret;
+
+  range.start = page_boundry;
+  range.len = PAGE_SIZE;
+
+  ret = ioctl(uffd, UFFDIO_TLBFLUSH, &range);
+  if (ret < 0) {
+    perror("uffdio tlbflush");
+    assert(0);
+  }
+}
+
+
 void hemem_clear_accessed_bit(uint64_t va)
 {
   uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
@@ -722,12 +750,12 @@ void hemem_clear_accessed_bit(uint64_t va)
   int ret;
 
   clear_accessed_bit(page_boundry);
-
+ 
+  MEM_BARRIER(); 
   range.start = page_boundry;
   range.len = PAGE_SIZE;
-  
-  ret = ioctl(uffd, UFFDIO_TLBFLUSH, &range);
 
+  ret = ioctl(uffd, UFFDIO_TLBFLUSH, &range);
   if (ret < 0) {
     perror("uffdio tlbflush");
     assert(0);

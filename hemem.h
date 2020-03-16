@@ -22,7 +22,7 @@ extern "C" {
 #define MEM_BARRIER() __asm__ volatile("" ::: "memory")
 
 #define NVMSIZE   (2750L * (1024L * 1024L * 1024L))
-#define DRAMSIZE  (128L * (1024L * 1024L * 1024L))
+#define DRAMSIZE  (16L * (1024L * 1024L * 1024L))
 
 #define DRAMPATH "/dev/dax0.0"
 #define NVMPATH "/dev/dax1.0"
@@ -37,8 +37,8 @@ extern "C" {
 #define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
 
 FILE *hememlogf;
-#define LOG(...)	fprintf(hememlogf, __VA_ARGS__)
-//#define LOG(str, ...) while(0) {}
+//#define LOG(...)	fprintf(hememlogf, __VA_ARGS__)
+#define LOG(str, ...) while(0) {}
 
 
 FILE *timef;
@@ -57,7 +57,7 @@ FILE *timef;
 #define MAX_UFFD_MSGS	    (16)
 #define MAX_COPY_THREADS  (8)
 
-#define KSWAPD_INTERVAL   (1.0)
+#define KSWAPD_INTERVAL   (1000000)
 
 extern uint64_t base;
 extern int devmemfd;

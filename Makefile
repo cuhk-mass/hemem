@@ -39,7 +39,7 @@ hemem-simple.o: hemem.c hemem.h paging.h simple.h interpose.h
 hemem-lru-swap.o: hemem.c hemem.h paging.h lru.h interpose.h
 	$(CC) $(CFLAGS) $(INCLUDES) -D ALLOC_LRU -D LRU_SWAP -c hemem.c -o hemem-lru-swap.o
 
-interpose.o: interpose.c interpose.h
+interpose.o: interpose.c interpose.h hemem.h
 	$(CC) $(CFLAGS) $(INCLUDES) -c interpose.c
 
 timer.o: timer.c timer.h

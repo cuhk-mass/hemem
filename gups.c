@@ -204,7 +204,26 @@ int main(int argc, char **argv)
   hot_start = 0;
   hotsize = nelems / 10;
   printf("hot_start: %lu\thot_size: %lu\n", hot_start, hotsize);
+  
+  // run through gups once to touch all memory
+  // spawn gups worker threads
+  for (i = 0; i < threads; i++) {
+    //printf("starting thread [%d]\n", i);
+    ga[i]->tid = i; 
+    ga[i]->iters = updates;
+    ga[i]->size = nelems;
+    ga[i]->elt_size = elt_size;
+    //printf("  tid: [%d]  iters: [%llu]  size: [%llu]  elt size: [%llu]\n", ga[i]->tid, ga[i]->iters, ga[i]->size, ga[i]->elt_size);
+    int r = pthread_create(&t[i], NULL, do_gups, (void*)ga[i]);
+    assert(r == 0);
+  }
 
+  // wait for worker threads
+  for (i = 0; i < threads; i++) {
+    int r = pthread_join(t[i], NULL);
+    assert(r == 0);
+  }
+  hemem_print_stats();
   printf("Timing.\n");
   gettimeofday(&starttime, NULL);
   hemem_clear_stats();
@@ -233,7 +252,7 @@ int main(int argc, char **argv)
   printf("Elapsed time: %.4f seconds.\n", secs);
   gups = threads * ((double)updates) / (secs * 1.0e9);
   printf("GUPS = %.10f\n", gups);
-
+#if 0
 #ifdef HOTSPOT
   hot_start = nelems - (uint64_t)(hotsize) - 1;
   printf("hot_start: %lu\thot_size: %lu\n", hot_start, hotsize);
@@ -264,7 +283,7 @@ int main(int argc, char **argv)
   gups = threads * ((double)updates) / (secs * 1.0e9);
   printf("GUPS = %.10f\n", gups);
 #endif
-  
+#endif
   for (i = 0; i < threads; i++) {
     free(ga[i]->indices);
     free(ga[i]);

@@ -6,24 +6,23 @@
 #include <pthread.h>
 #include <assert.h>
 #include <sys/time.h>
+#include <unistd.h>
 
 #include "hemem.h"
 #include "paging.h"
 #include "lru.h"
 #include "timer.h"
 
-struct lru_list active_list;
-struct lru_list inactive_list;
-struct lru_list nvm_active_list;
-struct lru_list nvm_inactive_list;
-pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
-bool __thread in_kswapd = false;
-uint64_t last_dram_framenum = 0;
-uint64_t last_nvm_framenum = 0;
-bool dram_bitmap[FASTMEM_PAGES];
-bool nvm_bitmap[SLOWMEM_PAGES];
-struct timeval kswapdruntime;
-
+static struct lru_list active_list;
+static struct lru_list inactive_list;
+static struct lru_list nvm_active_list;
+static struct lru_list nvm_inactive_list;
+static pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
+static bool __thread in_kswapd = false;
+static uint64_t last_dram_framenum = 0;
+static uint64_t last_nvm_framenum = 0;
+static bool dram_bitmap[FASTMEM_PAGES];
+static bool nvm_bitmap[SLOWMEM_PAGES];
 
 static void lru_migrate_down(struct lru_node *n, uint64_t i)
 {
@@ -31,9 +30,8 @@ static void lru_migrate_down(struct lru_node *n, uint64_t i)
   LOG("hemem: lru_migrate_down: migrating to NVM frame %lu\n", i);
   n->page->migrating = true;
   hemem_wp_page(n->page, true);
-  hemem_migrate_down(n->page, i * PAGE_SIZE);
+  hemem_migrate_down(n->page, i);
   n->framenum = i;
-  n->page->devdax_offset = (n->framenum * PAGE_SIZE);
   n->page->migrating = false; 
   LOG("hemem: lru_migrate_down: done migrating to NVM\n");
   pthread_mutex_unlock(&(n->page->page_lock));
@@ -45,9 +43,8 @@ static void lru_migrate_up(struct lru_node *n, uint64_t i)
   LOG("hemem: lru_migrate_up: migrating to DRAM frame %lu\n", i);
   n->page->migrating = true;
   hemem_wp_page(n->page, true);
-  hemem_migrate_up(n->page, i * PAGE_SIZE);
+  hemem_migrate_up(n->page, i);
   n->framenum = i;
-  n->page->devdax_offset = (n->framenum * PAGE_SIZE);
   n->page->migrating = false;
   LOG("hemem: lru_migrate_up: done migrating to DRAM\n");
   pthread_mutex_unlock(&(n->page->page_lock));
@@ -178,11 +175,12 @@ static uint64_t lru_allocate_page(struct lru_node *n)
         n->framenum = i;
         lru_list_add(&active_list, n);
         n->page->in_dram = true;
-        pthread_mutex_unlock(&global_lock);
         last_dram_framenum = i;
 
         gettimeofday(&end, NULL);
         LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
+        
+        pthread_mutex_unlock(&global_lock);
       
         // return offset in devdax file -- done!
         return i * PAGE_SIZE;
@@ -194,13 +192,14 @@ static uint64_t lru_allocate_page(struct lru_node *n)
       if (dram_bitmap[i] == false) {
         dram_bitmap[i] = true;
         n->framenum = i;
-        n->page->in_dram = true;
         lru_list_add(&active_list, n);
-        pthread_mutex_unlock(&global_lock);
+        n->page->in_dram = true;
         last_dram_framenum = i;
       
         gettimeofday(&end, NULL);
         LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
+        
+        pthread_mutex_unlock(&global_lock);
 
         // return offset in devdax file -- done!
         return i * PAGE_SIZE;
@@ -221,14 +220,15 @@ static uint64_t lru_allocate_page(struct lru_node *n)
         // found a free slowmem page, grab it
         nvm_bitmap[i] = true;
         n->framenum = i;
-        n->page->in_dram = false;
         lru_list_add(&nvm_active_list, n);
-        pthread_mutex_unlock(&global_lock);
+        n->page->in_dram = false;
         last_nvm_framenum = i;
 
         gettimeofday(&end, NULL);
         LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
       
+        pthread_mutex_unlock(&global_lock);
+        
         return i * PAGE_SIZE;
       }
     }
@@ -236,14 +236,15 @@ static uint64_t lru_allocate_page(struct lru_node *n)
       if (nvm_bitmap[i] == false) {
         nvm_bitmap[i] = true;
         n->framenum = i;
-        n->page->in_dram = false;
         lru_list_add(&nvm_active_list, n);
-        pthread_mutex_unlock(&global_lock);
+        n->page->in_dram = false;
         last_nvm_framenum = i;
       
         gettimeofday(&end, NULL);
         LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
 
+        pthread_mutex_unlock(&global_lock);
+        
         return i * PAGE_SIZE;
       }
     }
@@ -313,20 +314,13 @@ void *lru_kswapd()
   uint64_t i;
   struct lru_node *n;
   struct lru_node *cn;
-  struct timeval curtime;
   bool found;
 
   in_kswapd = true;
 
   for (;;) {
-    gettimeofday(&curtime, NULL);
-    while(elapsed(&kswapdruntime, &curtime) < KSWAPD_INTERVAL) {
-      gettimeofday(&curtime, NULL);
-    }
-
+    usleep(KSWAPD_INTERVAL);
     pthread_mutex_lock(&global_lock);
-    
-    found = false;
 
     shrink_caches(&active_list, &inactive_list);
     shrink_caches(&nvm_active_list, &nvm_inactive_list);
@@ -342,6 +336,7 @@ void *lru_kswapd()
           last_dram_framenum = 0;
         }
 
+        found = false;
         for (i = last_dram_framenum; i < FASTMEM_PAGES; i++) {
           if (dram_bitmap[i] == false) {
             dram_bitmap[i] = true;
@@ -352,26 +347,31 @@ void *lru_kswapd()
 
             lru_migrate_up(n, i);
 
-	    lru_list_add(&active_list, n);
+            lru_list_add(&active_list, n);
 
+            found = true;
             moved = true;
+            last_dram_framenum = i;
             break;
           }
         }
-        for (i = 0; i < last_dram_framenum; i++) {
-          if (dram_bitmap[i] == false) {
-            dram_bitmap[i] = true;
-            nvm_bitmap[n->framenum] = false;
+        if (!found) {
+          for (i = 0; i < last_dram_framenum; i++) {
+            if (dram_bitmap[i] == false) {
+              dram_bitmap[i] = true;
+              nvm_bitmap[n->framenum] = false;
             
-            LOG("cold %lu -> hot %lu\t slowmem.active: %lu, slowmem.inactive: %lu\t hotmem.active: %lu, hotmem.inactive: %lu\n", 
-                n->framenum, i, nvm_active_list.numentries, nvm_inactive_list.numentries, active_list.numentries, inactive_list.numentries);
+              LOG("cold %lu -> hot %lu\t slowmem.active: %lu, slowmem.inactive: %lu\t hotmem.active: %lu, hotmem.inactive: %lu\n", 
+                  n->framenum, i, nvm_active_list.numentries, nvm_inactive_list.numentries, active_list.numentries, inactive_list.numentries);
 
-            lru_migrate_up(n, i);
+              lru_migrate_up(n, i);
 
-            lru_list_add(&active_list, n);
+              lru_list_add(&active_list, n);
 
-            moved = true;
-            break;
+              moved = true;
+              last_dram_framenum = i;
+              break;
+            }
           }
         }
 
@@ -390,6 +390,7 @@ void *lru_kswapd()
           last_nvm_framenum = 0;
         }
 
+        found = false;
         for (i = last_nvm_framenum; i < SLOWMEM_PAGES; i++) {
           if (nvm_bitmap[i] == false) {
             nvm_bitmap[i] = true;
@@ -402,12 +403,13 @@ void *lru_kswapd()
 
             lru_list_add(&nvm_inactive_list, cn);
             found = true;
+            last_nvm_framenum = i;
             
             break;
           }
         }
         if (!found) {
-          for (i = last_nvm_framenum; i < SLOWMEM_PAGES; i++) {
+          for (i = 0; i < last_nvm_framenum; i++) {
             if (nvm_bitmap[i] == false) {
               nvm_bitmap[i] = true;
               dram_bitmap[cn->framenum] = false;
@@ -418,6 +420,7 @@ void *lru_kswapd()
               lru_migrate_down(cn, i);
 
               lru_list_add(&nvm_inactive_list, cn);
+              last_nvm_framenum = i;
 
               break;
             }
@@ -428,8 +431,6 @@ void *lru_kswapd()
 
 out:
     pthread_mutex_unlock(&global_lock);
-  
-    gettimeofday(&kswapdruntime, NULL);
   }
 
   return NULL;
@@ -442,6 +443,7 @@ void lru_pagefault(struct hemem_page *page)
   struct lru_node *node;
 
   assert(page != NULL);
+  pthread_mutex_lock(&(page->page_lock));
 
   // set up the lru node for the lru lists
   node = (struct lru_node*)calloc(1, sizeof(struct lru_node));
@@ -458,6 +460,7 @@ void lru_pagefault(struct hemem_page *page)
   page->devdax_offset = offset;
   page->next = NULL;
   page->prev = NULL;
+  pthread_mutex_unlock(&(page->page_lock));
 }
 
 
@@ -469,7 +472,6 @@ void lru_init(void)
   r = pthread_create(&kswapd_thread, NULL, lru_kswapd, NULL);
   assert(r == 0);
   
-  gettimeofday(&kswapdruntime, NULL);
 #ifndef LRU_SWAP
   LOG("Memory management policy is LRU\n");
 #else
