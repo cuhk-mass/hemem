@@ -23,7 +23,7 @@ static const char	*progname = NULL;
 // Hardware 2-level TLB emulating Cascade Lake
 struct tlbe {
   uint64_t	vpfn, ppfn;
-  bool		present;
+  bool		present, hugepage;
 };
 
 static struct tlbe l1tlb_1g[4], l1tlb_2m[32], l1tlb_4k[64];
@@ -129,13 +129,13 @@ static struct tlbe *alltlb_lookup(uint64_t vaddr, int *level)
 
   // 2M L2 TLB
   ret = tlb_lookup(l2tlb_2m4k, 1536, vaddr & HUGE_PFN_MASK);
-  if(ret != NULL) {
+  if(ret != NULL && ret->hugepage) {
     *level = 3;
     return ret;
   }
 
   ret = tlb_lookup(l2tlb_2m4k, 1536, vaddr & BASE_PFN_MASK);
-  if(ret != NULL) {
+  if(ret != NULL && !ret->hugepage) {
     *level = 4;
     return ret;
   }
@@ -168,6 +168,7 @@ static void tlb_insert(uint64_t vaddr, uint64_t paddr, unsigned int level)
     vpfn = vaddr & HUGE_PFN_MASK;
     ppfn = paddr & HUGE_PFN_MASK;
     te = &l1tlb_2m[tlb_hash(vpfn) % 32];
+    te->hugepage = true;
 
     // Fall through...
   case 4:	// 4KB page
@@ -175,6 +176,7 @@ static void tlb_insert(uint64_t vaddr, uint64_t paddr, unsigned int level)
       vpfn = vaddr & BASE_PFN_MASK;
       ppfn = paddr & BASE_PFN_MASK;
       te = &l1tlb_4k[tlb_hash(vpfn) % 64];
+      te->hugepage = false;
     }
     if(te->present) {
       // Move previous entry down
@@ -294,9 +296,9 @@ static void memaccess(uint64_t addr, enum access_type type)
 #define RAND_WITHIN(x)	(((double)rand() / RAND_MAX) * (x))
 
 static void gups(size_t iters, uint64_t hotset_start, uint64_t hotset_size,
-		 double hotset_prob)
+		 double hotset_prob, uint64_t workset_size)
 {
-  assert(hotset_start + hotset_size <= WORKSET_SIZE);
+  assert(hotset_start + hotset_size <= workset_size);
   
   // GUPS with hotset
   for(size_t i = 0; i < iters; i++) {
@@ -307,7 +309,7 @@ static void gups(size_t iters, uint64_t hotset_start, uint64_t hotset_size,
       a = hotset_start + (uint64_t)RAND_WITHIN(hotset_size);
     } else {
       // Entire working set
-      a = (uint64_t)RAND_WITHIN(WORKSET_SIZE);
+      a = (uint64_t)RAND_WITHIN(workset_size);
     }
 
     // Read&update
@@ -369,16 +371,15 @@ int main(int argc, char *argv[])
   for(uint64_t a = 0; a < WORKSET_SIZE; a += BASE_PAGE_SIZE) {
     memaccess(a, TYPE_READ);
   }
-  /* gups(100000, 0, 0, 0); */
   reset_stats();
 
   // GUPS!
-  gups(10000000, 0, hotset_size, 0.9);
+  gups(10000000, 0, hotset_size, 0.9, WORKSET_SIZE);
   print_stats();
   reset_stats();
 
   // Move hotset up
-  gups(10000000, WORKSET_SIZE - hotset_size, hotset_size, 0.9);
+  gups(10000000, WORKSET_SIZE - hotset_size, hotset_size, 0.9, WORKSET_SIZE);
 
   print_stats();
   return 0;

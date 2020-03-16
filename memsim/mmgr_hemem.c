@@ -148,8 +148,25 @@ static void move_hot(void)
 
   // Move hot pages up (and defragment)
   while((p = dequeue_fifo(&mem_active[SLOWMEM][BASE])) != NULL) {
-    struct page *np = dequeue_fifo(&mem_free[FASTMEM][BASE]);
-    assert(np != NULL);
+    struct page *np;
+    
+  again:
+    np = dequeue_fifo(&mem_free[FASTMEM][BASE]);
+
+    if(np == NULL) {
+      // Break up a GIGA page
+      struct page *gp = dequeue_fifo(&mem_free[FASTMEM][GIGA]);
+      assert(gp != NULL);
+
+      np = calloc(262144, sizeof(struct page));
+      for(size_t i = 0; i < 262144; i++) {
+	np[i].paddr = gp->paddr + (i * BASE_PAGE_SIZE);
+	enqueue_fifo(&mem_free[FASTMEM][BASE], &np[i]);
+      }
+      free(gp);
+      
+      goto again;
+    }
 
     // XXX: Move data in background
     fastmem_freebytes -= page_size(BASE);
