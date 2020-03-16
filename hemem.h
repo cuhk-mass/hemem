@@ -54,8 +54,8 @@ FILE *timef;
 #endif
 
 
-#define MAX_UFFD_MSGS	    (16)
-#define MAX_COPY_THREADS  (8)
+#define MAX_UFFD_MSGS	    (1)
+#define MAX_COPY_THREADS  (1)
 
 #define KSWAPD_INTERVAL   (1000000)
 

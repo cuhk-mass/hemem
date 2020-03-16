@@ -67,15 +67,16 @@ void *hemem_parallel_memcpy_thread(void *arg)
 
   for(;;) {
     // wait for copy command
-    while (!pmemcpy.activate && !pmemcpy.done_bitmap[tid]);
+    while (!pmemcpy.activate && pmemcpy.done_bitmap[tid]);
+
 
     // grab data out of shared struct
-    src = pmemcpy.src;
-    dst = pmemcpy.dst;
     length = pmemcpy.length;
     chunk_size = length / MAX_COPY_THREADS;
-
-    memcpy(dst + (tid * chunk_size), src + (tid * chunk_size), chunk_size);
+    src = pmemcpy.src + (tid * chunk_size);
+    dst = pmemcpy.dst + (tid * chunk_size);
+    
+    memcpy(dst, src, chunk_size);
     pmemcpy.done_bitmap[tid] = true;
   }
 }
@@ -315,7 +316,7 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
   base = uffdio_base.base;
   
   if ((flags & MAP_POPULATE) == MAP_POPULATE) {
-    hemem_mmap_populate(p, length);
+    //hemem_mmap_populate(p, length);
   }
   
   return p;
@@ -324,7 +325,7 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
 
 int hemem_munmap(void* addr, size_t length)
 {
-  return munmap(addr, length);
+  return libc_munmap(addr, length);
 }
 
 
@@ -493,12 +494,18 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_framenum)
 void hemem_wp_page(struct hemem_page *page, bool protect)
 {
   uint64_t addr = page->va;
-  struct uffdio_writeprotect wp;
+  //struct uffdio_writeprotect wp;
   int ret;
-  struct timeval start, end;
+ // struct timeval start, end;
   
+  // unmap page entirely during migration to prevent any access by process
   LOG("Write protect va: 0x%lx\n", addr);
-
+  ret = libc_munmap((void*)addr, PAGE_SIZE);
+  if (ret < 0) {
+    perror("munmap\n");
+    assert(0);
+  }
+/*
   gettimeofday(&start, NULL);
   wp.range.start = addr;
   wp.range.len = PAGE_SIZE;
@@ -510,6 +517,7 @@ void hemem_wp_page(struct hemem_page *page, bool protect)
     assert(0);
   }
   gettimeofday(&end, NULL);
+  */
   LOG_TIME("uffdio_writeprotect: %f s\n", elapsed(&start, &end));
 }
 
@@ -544,6 +552,15 @@ void handle_missing_fault(uint64_t page_boundry)
   struct hemem_page *page;
   uint64_t offset;
   bool in_dram;
+
+  // have we seen this page before?
+  page = find_page(page_boundry);
+  if (page != NULL) {
+    // if yes, must have unmapped it for migration, wait for migration to finish
+    LOG("hemem: encountered a page in the middle of migration, waiting\n");
+    handle_wp_fault(page_boundry);
+    return;
+  }
 
   gettimeofday(&missing_start, NULL);
   page = (struct hemem_page*)calloc(1, sizeof(struct hemem_page));

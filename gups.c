@@ -252,7 +252,6 @@ int main(int argc, char **argv)
   printf("Elapsed time: %.4f seconds.\n", secs);
   gups = threads * ((double)updates) / (secs * 1.0e9);
   printf("GUPS = %.10f\n", gups);
-#if 0
 #ifdef HOTSPOT
   hot_start = nelems - (uint64_t)(hotsize) - 1;
   printf("hot_start: %lu\thot_size: %lu\n", hot_start, hotsize);
@@ -282,7 +281,6 @@ int main(int argc, char **argv)
   printf("Elapsed time: %.4f seconds.\n", secs);
   gups = threads * ((double)updates) / (secs * 1.0e9);
   printf("GUPS = %.10f\n", gups);
-#endif
 #endif
   for (i = 0; i < threads; i++) {
     free(ga[i]->indices);

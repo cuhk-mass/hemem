@@ -135,6 +135,7 @@ static void expand_caches(struct lru_list *active, struct lru_list *inactive)
 }
 
 
+/*  called with global lock held via lru_pagefault function */
 static uint64_t lru_allocate_page(struct lru_node *n)
 {
   uint64_t i;
@@ -145,7 +146,6 @@ static uint64_t lru_allocate_page(struct lru_node *n)
   int tries;
 #endif
   
-  pthread_mutex_lock(&global_lock);
   /* last_dram_framenum remembers the last dram frame number
    * we allocated. This should help speed up the search
    * for a free frame because we don't iterate over frames
@@ -180,8 +180,6 @@ static uint64_t lru_allocate_page(struct lru_node *n)
         gettimeofday(&end, NULL);
         LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
         
-        pthread_mutex_unlock(&global_lock);
-      
         // return offset in devdax file -- done!
         return i * PAGE_SIZE;
       }
@@ -199,8 +197,6 @@ static uint64_t lru_allocate_page(struct lru_node *n)
         gettimeofday(&end, NULL);
         LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
         
-        pthread_mutex_unlock(&global_lock);
-
         // return offset in devdax file -- done!
         return i * PAGE_SIZE;
       }
@@ -226,8 +222,6 @@ static uint64_t lru_allocate_page(struct lru_node *n)
 
         gettimeofday(&end, NULL);
         LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
-      
-        pthread_mutex_unlock(&global_lock);
         
         return i * PAGE_SIZE;
       }
@@ -243,8 +237,6 @@ static uint64_t lru_allocate_page(struct lru_node *n)
         gettimeofday(&end, NULL);
         LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
 
-        pthread_mutex_unlock(&global_lock);
-        
         return i * PAGE_SIZE;
       }
     }
@@ -302,7 +294,6 @@ static uint64_t lru_allocate_page(struct lru_node *n)
   }
 #endif
 
-  pthread_mutex_unlock(&global_lock);
   assert(!"Out of memory");
 }
 
@@ -443,6 +434,7 @@ void lru_pagefault(struct hemem_page *page)
   struct lru_node *node;
 
   assert(page != NULL);
+  pthread_mutex_lock(&global_lock);
   pthread_mutex_lock(&(page->page_lock));
 
   // set up the lru node for the lru lists
@@ -461,6 +453,7 @@ void lru_pagefault(struct hemem_page *page)
   page->next = NULL;
   page->prev = NULL;
   pthread_mutex_unlock(&(page->page_lock));
+  pthread_mutex_unlock(&global_lock);
 }
 
 
