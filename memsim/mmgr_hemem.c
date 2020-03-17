@@ -6,6 +6,7 @@
 #include <assert.h>
 #include <inttypes.h>
 #include <string.h>
+#include <semaphore.h>
 
 #include "shared.h"
 
@@ -45,8 +46,10 @@ static struct fifo_queue mem_free[NMEMTYPES][NPAGETYPES],
   mem_active[NMEMTYPES][NPAGETYPES], mem_inactive[NMEMTYPES][NPAGETYPES];
 static pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
 static bool __thread in_background = false;
+static _Atomic bool background_wait = false;
 static _Atomic uint64_t fastmem_freebytes = FASTMEM_SIZE;
 static _Atomic uint64_t slowmem_freebytes = SLOWMEM_SIZE;
+static sem_t memmove_sem;
 
 int listnum(struct pte *pte)
 {
@@ -156,6 +159,25 @@ static struct pte *alloc_ptables(uint64_t addr, enum pagetypes ptype,
   return pte;
 }
 
+static void move_memory(enum memtypes dst, enum memtypes src, size_t size)
+{
+  size_t movetime = 0;
+  
+  if(dst == FASTMEM) {
+    assert(src == SLOWMEM);
+    movetime = TIME_FASTMOVE;
+  }
+
+  if(dst == SLOWMEM) {
+    assert(src == FASTMEM);
+    movetime = TIME_SLOWMOVE;
+  }
+
+  if(!in_background || background_wait) {
+    add_runtime(movetime);
+  }
+}
+
 static void move_hot(void)
 {
   struct page *p;
@@ -243,7 +265,7 @@ static void move_cold(void)
 	struct page *np = dequeue_fifo(&mem_free[SLOWMEM][BASE]);
 	assert(np != NULL);
 
-	// XXX: Move data in background
+	move_memory(SLOWMEM, FASTMEM, page_size(BASE));
 	slowmem_freebytes -= page_size(BASE);
 	fastmem_freebytes += page_size(BASE);
 	np->vaddr = p->vaddr + (i * BASE_PAGE_SIZE);
@@ -255,6 +277,11 @@ static void move_cold(void)
       // Fastmem page is now free
       enqueue_fifo(&mem_free[FASTMEM][pt], p);
     }
+  }
+
+  // Wakeup application thread if waiting
+  if(background_wait) {
+    sem_post(&memmove_sem);
   }
 }
 
@@ -397,7 +424,12 @@ static struct page *getmem(uint64_t addr)
 
 void pagefault(uint64_t addr, bool readonly)
 {
-  assert(!readonly);
+  if(readonly) {
+    background_wait = true;
+    sem_wait(&memmove_sem);
+    return;
+  }
+  
   getmem(addr);
 }
 
@@ -405,6 +437,9 @@ void mmgr_init(void)
 {
   cr3 = pml4;
 
+  int r = sem_init(&memmove_sem, 0, 0);
+  assert(r == 0);
+  
   // Fastmem: all giga pages in the beginning
   for(int i = 0; i < FASTMEM_GIGA_PAGES; i++) {
     struct page *p = calloc(1, sizeof(struct page));
@@ -420,6 +455,6 @@ void mmgr_init(void)
   }
   
   pthread_t thread;
-  int r = pthread_create(&thread, NULL, hemem_thread, NULL);
+  r = pthread_create(&thread, NULL, hemem_thread, NULL);
   assert(r == 0);
 }

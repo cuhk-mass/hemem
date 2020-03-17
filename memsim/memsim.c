@@ -248,6 +248,7 @@ static void memaccess(uint64_t addr, enum access_type type)
 	add_runtime(TIME_PAGEFAULT);
 	pagefaults++;
 	assert(pte->present);
+	assert(!pte->readonly || type != TYPE_WRITE);
       }
 
       pte->accessed = true;
