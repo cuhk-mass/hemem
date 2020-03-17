@@ -43,6 +43,7 @@ pthread_t copy_threads[MAX_COPY_THREADS];
 
 void *dram_devdax_mmap;
 void *nvm_devdax_mmap;
+uint64_t pmemcpys = 0;
 
 struct pmemcpy {
   _Atomic bool activate;
@@ -69,6 +70,9 @@ void *hemem_parallel_memcpy_thread(void *arg)
     // wait for copy command
     while (!pmemcpy.activate && pmemcpy.done_bitmap[tid]);
 
+    if (tid == 0) {
+      pmemcpys++;
+    }
 
     // grab data out of shared struct
     length = pmemcpy.length;
@@ -417,7 +421,7 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_framenum)
   page->devdax_offset = dram_framenum * PAGE_SIZE;
   page->in_dram = true;
 
-  hemem_clear_accessed_bit(page->va);
+  hemem_tlb_shootdown(page->va);
 
   gettimeofday(&migrate_end, NULL);  
   LOG_TIME("hemem_migrate_up: %f s\n", elapsed(&migrate_start, &migrate_end));
@@ -485,8 +489,8 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_framenum)
   page->devdax_offset = nvm_framenum * PAGE_SIZE;
   page->in_dram = false;
 
-  hemem_clear_accessed_bit(page->va);
-  
+  hemem_tlb_shootdown(page->va);
+
   gettimeofday(&migrate_end, NULL);  
   LOG_TIME("hemem_migrate_down: %f s\n", elapsed(&migrate_start, &migrate_end));
 }
@@ -494,10 +498,10 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_framenum)
 void hemem_wp_page(struct hemem_page *page, bool protect)
 {
   uint64_t addr = page->va;
-  //struct uffdio_writeprotect wp;
+  struct uffdio_writeprotect wp;
   int ret;
- // struct timeval start, end;
-  
+  struct timeval start, end;
+/*
   // unmap page entirely during migration to prevent any access by process
   LOG("Write protect va: 0x%lx\n", addr);
   ret = libc_munmap((void*)addr, PAGE_SIZE);
@@ -505,7 +509,8 @@ void hemem_wp_page(struct hemem_page *page, bool protect)
     perror("munmap\n");
     assert(0);
   }
-/*
+  */
+
   gettimeofday(&start, NULL);
   wp.range.start = addr;
   wp.range.len = PAGE_SIZE;
@@ -517,7 +522,9 @@ void hemem_wp_page(struct hemem_page *page, bool protect)
     assert(0);
   }
   gettimeofday(&end, NULL);
-  */
+
+  hemem_tlb_shootdown(page->va);
+ 
   LOG_TIME("uffdio_writeprotect: %f s\n", elapsed(&start, &end));
 }
 
@@ -532,7 +539,7 @@ void handle_wp_fault(uint64_t page_boundry)
   page = find_page(page_boundry);
   assert(page != NULL);
 
-  LOG("hemem: handle_wp_fault: waiting for migration\n");
+  LOG("hemem: handle_wp_fault: waiting for migration for page %lx\n", page_boundry);
 
   pthread_mutex_lock(&(page->page_lock));
 
@@ -790,7 +797,7 @@ int hemem_get_accessed_bit(uint64_t va)
 
 void hemem_print_stats()
 {
-  printf("missing_faults_handled: [%ld]\tmigrations_up: [%ld]\tmigrations_down: [%ld]\n", missing_faults_handled, migrations_up, migrations_down);
+  printf("missing_faults_handled: [%ld]\tmigrations_up: [%ld]\tmigrations_down: [%ld]\tpmemcpys: [%ld]\n", missing_faults_handled, migrations_up, migrations_down, pmemcpys);
 }
 
 
@@ -799,4 +806,5 @@ void hemem_clear_stats()
   missing_faults_handled = 0;
   migrations_up = 0;
   migrations_down = 0;
+  pmemcpys = 0;
 }

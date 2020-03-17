@@ -27,7 +27,7 @@ static bool nvm_bitmap[SLOWMEM_PAGES];
 static void lru_migrate_down(struct lru_node *n, uint64_t i)
 {
   pthread_mutex_lock(&(n->page->page_lock));
-  LOG("hemem: lru_migrate_down: migrating to NVM frame %lu\n", i);
+  LOG("hemem: lru_migrate_down: migrating %lx to NVM frame %lu\n", n->page->va, i);
   n->page->migrating = true;
   hemem_wp_page(n->page, true);
   hemem_migrate_down(n->page, i);
@@ -40,7 +40,7 @@ static void lru_migrate_down(struct lru_node *n, uint64_t i)
 static void lru_migrate_up(struct lru_node *n, uint64_t i)
 {
   pthread_mutex_lock(&(n->page->page_lock));
-  LOG("hemem: lru_migrate_up: migrating to DRAM frame %lu\n", i);
+  LOG("hemem: lru_migrate_up: migrating %lx to DRAM frame %lu\n", n->page->va, i);
   n->page->migrating = true;
   hemem_wp_page(n->page, true);
   hemem_migrate_up(n->page, i);
@@ -333,8 +333,8 @@ void *lru_kswapd()
             dram_bitmap[i] = true;
             nvm_bitmap[n->framenum] = false;
             
-            LOG("cold %lu -> hot %lu\t slowmem.active: %lu, slowmem.inactive: %lu\t hotmem.active: %lu, hotmem.inactive: %lu\n",
-                n->framenum, i, nvm_active_list.numentries, nvm_inactive_list.numentries, active_list.numentries, inactive_list.numentries);
+            LOG("%lx: cold %lu -> hot %lu\t slowmem.active: %lu, slowmem.inactive: %lu\t hotmem.active: %lu, hotmem.inactive: %lu\n",
+                n->page->va, n->framenum, i, nvm_active_list.numentries, nvm_inactive_list.numentries, active_list.numentries, inactive_list.numentries);
 
             lru_migrate_up(n, i);
 
@@ -352,8 +352,8 @@ void *lru_kswapd()
               dram_bitmap[i] = true;
               nvm_bitmap[n->framenum] = false;
             
-              LOG("cold %lu -> hot %lu\t slowmem.active: %lu, slowmem.inactive: %lu\t hotmem.active: %lu, hotmem.inactive: %lu\n", 
-                  n->framenum, i, nvm_active_list.numentries, nvm_inactive_list.numentries, active_list.numentries, inactive_list.numentries);
+              LOG("%lx: cold %lu -> hot %lu\t slowmem.active: %lu, slowmem.inactive: %lu\t hotmem.active: %lu, hotmem.inactive: %lu\n", 
+                  n->page->va, n->framenum, i, nvm_active_list.numentries, nvm_inactive_list.numentries, active_list.numentries, inactive_list.numentries);
 
               lru_migrate_up(n, i);
 
@@ -387,8 +387,8 @@ void *lru_kswapd()
             nvm_bitmap[i] = true;
             dram_bitmap[cn->framenum] = false;
 
-            LOG("hot %lu -> cold %lu\t slowmem.active: %lu, slowmem.inactive: %lu\t hotmem.active: %lu, hotmem.inactive: %lu\n",
-                  cn->framenum, i, nvm_active_list.numentries, nvm_inactive_list.numentries, active_list.numentries, inactive_list.numentries);
+            LOG("%lx: hot %lu -> cold %lu\t slowmem.active: %lu, slowmem.inactive: %lu\t hotmem.active: %lu, hotmem.inactive: %lu\n",
+                  cn->page->va, cn->framenum, i, nvm_active_list.numentries, nvm_inactive_list.numentries, active_list.numentries, inactive_list.numentries);
 
             lru_migrate_down(cn, i);
 
@@ -405,8 +405,8 @@ void *lru_kswapd()
               nvm_bitmap[i] = true;
               dram_bitmap[cn->framenum] = false;
 
-              LOG("hot %lu -> cold %lu\t slowmem.active: %lu, slowmem.inactive: %lu\t hotmem.active: %lu, hotmem.inactive: %lu\n",
-                  cn->framenum, i, nvm_active_list.numentries, nvm_inactive_list.numentries, active_list.numentries, inactive_list.numentries);
+              LOG("%lx: hot %lu -> cold %lu\t slowmem.active: %lu, slowmem.inactive: %lu\t hotmem.active: %lu, hotmem.inactive: %lu\n",
+                  cn->page->va, cn->framenum, i, nvm_active_list.numentries, nvm_inactive_list.numentries, active_list.numentries, inactive_list.numentries);
               
               lru_migrate_down(cn, i);
 

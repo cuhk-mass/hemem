@@ -37,8 +37,9 @@ extern "C" {
 #define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
 
 FILE *hememlogf;
+#define LOG(...) printf(__VA_ARGS__)
 //#define LOG(...)	fprintf(hememlogf, __VA_ARGS__)
-#define LOG(str, ...) while(0) {}
+//#define LOG(str, ...) while(0) {}
 
 
 FILE *timef;
@@ -92,6 +93,7 @@ void hemem_wp_page(struct hemem_page *page, bool protect);
 uint64_t hemem_va_to_pa(uint64_t va);
 void hemem_clear_accessed_bit(uint64_t va);
 int hemem_get_accessed_bit(uint64_t va);
+void hemem_tlb_shootdown(uint64_t va);
 
 void hemem_print_stats();
 void hemem_clear_stats();

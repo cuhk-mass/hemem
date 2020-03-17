@@ -1,13 +1,16 @@
 CC = gcc
-CFLAGS = -g -Wall -O2 -fPIC
-#CFLAGS = -g3 -Wall -fPIC
+#CFLAGS = -g -Wall -O2 -fPIC
+CFLAGS = -g3 -Wall -fPIC
 LDFLAGS = -shared
 INCLUDES = -I/root/hmem/linux/usr/include
 LIBS = -lm -lpthread -ldl
 
 default: all
 
-all: gups-simple gups-lru gups-lru-swap
+all: gups-simple gups-lru gups-lru-swap test
+
+test: test.o libhemem-lru.so
+	$(CC) $(CFLAGS) $(INCLUDES) -o test test.o $(LIBS) -L. -lhemem-lru
 
 gups-lru: gups.o libhemem-lru.so
 	$(CC) $(CFLAGS) $(INCLUDES) -o gups-lru gups.o zipf.o $(LIBS) -L. -lhemem-lru
@@ -56,6 +59,9 @@ simple.o: simple.c simple.h hemem.h
 
 lru_swap.o: lru.c lru.h hemem.h
 	$(CC) $(CFLAGS) $(INCLUDES) -D LRU_SWAP -c lru.c -o lru_swap.o
+
+test.o: test.c timer.h hemem.h
+	$(CC) $(CFLAGS) $(INCLUDES) -c test.c
 
 clean:
 	$(RM) *.o *.so gups-lru gups-simple gups-lru-swap
