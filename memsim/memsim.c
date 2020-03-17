@@ -18,7 +18,8 @@
 #include "shared.h"
 
 struct pte		*cr3 = NULL;
-_Atomic size_t		runtime = 0;		// Elapsed simulation time (ns)
+_Atomic size_t		runtime = 0;	   // Elapsed simulation time (ns)
+static size_t		last_time = 0;
 static const char	*progname = NULL;
 
 // Hardware 2-level TLB emulating Cascade Lake
@@ -353,7 +354,7 @@ static void reset_stats(void)
 {
   LOG("%zu --- reset_stats ---\n", runtime);
 
-  runtime = 0;
+  last_time = runtime;
   accesses[FASTMEM] = accesses[SLOWMEM] = 0;
   tlbmisses = tlbhits = tlbshootdowns = 0;
   pagefaults = 0;
@@ -366,11 +367,11 @@ static void print_stats(void)
 {
 #ifdef MMM
   printf("%s\t%.2f\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\n", progname,
-	 (double)runtime / 1000000.0, accesses[FASTMEM], accesses[SLOWMEM],
+	 (double)(runtime - last_time) / 1000000.0, accesses[FASTMEM], accesses[SLOWMEM],
 	 tlbmisses, tlbhits, tlbshootdowns, pagefaults, mmm_misses);
 #else
   printf("%s\t%.2f\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\n", progname,
-	 (double)runtime / 1000000.0, accesses[FASTMEM], accesses[SLOWMEM],
+	 (double)(runtime - last_time) / 1000000.0, accesses[FASTMEM], accesses[SLOWMEM],
 	 tlbmisses, tlbhits, tlbshootdowns, pagefaults);
 #endif
 }

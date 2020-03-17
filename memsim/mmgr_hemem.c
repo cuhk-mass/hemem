@@ -10,7 +10,7 @@
 
 #include "shared.h"
 
-#define HEMEM_INTERVAL		100000	// In ns
+#define HEMEM_INTERVAL		1000000000ULL	// In ns
 
 // Keep at least 10% of fastmem free
 #define HEMEM_FASTFREE		(FASTMEM_SIZE / 10)
@@ -225,7 +225,7 @@ static void move_cold(void)
   size_t transition_bytes = 0;
 
   memset(transition, 0, NPAGETYPES * sizeof(struct fifo_queue));
-  
+
   // Identify pages for movement and mark read-only
   for(enum pagetypes pt = GIGA; pt < NPAGETYPES; pt++) {
     struct page *p;
@@ -254,6 +254,9 @@ static void move_cold(void)
     while((p = dequeue_fifo(&transition[pt])) != NULL) {
       size_t times = 1;
 
+      /* fprintf(stderr, "moving vaddr = 0x%" PRIx64 ", paddr = 0x%" PRIx64 ", pt = %u\n", */
+      /* 	      p->vaddr, p->paddr, pt); */
+      
       switch(pt) {
       case BASE: times = 1; break;
       case HUGE: times = 512; break;
@@ -274,6 +277,8 @@ static void move_cold(void)
 	enqueue_fifo(&mem_inactive[SLOWMEM][BASE], np);
       }
 
+      // Release read-only lock
+      p->pte->readonly = false;
       // Fastmem page is now free
       enqueue_fifo(&mem_free[FASTMEM][pt], p);
     }
@@ -394,9 +399,32 @@ static struct page *getmem(uint64_t addr)
   enum pagetypes pt;
 
   pthread_mutex_lock(&global_lock);
-
+  
+  struct pte *pte = &pml4[(addr >> (48 - 9)) & 511], *ptable = NULL;
+  if(pte->present) {
+    assert(!pte->pagemap && pte->next != NULL);
+    ptable = pte->next;
+  }
+  
   // Allocate from fastmem first, iterate over page types
   for(pt = GIGA; pt < NPAGETYPES; pt++) {
+    // Check that we're not fragmented at this page size
+    if(ptable != NULL) {
+      int level = pt + 2;
+      assert(level >= 2 && level <= 4);
+      pte = &ptable[(addr >> (48 - (level * 9))) & 511];
+
+      if(pte->present) {
+	assert(!pte->pagemap && pte->next != NULL);
+	// Fragmented at this level. Continue one level down.
+	ptable = pte->next;
+	continue;
+      } else {
+	// Page not present -> unfragmented at this level. Stop checking.
+	ptable = NULL;
+      }
+    }
+    
     p = dequeue_fifo(&mem_free[FASTMEM][pt]);
     if(p != NULL) {
       enqueue_fifo(&mem_active[FASTMEM][pt], p);
