@@ -19,7 +19,7 @@ extern "C" {
 #include "timer.h"
 #include "interpose.h"
 
-#define MEM_BARRIER() __asm__ volatile("" ::: "memory")
+#define MEM_BARRIER() __sync_synchronize()
 
 #define NVMSIZE   (2750L * (1024L * 1024L * 1024L))
 #define DRAMSIZE  (16L * (1024L * 1024L * 1024L))
@@ -29,8 +29,8 @@ extern "C" {
 
 //#define PAGE_SIZE (1024 * 1024 * 1024)
 //#define PAGE_SIZE (2 * (1024 * 1024))
-#define BASEPAGE_SIZE	  (4L * 1024L)
-#define HUGEPAGE_SIZE 	(2L * 1024L * 1024L)
+#define BASEPAGE_SIZE	  (4UL * 1024UL)
+#define HUGEPAGE_SIZE 	(2UL * 1024UL * 1024UL)
 #define PAGE_SIZE 	    HUGEPAGE_SIZE
 
 #define FASTMEM_PAGES   ((DRAMSIZE) / (PAGE_SIZE))
@@ -62,9 +62,9 @@ FILE *timef;
 
 extern uint64_t base;
 extern int devmemfd;
-extern uint64_t missing_faults_handled;
-extern uint64_t migrations_up;
-extern uint64_t migrations_down;
+extern _Atomic uint64_t missing_faults_handled;
+extern _Atomic uint64_t migrations_up;
+extern _Atomic uint64_t migrations_down;
 
 struct hemem_page {
   uint64_t va;

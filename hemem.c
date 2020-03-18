@@ -29,13 +29,14 @@ int dramfd = -1;
 int nvmfd = -1;
 long uffd = -1;
 static bool init = false;
-uint64_t mem_allocated = 0;
-uint64_t fastmem_allocated = 0;
-uint64_t slowmem_allocated = 0;
-uint64_t wp_faults_handled = 0;
-uint64_t missing_faults_handled = 0;
-uint64_t migrations_up = 0;
-uint64_t migrations_down = 0;
+_Atomic uint64_t mem_allocated = 0;
+_Atomic uint64_t fastmem_allocated = 0;
+_Atomic uint64_t slowmem_allocated = 0;
+_Atomic uint64_t wp_faults_handled = 0;
+_Atomic uint64_t missing_faults_handled = 0;
+_Atomic uint64_t migrations_up = 0;
+_Atomic uint64_t migrations_down = 0;
+_Atomic uint64_t pmemcpys = 0;
 uint64_t base = 0;
 int devmemfd = -1;
 struct page_list list;
@@ -43,13 +44,12 @@ pthread_t copy_threads[MAX_COPY_THREADS];
 
 void *dram_devdax_mmap;
 void *nvm_devdax_mmap;
-uint64_t pmemcpys = 0;
 
 struct pmemcpy {
   _Atomic bool activate;
   _Atomic bool done_bitmap[MAX_COPY_THREADS];
-  _Atomic void *src;
   _Atomic void *dst;
+  _Atomic void *src;
   _Atomic size_t length;
 };
 
@@ -68,7 +68,7 @@ void *hemem_parallel_memcpy_thread(void *arg)
 
   for(;;) {
     // wait for copy command
-    while (!pmemcpy.activate && pmemcpy.done_bitmap[tid]);
+    while (!pmemcpy.activate || pmemcpy.done_bitmap[tid]);
 
     if (tid == 0) {
       pmemcpys++;
@@ -190,7 +190,7 @@ void hemem_init()
 
   pmemcpy.activate = false;
   for (i = 0; i < MAX_COPY_THREADS; i++) {
-    pmemcpy.done_bitmap[i] = true;
+    pmemcpy.done_bitmap[i] = false;
   }
 
   for (i = 0; i < MAX_COPY_THREADS; i++) {
@@ -320,7 +320,7 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
   base = uffdio_base.base;
   
   if ((flags & MAP_POPULATE) == MAP_POPULATE) {
-    //hemem_mmap_populate(p, length);
+    hemem_mmap_populate(p, length);
   }
   
   return p;
@@ -335,7 +335,7 @@ int hemem_munmap(void* addr, size_t length)
 
 static void hemem_parallel_memcpy(void *dst, void *src, size_t length)
 {
-  bool threads_done = false;
+  bool threads_done;
   int i;
 
   pmemcpy.dst = dst;
@@ -544,6 +544,8 @@ void handle_wp_fault(uint64_t page_boundry)
   pthread_mutex_lock(&(page->page_lock));
 
   assert(!page->migrating);
+
+  hemem_tlb_shootdown(page->va);
 
   pthread_mutex_unlock(&(page->page_lock));
 }

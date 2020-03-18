@@ -48,6 +48,7 @@ int main(int argc, char **argv)
   uint64_t *region;
   uint64_t nelems;
   struct timeval start, end;
+  uint64_t startval = 13;
 
   p = mmap(NULL, SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
   if (p == MAP_FAILED) {
@@ -57,13 +58,14 @@ int main(int argc, char **argv)
 
   region = (uint64_t*)p;
   nelems = (SIZE / sizeof(uint64_t));
+  printf("there are %lu elements\n", nelems);
 
   gettimeofday(&start, NULL);
   for (i = 0; i < nelems; i++) {
-    region[i] = 1;
-    if (region[i] != 1) {
-      printf("set 1 loop: {%p} : region[%lu]: %lu != 1\n", &region[i], i, region[i]);
-      assert(region[i] == 1);
+    region[i] = startval;
+    if (region[i] != startval) {
+      printf("set %lu loop: {%lx} : region[%lu]: %lu != %lu\n", startval, ((uint64_t)(&region[i]) & ~(PAGE_SIZE - 1)), i, region[i], startval);
+      assert(region[i] == startval);
     }
   }
   gettimeofday(&end, NULL);
@@ -71,9 +73,9 @@ int main(int argc, char **argv)
   hemem_print_stats();
 
   for (i = 0; i < nelems; i++) {
-    if (region[i] != 1) {
-      printf("check 1 loop: {%p} : region[%lu]: %lu != 1\n", &region[i], i, region[i]);
-      assert(region[i] == 1);
+    if (region[i] != startval) {
+      printf("check %lu loop: {%lx} : region[%lu]: %lu != %lu\n", startval, ((uint64_t)(&region[i]) & ~(PAGE_SIZE - 1)), i, region[i], startval);
+      assert(region[i] == startval);
     }
   }
   hemem_print_stats();
@@ -81,9 +83,9 @@ int main(int argc, char **argv)
   gettimeofday(&start, NULL);
   for (i = 0; i < nelems; i++) {
     region[i] = region[i] + 2;
-    if (region[i] != 3) {
-      printf("set 3 loop: {%p} : region[%lu]: %lu != 3\n", &region[i], i, region[i]);
-      assert(region[i] == 3);
+    if (region[i] != startval + 2) {
+      printf("set %lu loop: {%lx} : region[%lu]: %lu != %lu\n", startval + 2, ((uint64_t)(&region[i]) & ~(PAGE_SIZE - 1)), i, region[i], startval + 2);
+      assert(region[i] == startval + 2);
     }
   }
   gettimeofday(&end, NULL);
@@ -91,9 +93,9 @@ int main(int argc, char **argv)
   hemem_print_stats();
 
   for (i = 0; i < nelems; i++) {
-    if (region[i] != 3) {
-      printf("check 3 loop: {%p} : region[%lu]: %lu != 3\n", &region[i], i, region[i]);
-      assert(region[i] == 3);
+    if (region[i] != startval + 2) {
+      printf("check %lu loop: {%lx} : region[%lu]: %lu != %lu\n", startval + 2, ((uint64_t)(&region[i]) & ~(PAGE_SIZE - 1)), i, region[i], startval + 2);
+      assert(region[i] == startval + 2);
     }
   }
   hemem_print_stats();
