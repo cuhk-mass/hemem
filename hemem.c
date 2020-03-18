@@ -243,6 +243,8 @@ static void hemem_mmap_populate(void* addr, size_t length)
       printf("hemem: mmap populate: warning, newptr != page boundry\n");
     }
 
+    memset(newptr, 0, PAGE_SIZE);
+
     // re-register new mmap region with userfaultfd
     struct uffdio_register uffdio_register;
     uffdio_register.range.start = (uint64_t)newptr;
@@ -602,6 +604,8 @@ void handle_missing_fault(uint64_t page_boundry)
   if (newptr != (void*)page_boundry) {
     printf("hemem: handle missing fault: warning, newptr != page boundry\n");
   }
+
+  memset(newptr, 0, PAGE_SIZE);
 
   gettimeofday(&start, NULL);
   // re-register new mmap region with userfaultfd
