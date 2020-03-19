@@ -13,6 +13,13 @@ extern "C" {
 #include <stdio.h>
 #include <stdlib.h>
 
+#ifndef __cplusplus
+#include <stdatomic.h>
+#else
+#include <atomic>
+#define _Atomic(X) std::atomic< X >
+#endif
+
 #include "paging.h"
 #include "lru.h"
 #include "simple.h"
@@ -24,12 +31,12 @@ extern "C" {
 #define NVMSIZE   (2750L * (1024L * 1024L * 1024L))
 #define DRAMSIZE  (16L * (1024L * 1024L * 1024L))
 
-#define DRAMPATH "/dev/dax0.0"
-#define NVMPATH "/dev/dax1.0"
+#define DRAMPATH  "/dev/dax0.0"
+#define NVMPATH   "/dev/dax1.0"
 
 //#define PAGE_SIZE (1024 * 1024 * 1024)
 //#define PAGE_SIZE (2 * (1024 * 1024))
-#define BASEPAGE_SIZE	  (4UL * 1024UL)
+#define BASEPAGE_SIZE	  (2UL * 1024UL)
 #define HUGEPAGE_SIZE 	(2UL * 1024UL * 1024UL)
 #define PAGE_SIZE 	    HUGEPAGE_SIZE
 
@@ -62,9 +69,9 @@ FILE *timef;
 
 extern uint64_t base;
 extern int devmemfd;
-extern _Atomic uint64_t missing_faults_handled;
-extern _Atomic uint64_t migrations_up;
-extern _Atomic uint64_t migrations_down;
+extern _Atomic(uint64_t) missing_faults_handled;
+extern _Atomic(uint64_t) migrations_up;
+extern _Atomic(uint64_t) migrations_down;
 
 struct hemem_page {
   uint64_t va;

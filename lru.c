@@ -19,8 +19,6 @@ static struct lru_list nvm_active_list;
 static struct lru_list nvm_inactive_list;
 static pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
 static bool __thread in_kswapd = false;
-static uint64_t last_dram_framenum = 0;
-static uint64_t last_nvm_framenum = 0;
 static bool dram_bitmap[FASTMEM_PAGES];
 static bool nvm_bitmap[SLOWMEM_PAGES];
 
@@ -142,58 +140,21 @@ static uint64_t lru_allocate_page(struct lru_node *n)
   struct timeval start, end;
 #ifdef LRU_SWAP
   struct lru_node *cn;
-  bool found = false;
   int tries;
 #endif
   
-  /* last_dram_framenum remembers the last dram frame number
-   * we allocated. This should help speed up the search
-   * for a free frame because we don't iterate over frames
-   * that were already allocated and are probably still in
-   * use. If last_dram_framenum is equal to the number of
-   * dram pages, we wrap back around to 0. We iterate through
-   * the fastmem bitmap in two passes. The first pass starts
-   * at last_dram_framenum and goes to the end of the array
-   * to skip over probably already allocated and still in
-   * use pages. The second pass goes back to the start of the
-   * bitmap and scans up until last_dram_framenum to use any
-   * pages that have been freed in that range before resorting
-   * to slow memory
-   */
   gettimeofday(&start, NULL);
 #ifdef LRU_SWAP
   for (tries = 0; tries < 2; tries++) {
-    found = false;
 #endif
-    if (last_dram_framenum >= FASTMEM_PAGES) {
-      last_dram_framenum = 0;
-    }
     // last_dram_framenum -> end of dram pages bitmap
-    for (i = last_dram_framenum; i < FASTMEM_PAGES; i++) {
+    for (i = 0; i < FASTMEM_PAGES; i++) {
       if (dram_bitmap[i] == false) {
         dram_bitmap[i] = true;
         n->framenum = i;
         lru_list_add(&active_list, n);
         n->page->in_dram = true;
-        last_dram_framenum = i;
 
-        gettimeofday(&end, NULL);
-        LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
-        
-        // return offset in devdax file -- done!
-        return i * PAGE_SIZE;
-      }
-    }
-
-    // start of dram pages bitmap -> last_dram_framenum
-    for (i = 0; i < last_dram_framenum; i++) {
-      if (dram_bitmap[i] == false) {
-        dram_bitmap[i] = true;
-        n->framenum = i;
-        lru_list_add(&active_list, n);
-        n->page->in_dram = true;
-        last_dram_framenum = i;
-      
         gettimeofday(&end, NULL);
         LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
         
@@ -203,40 +164,17 @@ static uint64_t lru_allocate_page(struct lru_node *n)
     }
 #ifndef LRU_SWAP
     // DRAM is full, fall back to NVM
-
-    /* last_nvm_framenum behaves the same way as last_dram_framenum
-     * (see above)
-     */
-    if (last_nvm_framenum >= SLOWMEM_PAGES) {
-      last_nvm_framenum = 0;
-    }
-
-    for (i = last_nvm_framenum; i < SLOWMEM_PAGES; i++) {
+    for (i = 0; i < SLOWMEM_PAGES; i++) {
       if (nvm_bitmap[i] == false) {
         // found a free slowmem page, grab it
         nvm_bitmap[i] = true;
         n->framenum = i;
         lru_list_add(&nvm_active_list, n);
         n->page->in_dram = false;
-        last_nvm_framenum = i;
 
         gettimeofday(&end, NULL);
         LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
         
-        return i * PAGE_SIZE;
-      }
-    }
-    for (i = 0; i < last_nvm_framenum; i++) {
-      if (nvm_bitmap[i] == false) {
-        nvm_bitmap[i] = true;
-        n->framenum = i;
-        lru_list_add(&nvm_active_list, n);
-        n->page->in_dram = false;
-        last_nvm_framenum = i;
-      
-        gettimeofday(&end, NULL);
-        LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
-
         return i * PAGE_SIZE;
       }
     }
@@ -250,15 +188,8 @@ static uint64_t lru_allocate_page(struct lru_node *n)
     // move a cold page from dram to nvm
     cn = lru_list_remove(&inactive_list);
     assert(cn != NULL);
-
-    /* last_nvm_framenum behaves the same way as last_dram_framenum
-     * (see above)
-     */
-    if (last_nvm_framenum >= SLOWMEM_PAGES) {
-      last_nvm_framenum = 0;
-    }
-
-    for (i = last_nvm_framenum; i < SLOWMEM_PAGES; i++) {
+    
+    for (i = 0; i < SLOWMEM_PAGES; i++) {
       if (nvm_bitmap[i] == false) {
         LOG("Out of hot memory -> move hot frame %lu to cold frame %lu\n", cn->framenum, i);
         LOG("\tmoving va: 0x%lx\n", cn->page->va);
@@ -267,26 +198,9 @@ static uint64_t lru_allocate_page(struct lru_node *n)
         nvm_bitmap[i] = true;
         dram_bitmap[cn->framenum] = false;
         lru_migrate_down(cn, i);
-        last_nvm_framenum = i;
 
         lru_list_add(&nvm_inactive_list, cn);
-        found = true;
         break;
-      }
-    }
-    if (!found) {
-      for (i = 0; i < last_nvm_framenum; i++) {
-        if (nvm_bitmap[i] == false) {
-          LOG("Out of hot memory -> move hot frame %lu to cold frame %lu\n", cn->framenum, i);
-          LOG("\tmoving va: 0x%lx\n", cn->page->va);
-          nvm_bitmap[i] = true;
-          dram_bitmap[cn->framenum] = false;
-          lru_migrate_down(cn, i);
-          last_nvm_framenum = i;
-
-          lru_list_add(&nvm_inactive_list, cn);
-          break;
-        }
       }
     }
 #endif
@@ -305,7 +219,6 @@ void *lru_kswapd()
   uint64_t i;
   struct lru_node *n;
   struct lru_node *cn;
-  bool found;
 
   in_kswapd = true;
 
@@ -323,12 +236,7 @@ void *lru_kswapd()
       moved = false;
 
       for (tries = 0; tries < 2 && !moved; tries++) {
-        if (last_dram_framenum >= FASTMEM_PAGES) {
-          last_dram_framenum = 0;
-        }
-
-        found = false;
-        for (i = last_dram_framenum; i < FASTMEM_PAGES; i++) {
+        for (i = 0; i < FASTMEM_PAGES; i++) {
           if (dram_bitmap[i] == false) {
             dram_bitmap[i] = true;
             nvm_bitmap[n->framenum] = false;
@@ -340,29 +248,8 @@ void *lru_kswapd()
 
             lru_list_add(&active_list, n);
 
-            found = true;
             moved = true;
-            last_dram_framenum = i;
             break;
-          }
-        }
-        if (!found) {
-          for (i = 0; i < last_dram_framenum; i++) {
-            if (dram_bitmap[i] == false) {
-              dram_bitmap[i] = true;
-              nvm_bitmap[n->framenum] = false;
-            
-              LOG("%lx: cold %lu -> hot %lu\t slowmem.active: %lu, slowmem.inactive: %lu\t hotmem.active: %lu, hotmem.inactive: %lu\n", 
-                  n->page->va, n->framenum, i, nvm_active_list.numentries, nvm_inactive_list.numentries, active_list.numentries, inactive_list.numentries);
-
-              lru_migrate_up(n, i);
-
-              lru_list_add(&active_list, n);
-
-              moved = true;
-              last_dram_framenum = i;
-              break;
-            }
           }
         }
 
@@ -377,12 +264,7 @@ void *lru_kswapd()
           goto out;
         }
 
-        if (last_nvm_framenum >= SLOWMEM_PAGES) {
-          last_nvm_framenum = 0;
-        }
-
-        found = false;
-        for (i = last_nvm_framenum; i < SLOWMEM_PAGES; i++) {
+        for (i = 0; i < SLOWMEM_PAGES; i++) {
           if (nvm_bitmap[i] == false) {
             nvm_bitmap[i] = true;
             dram_bitmap[cn->framenum] = false;
@@ -393,28 +275,7 @@ void *lru_kswapd()
             lru_migrate_down(cn, i);
 
             lru_list_add(&nvm_inactive_list, cn);
-            found = true;
-            last_nvm_framenum = i;
-            
             break;
-          }
-        }
-        if (!found) {
-          for (i = 0; i < last_nvm_framenum; i++) {
-            if (nvm_bitmap[i] == false) {
-              nvm_bitmap[i] = true;
-              dram_bitmap[cn->framenum] = false;
-
-              LOG("%lx: hot %lu -> cold %lu\t slowmem.active: %lu, slowmem.inactive: %lu\t hotmem.active: %lu, hotmem.inactive: %lu\n",
-                  cn->page->va, cn->framenum, i, nvm_active_list.numentries, nvm_inactive_list.numentries, active_list.numentries, inactive_list.numentries);
-              
-              lru_migrate_down(cn, i);
-
-              lru_list_add(&nvm_inactive_list, cn);
-              last_nvm_framenum = i;
-
-              break;
-            }
           }
         }
       }
