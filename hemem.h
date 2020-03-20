@@ -44,9 +44,9 @@ extern "C" {
 #define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
 
 FILE *hememlogf;
-#define LOG(...) printf(__VA_ARGS__)
+//#define LOG(...) printf(__VA_ARGS__)
 //#define LOG(...)	fprintf(hememlogf, __VA_ARGS__)
-//#define LOG(str, ...) while(0) {}
+#define LOG(str, ...) while(0) {}
 
 
 FILE *timef;
@@ -63,7 +63,7 @@ FILE *timef;
 
 
 #define MAX_UFFD_MSGS	    (1)
-#define MAX_COPY_THREADS  (1)
+#define MAX_COPY_THREADS  (2)
 
 #define KSWAPD_INTERVAL   (1000000)
 

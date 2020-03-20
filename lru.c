@@ -322,6 +322,15 @@ void lru_init(void)
 {
   pthread_t kswapd_thread;
   int r;
+  uint64_t i;
+
+  for (i = 0; i < FASTMEM_PAGES; i++) {
+    dram_bitmap[i] = false;
+  }
+
+  for (i = 0; i < SLOWMEM_PAGES; i++) {
+    nvm_bitmap[i] = false;
+  }
 
   r = pthread_create(&kswapd_thread, NULL, lru_kswapd, NULL);
   assert(r == 0);

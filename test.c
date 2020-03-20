@@ -39,7 +39,7 @@
 #define MB(x)     (KB(x) * 1024)
 #define GB(x)     (MB(x) * 1024)
 
-#define SIZE      (GB(32))
+#define SIZE      (GB(4))
 
 int main(int argc, char **argv)
 {
@@ -48,7 +48,7 @@ int main(int argc, char **argv)
   uint64_t *region;
   uint64_t nelems;
   struct timeval start, end;
-  uint64_t startval = 7;
+  uint64_t startval = 17;
 
   p = mmap(NULL, SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
   if (p == MAP_FAILED) {

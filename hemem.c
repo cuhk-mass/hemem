@@ -47,8 +47,6 @@ void *dram_devdax_mmap;
 void *nvm_devdax_mmap;
 
 struct pmemcpy {
-  _Atomic bool activate;
-  _Atomic bool done_bitmap[MAX_COPY_THREADS];
   _Atomic void *dst;
   _Atomic void *src;
   _Atomic size_t length;
@@ -64,29 +62,34 @@ void *hemem_parallel_memcpy_thread(void *arg)
   void *dst;
   size_t length;
   size_t chunk_size;
+  uint64_t *tmp1, *tmp2;
+  uint64_t i;
 
   assert(tid < MAX_COPY_THREADS);
 
-  for(;;) {
-    // wait for copy command
-    while (!pmemcpy.activate || pmemcpy.done_bitmap[tid]) {
-      MEM_BARRIER();
-    }
-
-    if (tid == 0) {
-      pmemcpys++;
-    }
-
-    // grab data out of shared struct
-    length = pmemcpy.length;
-    chunk_size = length / MAX_COPY_THREADS;
-    src = pmemcpy.src + (tid * chunk_size);
-    dst = pmemcpy.dst + (tid * chunk_size);
-    
-    memcpy(dst, src, chunk_size);
-    MEM_BARRIER();
-    pmemcpy.done_bitmap[tid] = true;
+  if (tid == 0) {
+    pmemcpys++;
   }
+
+  // grab data out of shared struct
+  length = pmemcpy.length;
+  chunk_size = length / MAX_COPY_THREADS;
+  src = pmemcpy.src + (tid * chunk_size);
+  dst = pmemcpy.dst + (tid * chunk_size);
+
+  LOG("thread %lu copying %lu bytes from %lx to %lx\n", tid, chunk_size, (uint64_t)dst, (uint64_t)src);
+
+  memcpy(dst, src, chunk_size);
+
+  tmp1 = dst;
+  tmp2 = src;
+  for (i = 0; i < chunk_size / sizeof(uint64_t); i++) {
+    if (tmp1[i] != tmp2[i]) {
+      LOG("copy thread: dst[%lu] = %lu != src[%lu] = %lu\n", i, tmp1[i], i, tmp2[i]);
+      assert(tmp1[i] == tmp2[i]);
+    }
+  }
+  return NULL;
 }
 
 
@@ -126,7 +129,6 @@ struct hemem_page* find_page(uint64_t va)
 void hemem_init()
 {
   struct uffdio_api uffdio_api;
-  uint64_t i;
 
   dramfd = open(DRAMPATH, O_RDWR);
   if (dramfd < 0) {
@@ -192,16 +194,6 @@ void hemem_init()
   
   paging_init();
 
-  pmemcpy.activate = false;
-  for (i = 0; i < MAX_COPY_THREADS; i++) {
-    pmemcpy.done_bitmap[i] = false;
-  }
-
-  for (i = 0; i < MAX_COPY_THREADS; i++) {
-    s = pthread_create(&copy_threads[i], NULL, hemem_parallel_memcpy_thread, (void*)i);
-    assert(s == 0);
-  }
-  
   init = true;
 }
 
@@ -342,30 +334,21 @@ int hemem_munmap(void* addr, size_t length)
 
 static void hemem_parallel_memcpy(void *dst, void *src, size_t length)
 {
-  bool threads_done;
-  int i;
+  uint64_t i;
+  pthread_t copy_threads[MAX_COPY_THREADS];
+  int r;
 
   pmemcpy.dst = dst;
   pmemcpy.src = src;
   pmemcpy.length = length;
-  MEM_BARRIER();
-  pmemcpy.activate = true;
 
-  while (!threads_done) {
-    threads_done = true;
-    for (i = 0; i < MAX_COPY_THREADS; i++) {
-      MEM_BARRIER();
-      if (!pmemcpy.done_bitmap[i]) {
-        threads_done = false;
-	      break;
-      }
-    }
-  }
-
-  pmemcpy.activate = false;
-  MEM_BARRIER();
   for (i = 0; i < MAX_COPY_THREADS; i++) {
-    pmemcpy.done_bitmap[i] = false;
+    r = pthread_create(&copy_threads[i], NULL, hemem_parallel_memcpy_thread, (void*)i);
+    assert(r == 0);
+  }
+  for (i = 0; i < MAX_COPY_THREADS; i++) {
+    r = pthread_join(copy_threads[i], NULL);
+    assert(r == 0);
   }
 }
 
@@ -689,7 +672,7 @@ void handle_missing_fault(uint64_t page_boundry)
 
   mem_allocated += PAGE_SIZE;
 
-  LOG("hemem_missing_fault: va: %lx assigned to %s pte: %lx\n", page->va, (in_dram ? "DRAM" : "NVM"), hemem_va_to_pa(page->va));
+  LOG("hemem_missing_fault: va: %lx assigned to %s frame %lu  pte: %lx\n", page->va, (in_dram ? "DRAM" : "NVM"), page->devdax_offset / PAGE_SIZE, hemem_va_to_pa(page->va));
 
   // place in hemem's page tracking list
   enqueue_page(page);
