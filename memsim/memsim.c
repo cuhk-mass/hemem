@@ -329,7 +329,10 @@ static void gups(size_t iters, uint64_t hotset_start, uint64_t hotset_size,
 		 double hotset_prob, uint64_t workset_size)
 {
   assert(hotset_start + hotset_size <= workset_size);
-  
+
+  LOG("gups(%zu, 0x%" PRIx64 ", 0x%" PRIx64 ", %.2f, 0x%" PRIx64 "\n",
+      iters, hotset_start, hotset_size, hotset_prob, workset_size);
+
   // GUPS with hotset
   for(size_t i = 0; i < iters; i++) {
     uint64_t a;
@@ -401,6 +404,7 @@ int main(int argc, char *argv[])
   // Get memory traces from Onur's group at ETH? membench? Replay them here?
 
   // Fault all pages in
+  LOG("Faulting %" PRIu64 " base pages in\n", WORKSET_SIZE / BASE_PAGE_SIZE);
   for(uint64_t a = 0; a < WORKSET_SIZE; a += BASE_PAGE_SIZE) {
     memaccess(a, TYPE_READ);
   }

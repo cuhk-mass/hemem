@@ -119,7 +119,7 @@ static uint64_t pfn_mask(enum pagetypes pt)
 static struct pte *alloc_ptables(uint64_t addr, enum pagetypes ptype,
 				 uint64_t paddr)
 {
-  struct pte *ptable = pml4, *pte, *pivot = NULL;
+  struct pte *ptable = pml4, *pte, *pivot = NULL, *newtree = NULL;
   int level = ptype + 2;
 
   assert(level >= 2 && level <= 4);
@@ -130,12 +130,17 @@ static struct pte *alloc_ptables(uint64_t addr, enum pagetypes ptype,
 
     if(!pte->present || pte->pagemap) {
       if(pivot == NULL) {
+	// This is the junction in the tree where we're allocating a
+	// new subtree -- will atomically hook it in later
 	pivot = pte;
+	newtree = calloc(512, sizeof(struct pte));
+	ptable = newtree;
+	continue;
       } else {
 	assert(!pte->pagemap);
 	pte->present = true;
+	pte->next = calloc(512, sizeof(struct pte));
       }
-      pte->next = calloc(512, sizeof(struct pte));
     }
 
     ptable = pte->next;
@@ -149,6 +154,8 @@ static struct pte *alloc_ptables(uint64_t addr, enum pagetypes ptype,
 
   // Update pivot PTE to guarantee atomic page table updates without locks
   if(pivot != NULL) {
+    assert(newtree != NULL);
+    pivot->next = newtree;
     if(pivot->pagemap) {
       pivot->pagemap = false;
       pivot->addr = 0;
@@ -180,10 +187,34 @@ static void move_memory(enum memtypes dst, enum memtypes src, size_t size)
 
 static void move_hot(void)
 {
+  struct fifo_queue transition[NPAGETYPES];
+  size_t transition_bytes = 0;
   struct page *p;
 
-  // Move hot pages up (and defragment)
-  while((p = dequeue_fifo(&mem_active[SLOWMEM][BASE])) != NULL) {
+  memset(transition, 0, NPAGETYPES * sizeof(struct fifo_queue));
+
+  // Identify pages for movement and mark read-only until out of fastmem
+  while(transition_bytes + page_size(BASE) < fastmem_freebytes) {
+    p = dequeue_fifo(&mem_active[SLOWMEM][BASE]);
+
+    if(p == NULL) {
+      // No more active pages
+      break;
+    }
+    
+    enqueue_fifo(&transition[BASE], p);
+    p->pte->readonly = true;
+    transition_bytes += page_size(BASE);
+  }
+
+  if(transition_bytes == 0) {
+    // Everything is cold or out of fastmem -- bail out
+    return;
+  }
+  tlb_shootdown(0);	// Sync
+
+  // Move hot pages up (TODO: and defragment)
+  while((p = dequeue_fifo(&transition[BASE])) != NULL) {
     struct page *np;
     
   again:
@@ -204,18 +235,25 @@ static void move_hot(void)
       goto again;
     }
 
-    // XXX: Move data in background
+    LOG("[HOT vaddr 0x%" PRIx64 ", pt = %u] paddr 0x%" PRIx64 " -> 0x%" PRIx64 "\n",
+	p->vaddr, BASE, p->paddr, np->paddr);
+
+    move_memory(FASTMEM, SLOWMEM, page_size(BASE));
     fastmem_freebytes -= page_size(BASE);
     slowmem_freebytes += page_size(BASE);
     np->pte = alloc_ptables(p->vaddr, BASE, np->paddr);
-    assert(np->pte != NULL);
+    assert(np->pte != NULL && np->pte == p->pte);
     enqueue_fifo(&mem_active[FASTMEM][BASE], np);
-    enqueue_fifo(&mem_free[SLOWMEM][BASE], p);
 
-    // Stop if under memory pressure
-    if(fastmem_freebytes < HEMEM_FASTFREE) {
-      return;
-    }
+    // Release read-only lock
+    p->pte->readonly = false;
+    // Slowmem page is now free
+    enqueue_fifo(&mem_free[SLOWMEM][BASE], p);
+  }
+
+  // Wakeup application thread if waiting
+  if(background_wait) {
+    sem_post(&memmove_sem);
   }
 }
 
@@ -226,13 +264,14 @@ static void move_cold(void)
 
   memset(transition, 0, NPAGETYPES * sizeof(struct fifo_queue));
 
-  // Identify pages for movement and mark read-only
+  // Identify pages for movement, mark read-only, set migration hint
   for(enum pagetypes pt = GIGA; pt < NPAGETYPES; pt++) {
     struct page *p;
     while((p = dequeue_fifo(&mem_inactive[FASTMEM][pt])) != NULL) {
       enqueue_fifo(&transition[pt], p);
 
       p->pte->readonly = true;
+      p->pte->migration = true;
       // Until enough free fastmem
       transition_bytes += page_size(pt);
       if(fastmem_freebytes + transition_bytes >= HEMEM_FASTFREE) {
@@ -253,9 +292,6 @@ static void move_cold(void)
     struct page *p;
     while((p = dequeue_fifo(&transition[pt])) != NULL) {
       size_t times = 1;
-
-      /* fprintf(stderr, "moving vaddr = 0x%" PRIx64 ", paddr = 0x%" PRIx64 ", pt = %u\n", */
-      /* 	      p->vaddr, p->paddr, pt); */
       
       switch(pt) {
       case BASE: times = 1; break;
@@ -268,17 +304,25 @@ static void move_cold(void)
 	struct page *np = dequeue_fifo(&mem_free[SLOWMEM][BASE]);
 	assert(np != NULL);
 
+	if(i == 0) {
+	  LOG("[COLD vaddr 0x%" PRIx64 ", pt = %u] paddr 0x%" PRIx64 " -> 0x%" PRIx64 "\n",
+	      p->vaddr, pt, p->paddr, np->paddr);
+	}
+	
 	move_memory(SLOWMEM, FASTMEM, page_size(BASE));
 	slowmem_freebytes -= page_size(BASE);
 	fastmem_freebytes += page_size(BASE);
 	np->vaddr = p->vaddr + (i * BASE_PAGE_SIZE);
+	// XXX: This needs to be atomic for the entire loop. Otherwise
+	// we get page missing pagefaults.
 	np->pte = alloc_ptables(np->vaddr, BASE, np->paddr + (i * BASE_PAGE_SIZE));
 	assert(np->pte != NULL);
 	enqueue_fifo(&mem_inactive[SLOWMEM][BASE], np);
       }
 
-      // Release read-only lock
+      // Release read-only lock, reset migration hint
       p->pte->readonly = false;
+      p->pte->migration = false;
       // Fastmem page is now free
       enqueue_fifo(&mem_free[FASTMEM][pt], p);
     }
@@ -372,16 +416,20 @@ static void *hemem_thread(void *arg)
 
     pthread_mutex_lock(&global_lock);
 
+    // Track hot/cold memory
     cool();
     thaw();
 
     // XXX: Can comment out for less overhead & accuracy
     tlb_shootdown(0);	// Sync active bit changes in TLB
 
-    // Under memory pressure?
-    if(fastmem_freebytes >= HEMEM_FASTFREE) {
+    // Always try to move hot memory up
+    if(fastmem_freebytes > 0) {
       move_hot();
-    } else {
+    }
+
+    // Move cold memory down if under memory pressure?
+    if(fastmem_freebytes < HEMEM_FASTFREE) {
       move_cold();
     }
 
@@ -441,18 +489,43 @@ static struct page *getmem(uint64_t addr)
     enqueue_fifo(&mem_active[SLOWMEM][pt], p);
     slowmem_freebytes -= page_size(pt);
   }
-
+  
   p->pte = alloc_ptables(addr, pt, p->paddr);
   assert(p->pte != NULL);
   p->vaddr = addr & pfn_mask(pt);
+
+  /* LOG("[ALLOC vaddr 0x%" PRIx64 ", pt = %u] paddr 0x%" PRIx64 "\n", */
+  /*     p->vaddr, pt, p->paddr); */
 
   pthread_mutex_unlock(&global_lock);
   return p;
 }
 
+static bool under_migration(uint64_t addr)
+{
+  struct pte *ptable = pml4;
+
+  for(int level = 1; level <= 4 && ptable != NULL; level++) {
+    struct pte *pte = &ptable[(addr >> (48 - (level * 9))) & 511];
+
+    if(pte->migration) {
+      return true;
+    }
+
+    if(pte->pagemap) {
+      // Page here -- terminate walk
+      break;
+    }
+
+    ptable = pte->next;
+  }
+
+  return false;
+}
+
 void pagefault(uint64_t addr, bool readonly)
 {
-  if(readonly) {
+  if(under_migration(addr)) {
     background_wait = true;
     sem_wait(&memmove_sem);
     return;

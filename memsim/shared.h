@@ -69,7 +69,8 @@ struct pte {
   bool readonly;
   bool accessed;
   bool modified;
-  _Atomic bool pagemap;
+  _Atomic bool migration;	// Range is under migration
+  _Atomic bool pagemap;		// This PTE maps a page
 };
 
 // readonly is set if the page was a write to a read-only
@@ -87,7 +88,7 @@ extern _Atomic size_t runtime;
 extern struct pte *cr3;
 
 #ifdef LOG_DEBUG
-#	define LOG(str, ...)	fprintf(stderr, str, __VA_ARGS__)
+#	define LOG(str, ...)	fprintf(stderr, "%zu " str, runtime, ##__VA_ARGS__)
 #else
 #	define LOG(std, ...)	while(0) {}
 #endif
