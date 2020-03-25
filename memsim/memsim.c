@@ -65,7 +65,7 @@ void add_runtime(size_t delta)
   }
   
   if(runtime - oldruntime > 1000000) {	// Every millisecond
-    fprintf(stderr, "Runtime: %.3f       \r", (float)runtime / 1000000000.0);
+    /* fprintf(stderr, "Runtime: %.3f       \r", (float)runtime / 1000000000.0); */
     oldruntime = runtime;
   }
 }
@@ -252,6 +252,11 @@ static void memaccess(uint64_t addr, enum access_type type)
 	assert(!pte->readonly || type != TYPE_WRITE);
       }
 
+      if(!pte->accessed && pte->pagemap) {
+	LOG("[%s vaddr 0x%" PRIx64 ", pt %u], paddr 0x%" PRIx64 "\n",
+	    type == TYPE_WRITE ? "MODIFIED" : "ACCESSED",
+	    addr & pfn_mask(level - 2), level - 2, pte->addr);
+      }
       pte->accessed = true;
       if(type == TYPE_WRITE) {
 	pte->modified = true;

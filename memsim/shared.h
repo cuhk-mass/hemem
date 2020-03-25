@@ -47,6 +47,12 @@
 #define SLOWMEM_BIT	((uint64_t)1 << 63)
 #define SLOWMEM_MASK	(((uint64_t)1 << 63) - 1)
 
+#ifdef LOG_DEBUG
+#	define LOG(str, ...)	fprintf(stderr, "%zu " str, runtime, ##__VA_ARGS__)
+#else
+#	define LOG(std, ...)	while(0) {}
+#endif
+
 // Memory access type
 enum access_type {
   TYPE_READ,
@@ -57,6 +63,10 @@ enum memtypes {
   FASTMEM = 0,
   SLOWMEM = 1,
   NMEMTYPES,
+};
+
+enum pagetypes {
+  GIGA = 0, HUGE, BASE, NPAGETYPES
 };
 
 // Page table entry
@@ -87,10 +97,24 @@ int listnum(struct pte *pte);
 extern _Atomic size_t runtime;
 extern struct pte *cr3;
 
-#ifdef LOG_DEBUG
-#	define LOG(str, ...)	fprintf(stderr, "%zu " str, runtime, ##__VA_ARGS__)
-#else
-#	define LOG(std, ...)	while(0) {}
-#endif
+static inline uint64_t page_size(enum pagetypes pt)
+{
+  switch(pt) {
+  case GIGA: return GIGA_PAGE_SIZE;
+  case HUGE: return HUGE_PAGE_SIZE;
+  case BASE: return BASE_PAGE_SIZE;
+  default: assert(!"Unknown page type");
+  }
+}
+
+static inline uint64_t pfn_mask(enum pagetypes pt)
+{
+  switch(pt) {
+  case GIGA: return GIGA_PFN_MASK;
+  case HUGE: return HUGE_PFN_MASK;
+  case BASE: return BASE_PFN_MASK;
+  default: assert(!"Unknown page type");
+  }
+}
 
 #endif

@@ -6,7 +6,6 @@
 #include <assert.h>
 #include <inttypes.h>
 #include <string.h>
-#include <semaphore.h>
 
 #include "shared.h"
 
@@ -14,8 +13,8 @@
 
 // Keep at least 10% of fastmem free
 #define HEMEM_FASTFREE		(FASTMEM_SIZE / 10)
-#define HEMEM_COOL_RATE		GB(1)	// Cool bytes per HEMEM_INTERVAL
-#define HEMEM_THAW_RATE		GB(1)	// Warm bytes per HEMEM_INTERVAL
+#define HEMEM_COOL_RATE		GB(5)	// Cool bytes per HEMEM_INTERVAL
+#define HEMEM_THAW_RATE		GB(5)	// Warm bytes per HEMEM_INTERVAL
 
 #define FASTMEM_GIGA_PAGES     	(FASTMEM_SIZE / GIGA_PAGE_SIZE)
 #define FASTMEM_HUGE_PAGES     	(FASTMEM_SIZE / HUGE_PAGE_SIZE)
@@ -24,10 +23,6 @@
 #define SLOWMEM_GIGA_PAGES	(SLOWMEM_SIZE / GIGA_PAGE_SIZE)
 #define SLOWMEM_HUGE_PAGES	(SLOWMEM_SIZE / HUGE_PAGE_SIZE)
 #define SLOWMEM_BASE_PAGES	(SLOWMEM_SIZE / BASE_PAGE_SIZE)
-
-enum pagetypes {
-  GIGA = 0, HUGE, BASE, NPAGETYPES
-};
 
 struct page {
   struct page	*next, *prev;
@@ -49,7 +44,6 @@ static bool __thread in_background = false;
 static _Atomic bool background_wait = false;
 static _Atomic uint64_t fastmem_freebytes = FASTMEM_SIZE;
 static _Atomic uint64_t slowmem_freebytes = SLOWMEM_SIZE;
-static sem_t memmove_sem;
 
 int listnum(struct pte *pte)
 {
@@ -94,26 +88,6 @@ static struct page *dequeue_fifo(struct fifo_queue *queue)
   assert(queue->numentries > 0);
   queue->numentries--;
   return ret;
-}
-
-static uint64_t page_size(enum pagetypes pt)
-{
-  switch(pt) {
-  case GIGA: return GIGA_PAGE_SIZE;
-  case HUGE: return HUGE_PAGE_SIZE;
-  case BASE: return BASE_PAGE_SIZE;
-  default: assert(!"Unknown page type");
-  }
-}
-
-static uint64_t pfn_mask(enum pagetypes pt)
-{
-  switch(pt) {
-  case GIGA: return GIGA_PFN_MASK;
-  case HUGE: return HUGE_PFN_MASK;
-  case BASE: return BASE_PFN_MASK;
-  default: assert(!"Unknown page type");
-  }
 }
 
 static struct pte *alloc_ptables(uint64_t addr, enum pagetypes ptype,
@@ -204,6 +178,7 @@ static void move_hot(void)
     
     enqueue_fifo(&transition[BASE], p);
     p->pte->readonly = true;
+    p->pte->migration = true;
     transition_bytes += page_size(BASE);
   }
 
@@ -245,15 +220,11 @@ static void move_hot(void)
     assert(np->pte != NULL && np->pte == p->pte);
     enqueue_fifo(&mem_active[FASTMEM][BASE], np);
 
-    // Release read-only lock
+    // Release read-only lock, reset migration hint
     p->pte->readonly = false;
+    p->pte->migration = false;
     // Slowmem page is now free
     enqueue_fifo(&mem_free[SLOWMEM][BASE], p);
-  }
-
-  // Wakeup application thread if waiting
-  if(background_wait) {
-    sem_post(&memmove_sem);
   }
 }
 
@@ -313,8 +284,6 @@ static void move_cold(void)
 	slowmem_freebytes -= page_size(BASE);
 	fastmem_freebytes += page_size(BASE);
 	np->vaddr = p->vaddr + (i * BASE_PAGE_SIZE);
-	// XXX: This needs to be atomic for the entire loop. Otherwise
-	// we get page missing pagefaults.
 	np->pte = alloc_ptables(np->vaddr, BASE, np->paddr + (i * BASE_PAGE_SIZE));
 	assert(np->pte != NULL);
 	enqueue_fifo(&mem_inactive[SLOWMEM][BASE], np);
@@ -326,11 +295,6 @@ static void move_cold(void)
       // Fastmem page is now free
       enqueue_fifo(&mem_free[FASTMEM][pt], p);
     }
-  }
-
-  // Wakeup application thread if waiting
-  if(background_wait) {
-    sem_post(&memmove_sem);
   }
 }
 
@@ -416,6 +380,8 @@ static void *hemem_thread(void *arg)
 
     pthread_mutex_lock(&global_lock);
 
+    LOG("[HEMEM TICK]\n");
+    
     // Track hot/cold memory
     cool();
     thaw();
@@ -527,7 +493,9 @@ void pagefault(uint64_t addr, bool readonly)
 {
   if(under_migration(addr)) {
     background_wait = true;
-    sem_wait(&memmove_sem);
+    // Wait for current background iteration to finish
+    pthread_mutex_lock(&global_lock);
+    pthread_mutex_unlock(&global_lock);
     return;
   }
   
@@ -538,9 +506,6 @@ void mmgr_init(void)
 {
   cr3 = pml4;
 
-  int r = sem_init(&memmove_sem, 0, 0);
-  assert(r == 0);
-  
   // Fastmem: all giga pages in the beginning
   for(int i = 0; i < FASTMEM_GIGA_PAGES; i++) {
     struct page *p = calloc(1, sizeof(struct page));
@@ -556,6 +521,6 @@ void mmgr_init(void)
   }
   
   pthread_t thread;
-  r = pthread_create(&thread, NULL, hemem_thread, NULL);
+  int r = pthread_create(&thread, NULL, hemem_thread, NULL);
   assert(r == 0);
 }
