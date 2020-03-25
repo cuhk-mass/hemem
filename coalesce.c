@@ -29,7 +29,7 @@
 #include "hash.h"
 
 #define NUM_SMPAGES 512
-#define HASHTABLE_SIZE 8192
+#define HASHTABLE_SIZE 81920
 
 struct hash_table* dram_hp_ht;
 struct hash_table* nvm_hp_ht;

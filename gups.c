@@ -179,6 +179,8 @@ main(int argc, char **argv)
   assert(r == 0);
 #endif
 
+  return 0;
+
   scan_pagetable();
 
   uint64_t pa = hemem_va_to_pa((uint64_t)p);

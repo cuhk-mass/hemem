@@ -1,5 +1,6 @@
 CC = gcc
 CFLAGS = -g -Wall
+CFLAGS += -DCOALESCE
 INCLUDES = -I/root/hmem/linux/usr/include
 LIBS = -lm -lpthread
 

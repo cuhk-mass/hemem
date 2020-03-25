@@ -91,9 +91,10 @@ hemem_init()
   //close(dramfd);
 
   paging_init();
+#ifdef COALESCE
   printf("coalesce_init\n");
   coalesce_init();
-
+#endif
   init = 1;
 }
 
@@ -219,7 +220,9 @@ hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
 
   munmap(old_addr, PAGE_SIZE);
   munmap(new_addr, PAGE_SIZE);
+#ifdef COALESCE
   migrate_to_dram_hp(newptr, dramfd, new_addr_offset);
+#endif
 
   gettimeofday(&end, NULL);  
 }
@@ -267,7 +270,9 @@ hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
   munmap(old_addr, PAGE_SIZE);
   munmap(new_addr, PAGE_SIZE);
 
+#ifdef COALESCE
   migrate_to_nvm_hp(newptr, nvmfd, new_addr_offset);
+#endif
   gettimeofday(&end, NULL);  
 }
 
@@ -366,6 +371,7 @@ handle_missing_fault(uint64_t page_boundry)
   // let policy algorithm do most of the heavy lifting of finding a free page
   page->va = page_boundry; 
   
+#ifdef COALESCE
   void* huge_page = check_aligned(page_boundry);
 
   if(huge_page) {
@@ -374,6 +380,9 @@ handle_missing_fault(uint64_t page_boundry)
   } else {
     pagefault(page); 
   }
+#else
+  pagefault(page);
+#endif
 
   offset = page->devdax_offset;
   
@@ -394,8 +403,11 @@ handle_missing_fault(uint64_t page_boundry)
 
   // use mmap return addr to track new page's virtual address
   page->va = (uint64_t)newptr;
+  
+#ifdef COALESCE  
   if(page->in_dram) incr_dram_huge_page(page->va, dramfd, offset);
   else incr_nvm_huge_page(page->va, nvmfd, offset);
+#endif
 
   mem_allocated += PAGE_SIZE;
   
