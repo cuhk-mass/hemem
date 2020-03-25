@@ -29,15 +29,15 @@
 #include "hash.h"
 
 #define NUM_SMPAGES 512
-#define HASHTABLE_SIZE 81920
+#define HASHTABLE_SIZE 81920UL
 
 struct hash_table* dram_hp_ht;
 struct hash_table* nvm_hp_ht;
 
 void coalesce_pages(uint64_t addr, uint32_t fd, uint64_t offset){
   void* ret;
-  int ret2;
-  struct uffdio_range range;
+  //int ret2;
+  //struct uffdio_range range;
 
   //get offset
 
@@ -45,8 +45,9 @@ void coalesce_pages(uint64_t addr, uint32_t fd, uint64_t offset){
 
   if(ret < 0) perror("coalesce mmap");
 
-  range.start = addr;
-  range.len = HUGEPAGE_SIZE;
+  hemem_tlb_shootdown(addr);
+  //range.start = addr;
+  //range.len = HUGEPAGE_SIZE;
   //ret2 = ioctl(uffd, UFFDIO_TLBFLUSH, &range);
 
   //if(ret2 < 0) perror("coalesce ioctl");

@@ -22,9 +22,11 @@
 #include <stdbool.h>
 #include <pthread.h>
 #include <assert.h>
+#include <sys/time.h>
 
 #include "hemem.h"
 #include "paging.h"
+#include "timer.h"
 
 uint64_t fastmem = 0;
 uint64_t slowmem = 0;
@@ -32,6 +34,9 @@ bool slowmem_switch = false;
 
 void simple_allocate_page(struct hemem_page *page)
 {
+  struct timeval start, end;
+
+  gettimeofday(&start, NULL);
   if (fastmem< DRAMSIZE) {
     page->in_dram = true;
     page->devdax_offset = fastmem;
@@ -51,10 +56,14 @@ void simple_allocate_page(struct hemem_page *page)
       slowmem_switch = true;
     }
   }
+
+  gettimeofday(&end, NULL);
+  LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
 }
 
 void simple_pagefault(struct hemem_page *page)
 {
+  assert(page != NULL);
   simple_allocate_page(page);
 }
 

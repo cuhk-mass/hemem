@@ -38,7 +38,7 @@ uint16_t hash(uint64_t input, uint16_t size){
   return input % size;
 }
 
-static inline struct hash_table* ht_alloc(uint16_t size) {
+static inline struct hash_table* ht_alloc(uint32_t size) {
   struct hash_table* new_ht = malloc(sizeof(struct hash_table));
   int i = 0;
 

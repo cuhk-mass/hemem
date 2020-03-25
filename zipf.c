@@ -19,27 +19,23 @@
 #include <math.h>
 #include <stdio.h>
 #include <assert.h>
+#include <stdint.h>
 
-#define INDEX_FILE "indices.txt"
-
-//#define ZIPFIAN
-#define HOTSPOT
-//#define UNIFORM_RANDOM
+#include "gups.h"
 
 #ifdef ZIPFIAN
 
-const double ZETAN = 26.46902820178302;
-const double ZIPFIAN_CONSTANT = 0.99;
-unsigned long min, max, itemcount;
-unsigned long items, base, countforzeta;
-double zipfianconstant, alpha, zetan, eta, theta, zeta2theta;
-unsigned long lastVal;
-int allowitemdecrease = 0;
-const long FNV_OFFSET_BASIS_64 = 0xCBF29CE484222325L;
-const long FNV_PRIME_64 = 1099511628211L;
+static const double ZETAN = 26.46902820178302;
+static const double ZIPFIAN_CONSTANT = 0.99;
+static unsigned long min, max, itemcount;
+static unsigned long items, base, countforzeta;
+static double zipfianconstant, alpha, zetan, eta, theta, zeta2theta;
+static unsigned long lastVal;
+static int allowitemdecrease = 0;
+static const long FNV_OFFSET_BASIS_64 = 0xCBF29CE484222325L;
+static const long FNV_PRIME_64 = 1099511628211L;
 
-unsigned long
-fnvhash64(unsigned long val) {
+static unsigned long fnvhash64(unsigned long val) {
   long hashval = FNV_OFFSET_BASIS_64;
 
   for (int i = 0; i < 8; i++) {
@@ -53,8 +49,7 @@ fnvhash64(unsigned long val) {
   return (unsigned long)abs(hashval);
 }
 
-double
-_zetastatic(unsigned long st, unsigned long n, double theta, double initialsum)
+static double _zetastatic(unsigned long st, unsigned long n, double theta, double initialsum)
 {
   double sum = initialsum;
   for (unsigned long i = st; i < n; i++) {
@@ -63,29 +58,25 @@ _zetastatic(unsigned long st, unsigned long n, double theta, double initialsum)
   return sum;
 }
 
-double
-_zeta(unsigned long st, unsigned long n, double thetaVal, double initialsum)
+static double _zeta(unsigned long st, unsigned long n, double thetaVal, double initialsum)
 {
   countforzeta = n;
   return _zetastatic(st, n, thetaVal, initialsum);
 }
 
-double
-zetastatic(unsigned long n, double theta)
+static double zetastatic(unsigned long n, double theta)
 {
   return _zetastatic(0, n, theta, 0);
 }
 
-double
-zeta(unsigned long n, double thetaVal)
+static double zeta(unsigned long n, double thetaVal)
 {
   countforzeta = n;
   return zetastatic(n, thetaVal);
 
 }
 
-unsigned long
-nextValue(unsigned long itemcount)
+static unsigned long nextValue(unsigned long itemcount)
 {
   if (itemcount != countforzeta) {
     if (itemcount > countforzeta) {
@@ -115,12 +106,13 @@ nextValue(unsigned long itemcount)
   return ret;
 }
 
-void
-calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems)
+void calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems)
 {
   FILE* f;
   unsigned int i;
 
+  assert(!"Not thread-safe");
+  
   f = fopen(INDEX_FILE, "w");
   if (f == NULL) {
     perror("fopen");
@@ -157,54 +149,46 @@ calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems
 
 #elif defined HOTSPOT
 
-void
-calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems)
+#define RAND_WITHIN(x)	(((double)rand_r(&seed) / RAND_MAX) * (x))
+
+uint64_t hotset_start = 0;
+double hotset_fraction = 0.1;
+static double hotset_prob = 0.9;
+
+void calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems)
 {
-  FILE* f;
   int i;
-  unsigned long interval;
-  unsigned long lowerBound;
-  unsigned long upperBound;
-  unsigned long hotInterval;
-  unsigned long coldInterval;
-  double hotsetFraction = 0.2;
-  double hotopFraction = 0.8;
+  uint64_t hotset_size = (uint64_t)(hotset_fraction * nelems);
+  unsigned int seed = 0;
 
-  f = fopen(INDEX_FILE, "w");
-  if (f == NULL) {
-    perror("fopen");
-    assert(0);
-  }
+  assert(hotset_start + hotset_size <= nelems);
 
-  lowerBound = 0;
-  upperBound = nelems - 1;
-  interval = upperBound - lowerBound + 1;
-  hotInterval = (int)(interval * hotsetFraction);
-  coldInterval = interval - hotInterval;
+  printf("hotset start: %lu\thotset size: %lu\thotset probability: %f\n", hotset_start, hotset_size, hotset_prob);
+  
+  /* srand(0); */
 
   for (i = 0; i < updates; i++) {
-    if (((double)rand() / RAND_MAX) < hotopFraction) {
-      indices[i] = lowerBound + abs(rand()) % hotInterval;
-      //fprintf(f, "hot: %d\n", indices[i]);
+    if (RAND_WITHIN(1) < hotset_prob) {
+      indices[i] = hotset_start + (uint64_t)RAND_WITHIN(hotset_size);
     }
     else {
-      indices[i] = lowerBound + hotInterval + abs(rand()) % coldInterval;
-      //fprintf(f, "cold: %d\n", indices[i]);
+      indices[i] = (uint64_t)RAND_WITHIN(nelems);
     }
   }
-  fclose(f);
 }
 
 #else // UNIFORM_RANDOM
 
-void
-calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems)
+void calc_indices(unsigned long* indices, unsigned long updates, unsigned long nelems)
 {
   unsigned int i;
   assert(indices != NULL);
+  unsigned int seed = 0;
+
+  /* srand(0); */
 
   for (i = 0; i < updates; i++) {
-    indices[i] = rand() % nelems;
+    indices[i] = rand_r(&seed) % nelems;
   }
 }
 

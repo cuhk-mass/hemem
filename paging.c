@@ -21,9 +21,9 @@
 #include "hemem.h"
 #include "timer.h"
 #include "paging.h"
+#include "interpose.h"
 
-uint64_t
-va_to_pa(uint64_t va)
+uint64_t va_to_pa(uint64_t va)
 {
   uint64_t pt_base = ((uint64_t)(base & ADDRESS_MASK));
   uint64_t *pgd;
@@ -34,15 +34,18 @@ va_to_pa(uint64_t va)
   uint64_t pud_entry;
   uint64_t pmd_entry;
   uint64_t pte_entry;
+  uint64_t offset;
 
   //printf("begin page walk for addr: %016lx\n", va);
 
-  pgd = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pt_base);
+  pgd = (uint64_t*)libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pt_base);
   if (pgd == MAP_FAILED) {
     perror("hemem_va_to_pa pgd mmap:");
     assert(0);
   }
-  pgd_entry = *(pgd + (((va) >> HEMEM_PGDIR_SHIFT) & (HEMEM_PTRS_PER_PGD - 1)));
+  offset = (((va) >> HEMEM_PGDIR_SHIFT) & (HEMEM_PTRS_PER_PGD - 1));
+  assert(offset < PAGE_SIZE);
+  pgd_entry = *(pgd + offset) ;
   if (!((pgd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     printf("hemem_va_to_pa: pgd not present: %016lx\n", pgd_entry);
     assert(0);
@@ -51,12 +54,14 @@ va_to_pa(uint64_t va)
     //printf("pgd present: %016lx\n", pgd_entry);
   }
 
-  pud = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pgd_entry & ADDRESS_MASK);
+  pud = (uint64_t*)libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pgd_entry & ADDRESS_MASK);
   if (pud == MAP_FAILED) {
     perror("hemem_va_to_pa pud mmap:");
     assert(0);
   }
-  pud_entry = *(pud + (((va) >> HEMEM_PUD_SHIFT) & (HEMEM_PTRS_PER_PUD - 1)));
+  offset =  (((va) >> HEMEM_PUD_SHIFT) & (HEMEM_PTRS_PER_PUD - 1));
+  assert(offset < PAGE_SIZE);
+  pud_entry = *(pud + offset);
   if (!((pud_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     printf("hemem_va_to_pa: pud not present: %016lx\n", pud_entry);
     assert(0);
@@ -65,12 +70,14 @@ va_to_pa(uint64_t va)
     //printf("pud present: %016lx\n", pud_entry);
   }
 
-  pmd = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pud_entry & ADDRESS_MASK);
+  pmd = (uint64_t*)libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pud_entry & ADDRESS_MASK);
   if (pmd == MAP_FAILED) {
     perror("hemem_va_to_pa pmd mmap:");
     assert(0);
   }
-  pmd_entry = *(pmd + (((va) >> HEMEM_PMD_SHIFT) & (HEMEM_PTRS_PER_PMD - 1)));
+  offset = (((va) >> HEMEM_PMD_SHIFT) & (HEMEM_PTRS_PER_PMD - 1));
+  assert(offset < PAGE_SIZE);
+  pmd_entry = *(pmd + offset);
   if (!((pmd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     printf("hemem_va_to_pa: pmd not present: %016lx\n", pmd_entry);
     assert(0);
@@ -81,15 +88,20 @@ va_to_pa(uint64_t va)
 
   if ((pmd_entry & HEMEM_HUGEPAGE_FLAG) == HEMEM_HUGEPAGE_FLAG) {
     //printf("pmd huge page\n");
+    munmap(pmd, PAGE_SIZE);
+    munmap(pud, PAGE_SIZE);
+    munmap(pgd, PAGE_SIZE);
     return pmd_entry;
   }
 
-  pte = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pmd_entry & ADDRESS_MASK);
+  pte = (uint64_t*)libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pmd_entry & ADDRESS_MASK);
   if (pte == MAP_FAILED) {
     perror("hemem_va_to_pa pte mmap:");
     assert(0);
   }
-  pte_entry = *(pte + (((va) >> HEMEM_PAGE_SHIFT) & (HEMEM_PTRS_PER_PTE - 1)));
+  offset = (((va) >> HEMEM_PAGE_SHIFT) & (HEMEM_PTRS_PER_PTE - 1));
+  assert(offset < PAGE_SIZE);
+  pte_entry = *(pte + offset);
   if (!((pte_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     printf("hemem_va_to_pa: pte not present: %016lx\n", pte_entry);
     assert(0);
@@ -105,8 +117,7 @@ va_to_pa(uint64_t va)
   return pte_entry;
 }
 
-void
-clear_bit(uint64_t va, uint64_t bit)
+void clear_bit(uint64_t va, uint64_t bit)
 {
   uint64_t pt_base = ((uint64_t)(base & ADDRESS_MASK));
   uint64_t *pgd;
@@ -117,15 +128,18 @@ clear_bit(uint64_t va, uint64_t bit)
   uint64_t *pud_entry;
   uint64_t *pmd_entry;
   uint64_t *pte_entry;
+  uint64_t offset;
 
   //printf("begin page walk for addr: %016lx\n", va);
 
-  pgd = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pt_base);
+  pgd = (uint64_t*)libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pt_base);
   if (pgd == MAP_FAILED) {
     perror("clear_accessed_bit: pgd mmap:");
     assert(0);
   }
-  pgd_entry = (pgd + (((va) >> HEMEM_PGDIR_SHIFT) & (HEMEM_PTRS_PER_PGD - 1)));
+  offset = (((va) >> HEMEM_PGDIR_SHIFT) & (HEMEM_PTRS_PER_PGD - 1));
+  assert(offset < PAGE_SIZE);
+  pgd_entry = (pgd + offset);
   if (!((*pgd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     printf("clear_accessed_bit: pgd not present: %016lx\n", *pgd_entry);
     assert(0);
@@ -134,12 +148,14 @@ clear_bit(uint64_t va, uint64_t bit)
     //printf("pgd present: %016lx\n", pgd_entry);
   }
 
-  pud = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pgd_entry & ADDRESS_MASK);
+  pud = (uint64_t*)libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pgd_entry & ADDRESS_MASK);
   if (pud == MAP_FAILED) {
     perror("clear_accessed_bit: pud mmap:");
     assert(0);
   }
-  pud_entry = (pud + (((va) >> HEMEM_PUD_SHIFT) & (HEMEM_PTRS_PER_PUD - 1)));
+  offset = (((va) >> HEMEM_PUD_SHIFT) & (HEMEM_PTRS_PER_PUD - 1));
+  assert(offset < PAGE_SIZE);
+  pud_entry = (pud + offset);
   if (!((*pud_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     printf("clear_accessed_bit: pud not present: %016lx\n", *pud_entry);
     assert(0);
@@ -148,12 +164,14 @@ clear_bit(uint64_t va, uint64_t bit)
     //printf("pud present: %016lx\n", pud_entry);
   }
 
-  pmd = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pud_entry & ADDRESS_MASK);
+  pmd = (uint64_t*)libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pud_entry & ADDRESS_MASK);
   if (pmd == MAP_FAILED) {
     perror("clear_accessed_bit: pmd mmap:");
     assert(0);
   }
-  pmd_entry = (pmd + (((va) >> HEMEM_PMD_SHIFT) & (HEMEM_PTRS_PER_PMD - 1)));
+  offset = (((va) >> HEMEM_PMD_SHIFT) & (HEMEM_PTRS_PER_PMD - 1));
+  assert(offset < PAGE_SIZE);
+  pmd_entry = (pmd + offset);
   if (!((*pmd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     printf("clear_accessed_bit: pmd not present: %016lx\n", *pmd_entry);
     assert(0);
@@ -171,12 +189,14 @@ clear_bit(uint64_t va, uint64_t bit)
     return;
   }
 
-  pte = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pmd_entry & ADDRESS_MASK);
+  pte = (uint64_t*)libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pmd_entry & ADDRESS_MASK);
   if (pte == MAP_FAILED) {
     perror("clear_accessed_bit pte mmap:");
     assert(0);
   }
-  pte_entry = (pte + (((va) >> HEMEM_PAGE_SHIFT) & (HEMEM_PTRS_PER_PTE - 1)));
+  offset = (((va) >> HEMEM_PAGE_SHIFT) & (HEMEM_PTRS_PER_PTE - 1));
+  assert(offset < PAGE_SIZE);
+  pte_entry = (pte + offset);
   if (!((*pte_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     printf("clear_accessed_bit: pte not present: %016lx\n", *pte_entry);
     assert(0);
@@ -193,8 +213,7 @@ clear_bit(uint64_t va, uint64_t bit)
   munmap(pgd, PAGE_SIZE);
 }
 
-uint64_t
-get_bit(uint64_t va, uint64_t bit)
+uint64_t get_bit(uint64_t va, uint64_t bit)
 {
   uint64_t pt_base = ((uint64_t)(base & ADDRESS_MASK));
   uint64_t *pgd;
@@ -205,15 +224,18 @@ get_bit(uint64_t va, uint64_t bit)
   uint64_t *pud_entry;
   uint64_t *pmd_entry;
   uint64_t *pte_entry;
+  uint64_t offset;
 
   //printf("begin page walk for addr: %016lx\n", va);
 
-  pgd = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pt_base);
+  pgd = (uint64_t*)libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pt_base);
   if (pgd == MAP_FAILED) {
     perror("get_accessed_bit: pgd mmap:");
     assert(0);
   }
-  pgd_entry = (pgd + (((va) >> HEMEM_PGDIR_SHIFT) & (HEMEM_PTRS_PER_PGD - 1)));
+  offset = (((va) >> HEMEM_PGDIR_SHIFT) & (HEMEM_PTRS_PER_PGD - 1));
+  assert(offset < PAGE_SIZE);
+  pgd_entry = (pgd + offset);
   if (!((*pgd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     printf("get_accessed_bit: pgd not present: %016lx\n", *pgd_entry);
     assert(0);
@@ -222,12 +244,14 @@ get_bit(uint64_t va, uint64_t bit)
     //printf("pgd present: %016lx\n", pgd_entry);
   }
 
-  pud = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pgd_entry & ADDRESS_MASK);
+  pud = (uint64_t*)libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pgd_entry & ADDRESS_MASK);
   if (pud == MAP_FAILED) {
     perror("get_accessed_bit: pud mmap:");
     assert(0);
   }
-  pud_entry = (pud + (((va) >> HEMEM_PUD_SHIFT) & (HEMEM_PTRS_PER_PUD - 1)));
+  offset = (((va) >> HEMEM_PUD_SHIFT) & (HEMEM_PTRS_PER_PUD - 1));
+  assert(offset < PAGE_SIZE);
+  pud_entry = (pud + offset);
   if (!((*pud_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     printf("get_accessed_bit: pud not present: %016lx\n", *pud_entry);
     assert(0);
@@ -236,12 +260,14 @@ get_bit(uint64_t va, uint64_t bit)
     //printf("pud present: %016lx\n", pud_entry);
   }
 
-  pmd = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pud_entry & ADDRESS_MASK);
+  pmd = (uint64_t*)libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pud_entry & ADDRESS_MASK);
   if (pmd == MAP_FAILED) {
     perror("get_accessed_bit: pmd mmap:");
     assert(0);
   }
-  pmd_entry = (pmd + (((va) >> HEMEM_PMD_SHIFT) & (HEMEM_PTRS_PER_PMD - 1)));
+  offset = (((va) >> HEMEM_PMD_SHIFT) & (HEMEM_PTRS_PER_PMD - 1));
+  assert(offset < PAGE_SIZE);
+  pmd_entry = (pmd + offset);
   if (!((*pmd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     printf("get_accessed_bit: pmd not present: %016lx\n", *pmd_entry);
     assert(0);
@@ -259,12 +285,14 @@ get_bit(uint64_t va, uint64_t bit)
     return ret;
   }
 
-  pte = (uint64_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pmd_entry & ADDRESS_MASK);
+  pte = (uint64_t*)libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pmd_entry & ADDRESS_MASK);
   if (pte == MAP_FAILED) {
     perror("get_accessed_bit pte mmap:");
     assert(0);
   }
-  pte_entry = (pte + (((va) >> HEMEM_PAGE_SHIFT) & (HEMEM_PTRS_PER_PTE - 1)));
+  offset = (((va) >> HEMEM_PAGE_SHIFT) & (HEMEM_PTRS_PER_PTE - 1));
+  assert(offset < PAGE_SIZE);
+  pte_entry = (pte + offset);
   if (!((*pte_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     printf("get_accessed_bit: pte not present: %016lx\n", *pte_entry);
     assert(0);
@@ -285,29 +313,25 @@ get_bit(uint64_t va, uint64_t bit)
 }
 
 
-void
-clear_accessed_bit(uint64_t va)
+void clear_accessed_bit(uint64_t va)
 {
   clear_bit(va, HEMEM_ACCESSED_FLAG);
 }
 
 
-uint64_t
-get_accessed_bit(uint64_t va)
+uint64_t get_accessed_bit(uint64_t va)
 {
   return get_bit(va, HEMEM_ACCESSED_FLAG);
 }
 
 
-void
-clear_dirty_bit(uint64_t va)
+void clear_dirty_bit(uint64_t va)
 {
   clear_bit(va, HEMEM_DIRTY_FLAG);
 }
 
 
-uint64_t
-get_dirty_bit(uint64_t va)
+uint64_t get_dirty_bit(uint64_t va)
 {
   return get_bit(va, HEMEM_DIRTY_FLAG);
 }
@@ -316,14 +340,13 @@ get_dirty_bit(uint64_t va)
 FILE *ptes, *pdes, *pdtpes, *pml4es, *valid;
 
 
-void
-scan_fourth_level(uint64_t pde, bool clear_flag, uint64_t flag)
+void scan_fourth_level(uint64_t pde, bool clear_flag, uint64_t flag)
 {
   uint64_t *ptable4_ptr;
   uint64_t *pte_ptr;
   uint64_t pte;
 
-  ptable4_ptr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pde & ADDRESS_MASK);
+  ptable4_ptr = libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pde & ADDRESS_MASK);
   if (ptable4_ptr == MAP_FAILED) {
     perror("third level page table mmap");
     assert(0);
@@ -351,14 +374,13 @@ scan_fourth_level(uint64_t pde, bool clear_flag, uint64_t flag)
 }
 
 
-void
-scan_third_level(uint64_t pdtpe, bool clear_flag, uint64_t flag)
+void scan_third_level(uint64_t pdtpe, bool clear_flag, uint64_t flag)
 {
   uint64_t *ptable3_ptr;
   uint64_t *pde_ptr;
   uint64_t pde;
 
-  ptable3_ptr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pdtpe & ADDRESS_MASK);
+  ptable3_ptr = libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pdtpe & ADDRESS_MASK);
   if (ptable3_ptr == MAP_FAILED) {
     perror("third level page table mmap");
     assert(0);
@@ -383,14 +405,13 @@ scan_third_level(uint64_t pdtpe, bool clear_flag, uint64_t flag)
 }
 
 
-void
-scan_second_level(uint64_t pml4e, bool clear_flag, uint64_t flag)
+void scan_second_level(uint64_t pml4e, bool clear_flag, uint64_t flag)
 {
   uint64_t *ptable2_ptr;
   uint64_t *pdtpe_ptr;
   uint64_t pdtpe;
 
-  ptable2_ptr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pml4e & ADDRESS_MASK);
+  ptable2_ptr = libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pml4e & ADDRESS_MASK);
   if (ptable2_ptr == MAP_FAILED) {
     perror("second level page table mmap");
     assert(0);
@@ -415,8 +436,7 @@ scan_second_level(uint64_t pml4e, bool clear_flag, uint64_t flag)
 }
 
 
-void
-_scan_pagetable(bool clear_flag, uint64_t flag)
+void _scan_pagetable(bool clear_flag, uint64_t flag)
 {
   int *rootptr;
   uint64_t *pml4e_ptr;
@@ -452,7 +472,7 @@ _scan_pagetable(bool clear_flag, uint64_t flag)
     assert(0);
   }
 
-  rootptr = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, base & ADDRESS_MASK);
+  rootptr = libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, base & ADDRESS_MASK);
   if (rootptr == MAP_FAILED) {
     perror("/dev/mem mmap");
     assert(0);
@@ -475,15 +495,13 @@ _scan_pagetable(bool clear_flag, uint64_t flag)
   munmap(rootptr, PAGE_SIZE);
 }
 
-void
-scan_pagetable()
+void scan_pagetable()
 {
   _scan_pagetable(false, 0);
 }
 
 #ifdef EXAMINE_PGTABLES
-void
-*examine_pagetables()
+void *examine_pagetables()
 {
   FILE *maps;
   int pagemaps;
