@@ -7,7 +7,10 @@ LIBS = -lm -lpthread -ldl
 
 default: all
 
-all: gups-simple gups-lru gups-lru-swap test
+all: gups-simple gups-lru gups-lru-swap test test-simple
+
+test-simple: test.o libhemem-simple.so
+	$(CC) $(CFLAGS) $(INCLUDES) -o test-simple test.o $(LIBS) -L. -lhemem-simple
 
 test: test.o libhemem-lru.so
 	$(CC) $(CFLAGS) $(INCLUDES) -o test test.o $(LIBS) -L. -lhemem-lru

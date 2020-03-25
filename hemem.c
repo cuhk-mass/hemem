@@ -180,13 +180,13 @@ void hemem_init()
     assert(0);
   }
 
-  dram_devdax_mmap =libc_mmap(NULL, DRAMSIZE, PROT_READ | PROT_WRITE, MAP_SHARED, dramfd, 0);
+  dram_devdax_mmap =libc_mmap(NULL, DRAMSIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
   if (dram_devdax_mmap == MAP_FAILED) {
     perror("dram devdax mmap");
     assert(0);
   }
 
-  nvm_devdax_mmap =libc_mmap(NULL, NVMSIZE, PROT_READ | PROT_WRITE, MAP_SHARED, nvmfd, 0);
+  nvm_devdax_mmap =libc_mmap(NULL, NVMSIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
   if (nvm_devdax_mmap == MAP_FAILED) {
     perror("nvm devdax mmap");
     assert(0);
@@ -388,7 +388,7 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_framenum)
   uint64_t* dst = (uint64_t*)new_addr;
   for (int i = 0; i < (PAGE_SIZE / sizeof(uint64_t)); i++) {
     if (dst[i] != src[i]) {
-      LOG("dst[%d] = %lu != src[%d] = %lu\n", i, dst[i], i, src[i]);
+      LOG("hemem_migrate_up: dst[%d] = %lu != src[%d] = %lu\n", i, dst[i], i, src[i]);
       assert(dst[i] == src[i]);
     }
   }
@@ -405,6 +405,13 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_framenum)
   gettimeofday(&end, NULL);
   LOG_TIME("mmap_dram: %f s\n", elapsed(&start, &end));
 
+  /* for (int i = 0; i < (PAGE_SIZE / sizeof(uint64_t)); i++) { */
+  /*   if (dst[i] != src[i]) { */
+  /*     LOG("hemem_migrate_up: dst[%d] = %lu != src[%d] = %lu\n", i, dst[i], i, src[i]); */
+  /*     assert(dst[i] == src[i]); */
+  /*   } */
+  /* } */
+
   // re-register new mmap region with userfaultfd
   gettimeofday(&start, NULL);
   struct uffdio_register uffdio_register;
@@ -419,14 +426,14 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_framenum)
   gettimeofday(&end, NULL);
   LOG_TIME("uffdio_register: %f s\n", elapsed(&start, &end));
   
-  uint64_t* new = (uint64_t*)newptr;
-  for (int i = 0; i < (PAGE_SIZE / sizeof(uint64_t)); i++) {
-    if (new[i] != src[i]) {
-      LOG("new[%d] = %lu != src[%d] = %lu (dst[%d] = %lu)\n", i, new[i], i, src[i], i, dst[i]);
-      LOG("address of new[%d]: %lx, page: %lx\n", i, (uint64_t)&new[i], ((uint64_t)&new[i] & ~(PAGE_SIZE - 1)));
-      assert(new[i] == src[i]);
-    }
-  }
+  /* uint64_t* new = (uint64_t*)newptr; */
+  /* for (int i = 0; i < (PAGE_SIZE / sizeof(uint64_t)); i++) { */
+  /*   if (new[i] != src[i]) { */
+  /*     LOG("hemem_migrate_up: new[%d] = 0x%" PRIx64" != src[%d] = 0x%" PRIx64" (dst[%d] = 0x%" PRIx64")\n", i, new[i], i, src[i], i, dst[i]); */
+  /*     LOG("hemem_migrate_up: address of new[%d]: %lx, page: %lx\n", i, (uint64_t)&new[i], ((uint64_t)&new[i] & ~(PAGE_SIZE - 1))); */
+  /*     assert(new[i] == src[i]); */
+  /*   } */
+  /* } */
 
   page->migrations_up++;
   migrations_up++;
@@ -478,7 +485,7 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_framenum)
   uint64_t* dst = (uint64_t*)new_addr;
   for (int i = 0; i < (PAGE_SIZE / sizeof(uint64_t)); i++) {
     if (dst[i] != src[i]) {
-      LOG("dst[%d] = %lu != src[%d] = %lu\n", i, dst[i], i, src[i]);
+      LOG("hemem_migrate_down: dst[%d] = %lu != src[%d] = %lu\n", i, dst[i], i, src[i]);
       assert(dst[i] == src[i]);
     }
   }
@@ -509,14 +516,14 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_framenum)
   gettimeofday(&end, NULL);
   LOG_TIME("uffdio_register: %f s\n", elapsed(&start, &end));
   
-  uint64_t* new = (uint64_t*)newptr;
-  for (int i = 0; i < (PAGE_SIZE / sizeof(uint64_t)); i++) {
-    if (new[i] != src[i]) {
-      LOG("new[%d] = %lu != src[%d] = %lu(dst[%d] = %lu)\n", i, new[i], i, src[i], i, dst[i]);
-      LOG("address of new[%d]: %lx, page: %lx\n", i, (uint64_t)&new[i], ((uint64_t)&new[i] & ~(PAGE_SIZE - 1)));
-      assert(new[i] == src[i]);
-    }
-  }
+  /* uint64_t* new = (uint64_t*)newptr; */
+  /* for (int i = 0; i < (PAGE_SIZE / sizeof(uint64_t)); i++) { */
+  /*   if (new[i] != src[i]) { */
+  /*     LOG("hemem_migrate_down: new[%d] = %lu != src[%d] = %lu(dst[%d] = %lu)\n", i, new[i], i, src[i], i, dst[i]); */
+  /*     LOG("hemem_migrate_down: address of new[%d]: %lx, page: %lx\n", i, (uint64_t)&new[i], ((uint64_t)&new[i] & ~(PAGE_SIZE - 1))); */
+  /*     assert(new[i] == src[i]); */
+  /*   } */
+  /* } */
   
   page->migrations_down++;
   migrations_down++;

@@ -2,10 +2,6 @@
 
 #define HEMEM_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <pthread.h>
 #include <stdint.h>
 #include <inttypes.h>
@@ -20,6 +16,10 @@ extern "C" {
 #define _Atomic(X) std::atomic< X >
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "paging.h"
 #include "lru.h"
 #include "simple.h"
@@ -29,14 +29,14 @@ extern "C" {
 #define MEM_BARRIER() __sync_synchronize()
 
 #define NVMSIZE   (2750L * (1024L * 1024L * 1024L))
-#define DRAMSIZE  (16L * (1024L * 1024L * 1024L))
+#define DRAMSIZE  (128L * (1024L * 1024L * 1024L))
 
 #define DRAMPATH  "/dev/dax0.0"
 #define NVMPATH   "/dev/dax1.0"
 
 //#define PAGE_SIZE (1024 * 1024 * 1024)
 //#define PAGE_SIZE (2 * (1024 * 1024))
-#define BASEPAGE_SIZE	  (2UL * 1024UL)
+#define BASEPAGE_SIZE	  (4UL * 1024UL)
 #define HUGEPAGE_SIZE 	(2UL * 1024UL * 1024UL)
 #define PAGE_SIZE 	    HUGEPAGE_SIZE
 
@@ -63,7 +63,7 @@ FILE *timef;
 
 
 #define MAX_UFFD_MSGS	    (1)
-#define MAX_COPY_THREADS  (2)
+#define MAX_COPY_THREADS  (4)
 
 #define KSWAPD_INTERVAL   (1000000)
 

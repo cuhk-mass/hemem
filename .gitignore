@@ -8,6 +8,7 @@ gups-lru
 gups-simple
 gups-lru-swap
 test
+test-simple
 tester
 memsim/mmgr_simple
 memsim/mmgr_linux
