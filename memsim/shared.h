@@ -48,7 +48,7 @@
 #define SLOWMEM_MASK	(((uint64_t)1 << 63) - 1)
 
 #ifdef LOG_DEBUG
-#	define LOG(str, ...)	fprintf(stderr, "%zu " str, runtime, ##__VA_ARGS__)
+#	define LOG(str, ...)	fprintf(stderr, "%.2f " str, (double)runtime / 1000000000.0, ##__VA_ARGS__)
 #else
 #	define LOG(std, ...)	while(0) {}
 #endif
@@ -79,8 +79,10 @@ struct pte {
   bool readonly;
   bool accessed;
   bool modified;
-  _Atomic bool migration;	// Range is under migration
   _Atomic bool pagemap;		// This PTE maps a page
+
+  // OS bits
+  _Atomic bool migration;	// Range is under migration
 };
 
 // readonly is set if the page was a write to a read-only

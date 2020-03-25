@@ -188,6 +188,8 @@ static void move_hot(void)
   }
   tlb_shootdown(0);	// Sync
 
+  LOG("[HOT identified %zu bytes as hot]\n", transition_bytes);
+  
   // Move hot pages up (TODO: and defragment)
   while((p = dequeue_fifo(&transition[BASE])) != NULL) {
     struct page *np;
@@ -210,8 +212,9 @@ static void move_hot(void)
       goto again;
     }
 
-    LOG("[HOT vaddr 0x%" PRIx64 ", pt = %u] paddr 0x%" PRIx64 " -> 0x%" PRIx64 "\n",
-	p->vaddr, BASE, p->paddr, np->paddr);
+    LOG("[HOT vaddr 0x%" PRIx64 ", pt = %u] paddr 0x%" PRIx64 " -> 0x%" PRIx64
+	", fastmem_free = %" PRIu64 ", slowmem_free = %" PRIu64 "\n",
+	p->vaddr, BASE, p->paddr, np->paddr, fastmem_freebytes, slowmem_freebytes);
 
     move_memory(FASTMEM, SLOWMEM, page_size(BASE));
     fastmem_freebytes -= page_size(BASE);
@@ -258,6 +261,8 @@ static void move_cold(void)
   }
   tlb_shootdown(0);	// Sync
 
+  LOG("[COLD identified %zu bytes as cold]\n", transition_bytes);
+  
   // Move cold pages down (and split them to base pages)
   for(enum pagetypes pt = GIGA; pt < NPAGETYPES; pt++) {
     struct page *p;
@@ -276,8 +281,9 @@ static void move_cold(void)
 	assert(np != NULL);
 
 	if(i == 0) {
-	  LOG("[COLD vaddr 0x%" PRIx64 ", pt = %u] paddr 0x%" PRIx64 " -> 0x%" PRIx64 "\n",
-	      p->vaddr, pt, p->paddr, np->paddr);
+	  LOG("[COLD vaddr 0x%" PRIx64 ", pt = %u] paddr 0x%" PRIx64 " -> 0x%" PRIx64
+	      ", fastmem_free = %" PRIu64 ", slowmem_free = %" PRIu64 "\n",
+	      p->vaddr, pt, p->paddr, np->paddr, fastmem_freebytes, slowmem_freebytes);
 	}
 	
 	move_memory(SLOWMEM, FASTMEM, page_size(BASE));
@@ -322,9 +328,6 @@ static void cool(void)
 	}
 
 	sweeped += page_size(pt);
-	/* if(sweeped >= HEMEM_COOL_RATE) { */
-	/*   return; */
-	/* } */
       }
     }
 
@@ -356,11 +359,8 @@ static void thaw(void)
 	} else {
 	  enqueue_fifo(&mem_inactive[mt][pt], p);
 	}
-
+	
 	sweeped += page_size(pt);
-	/* if(sweeped >= HEMEM_THAW_RATE) { */
-	/*   return; */
-	/* } */
       }
     }
 
