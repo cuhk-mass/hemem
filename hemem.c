@@ -149,7 +149,7 @@ void hemem_init()
   }
 
   uffdio_api.api = UFFD_API;
-  uffdio_api.features = UFFD_FEATURE_PAGEFAULT_FLAG_WP |  UFFD_FEATURE_MISSING_SHMEM | UFFD_FEATURE_MISSING_HUGETLBFS;
+  uffdio_api.features = UFFD_FEATURE_PAGEFAULT_FLAG_WP |  UFFD_FEATURE_MISSING_SHMEM | UFFD_FEATURE_MISSING_HUGETLBFS;// | UFFD_FEATURE_EVENT_UNMAP | UFFD_FEATURE_EVENT_REMOVE;
   uffdio_api.ioctls = 0;
   if (ioctl(uffd, UFFDIO_API, &uffdio_api) == -1) {
     perror("ioctl uffdio_api");
@@ -606,6 +606,7 @@ void handle_missing_fault(uint64_t page_boundry)
   struct timeval start, end;
   struct hemem_page *page;
   uint64_t offset;
+  void* tmp_offset;
   bool in_dram;
 
   // have we seen this page before?
@@ -632,6 +633,16 @@ void handle_missing_fault(uint64_t page_boundry)
   LOG_TIME("page_fault: %f s\n", elapsed(&start, &end));
   offset = page->devdax_offset;
   in_dram = page->in_dram;
+
+  tmp_offset = (in_dram) ? dram_devdax_mmap + offset : nvm_devdax_mmap + offset;
+
+  memset(tmp_offset, 0, PAGE_SIZE);
+  memsets++;
+
+  char* tmp = (char*)tmp_offset;
+  for (int i = 0; i < PAGE_SIZE; i++) {
+    assert(tmp[i] == 0);
+  }
   
   // now that we have an offset determined via the policy algorithm, actually map
   // the page for the application
@@ -647,14 +658,6 @@ void handle_missing_fault(uint64_t page_boundry)
   
   if (newptr != (void*)page_boundry) {
     printf("hemem: handle missing fault: warning, newptr != page boundry\n");
-  }
-
-  memset(newptr, 0, PAGE_SIZE);
-  memsets++;
-
-  char* tmp = (char*)newptr;
-  for (int i = 0; i < PAGE_SIZE; i++) {
-    assert(tmp[i] == 0);
   }
 
   gettimeofday(&start, NULL);
@@ -793,8 +796,17 @@ void *handle_fault()
           assert(0);
         }
       }
+      else if (msg[i].event & UFFD_EVENT_UNMAP){
+        printf("Received an unmap event\n");
+        assert(0);
+      }
+      else if (msg[i].event & UFFD_EVENT_REMOVE) {
+        printf("received a remove event\n");
+        assert(0);
+      }
       else {
-        printf("Received a non page fault event\n");
+        printf("received a non page fault event\n");
+        assert(0);
       }
     }
   }

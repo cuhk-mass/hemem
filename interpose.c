@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+//#include <libsyscall_intercept_hook_point.h>
+#include <syscall.h>
 #include <errno.h>
 #define __USE_GNU
 #include <dlfcn.h>
@@ -12,6 +14,8 @@
 
 void* (*libc_mmap)(void *addr, size_t length, int prot, int flags, int fd, off_t offset) = NULL;
 int (*libc_munmap)(void *addr, size_t length) = NULL;
+void* mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
+int munmap(void *addr, size_t length);
 
 static void* bind_symbol(const char *sym)
 {
@@ -22,11 +26,23 @@ static void* bind_symbol(const char *sym)
   }
   return ptr;
 }
-
+/*
+static int hook(long syscall_number, long arg0, long arg1, long arg2, long arg3,	long arg4, long arg5,	long *result)
+{
+	if (syscall_number == SYS_mmap) {
+    printf("hook: calling mmap\n");
+		*result = (long)mmap((void*)arg0, (size_t)arg1, (int)arg2, (int)arg3, (int)arg4, (off_t)arg5);
+	} else {
+    // ignore non-mmap system calls
+		return 1;
+	}
+}
+*/
 static void init(void)
 {
   libc_mmap = bind_symbol("mmap");
   libc_munmap = bind_symbol("munmap");
+  //intercept_hook_point = hook;
 
   hemem_init();
 }

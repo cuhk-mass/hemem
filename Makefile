@@ -3,7 +3,8 @@ CC = gcc
 CFLAGS = -g3 -Wall -O0 -fPIC
 LDFLAGS = -shared
 INCLUDES = -I/root/hmem/linux/usr/include
-LIBS = -lm -lpthread -ldl
+LIBS = -lm -lpthread
+HEMEM_LIBS = $(LIBS) -ldl #-lsyscall_intercept
 
 default: all
 
@@ -28,13 +29,13 @@ gups.o: gups.c zipf.c hemem.h timer.h gups.h
 	$(CC) $(CFLAGS) $(INCLUDES) -c gups.c zipf.c
 
 libhemem-lru.so: hemem-lru.o lru.o timer.o paging.o interpose.o
-	$(CC) $(LDFLAGS) -o libhemem-lru.so hemem-lru.o timer.o paging.o lru.o interpose.o
+	$(CC) $(LDFLAGS) -o libhemem-lru.so hemem-lru.o timer.o paging.o lru.o interpose.o $(HEMEM_LIBS)
 
 libhemem-simple.so: hemem-simple.o simple.o timer.o paging.o interpose.o
-	$(CC) $(LDFLAGS) -o libhemem-simple.so hemem-simple.o timer.o paging.o simple.o interpose.o
+	$(CC) $(LDFLAGS) -o libhemem-simple.so hemem-simple.o timer.o paging.o simple.o interpose.o $(HEMEM_LIBS)
 
 libhemem-lru-swap.so: hemem-lru-swap.o lru_swap.o timer.o paging.o interpose.o
-	$(CC) $(LDFLAGS) -o libhemem-lru-swap.so hemem-lru-swap.o timer.o paging.o lru_swap.o interpose.o
+	$(CC) $(LDFLAGS) -o libhemem-lru-swap.so hemem-lru-swap.o timer.o paging.o lru_swap.o interpose.o $(HEMEM_LIBS)
 
 hemem-lru.o: hemem.c hemem.h paging.h lru.h interpose.h
 	$(CC) $(CFLAGS) $(INCLUDES) -D ALLOC_LRU -c hemem.c -o hemem-lru.o
