@@ -50,8 +50,8 @@ FILE *hememlogf;
 
 
 FILE *timef;
-//#define LOG_TIME(str, ...) fprintf(timef, str, __VA_ARGS__)
-#define LOG_TIME(str, ...) while(0) {}
+#define LOG_TIME(str, ...) fprintf(timef, str, __VA_ARGS__)
+//#define LOG_TIME(str, ...) while(0) {}
 
 #if defined (ALLOC_LRU)
   #define pagefault(...) lru_pagefault(__VA_ARGS__)
@@ -63,7 +63,7 @@ FILE *timef;
 
 
 #define MAX_UFFD_MSGS	    (1)
-#define MAX_COPY_THREADS  (4)
+#define MAX_COPY_THREADS  (1)
 
 #define KSWAPD_INTERVAL   (1000000)
 
@@ -72,6 +72,8 @@ extern int devmemfd;
 extern _Atomic(uint64_t) missing_faults_handled;
 extern _Atomic(uint64_t) migrations_up;
 extern _Atomic(uint64_t) migrations_down;
+extern __thread bool intercept_this_call;
+extern __thread bool old_intercept_this_call;
 
 struct hemem_page {
   uint64_t va;

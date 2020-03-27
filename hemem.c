@@ -46,6 +46,9 @@ pthread_t copy_threads[MAX_COPY_THREADS];
 void *dram_devdax_mmap;
 void *nvm_devdax_mmap;
 
+__thread bool intercept_this_call = false;
+__thread bool old_intercept_this_call = false;
+
 struct pmemcpy {
   _Atomic void *dst;
   _Atomic void *src;
@@ -128,6 +131,8 @@ struct hemem_page* find_page(uint64_t va)
 
 void hemem_init()
 {
+  old_intercept_this_call = intercept_this_call;
+  intercept_this_call = false;
   struct uffdio_api uffdio_api;
 
   dramfd = open(DRAMPATH, O_RDWR);
@@ -195,6 +200,7 @@ void hemem_init()
   paging_init();
 
   init = true;
+  intercept_this_call = old_intercept_this_call;
 }
 
 static void hemem_mmap_populate(void* addr, size_t length)
@@ -208,6 +214,7 @@ static void hemem_mmap_populate(void* addr, size_t length)
   void* page_boundry;
   uint64_t npages;
   int i;
+  void* tmpaddr;
 
 
   npages = length / PAGE_SIZE;
@@ -225,6 +232,10 @@ static void hemem_mmap_populate(void* addr, size_t length)
     pagefault(page); 
     offset = page->devdax_offset;
     in_dram = page->in_dram;
+
+    tmpaddr = (in_dram ? dram_devdax_mmap + offset : nvm_devdax_mmap + offset);
+    memset(tmpaddr, 0, PAGE_SIZE);
+    memsets++;
   
     // now that we have an offset determined via the policy algorithm, actually map
     // the page for the application
@@ -238,9 +249,6 @@ static void hemem_mmap_populate(void* addr, size_t length)
     if (newptr != (void*)page_boundry) {
       printf("hemem: mmap populate: warning, newptr != page boundry\n");
     }
-
-    memset(newptr, 0, PAGE_SIZE);
-    memsets++;
 
     // re-register new mmap region with userfaultfd
     struct uffdio_register uffdio_register;
@@ -343,12 +351,18 @@ static void hemem_parallel_memcpy(void *dst, void *src, size_t length)
   pmemcpy.length = length;
 
   for (i = 0; i < MAX_COPY_THREADS; i++) {
+    old_intercept_this_call = intercept_this_call;
+    intercept_this_call = false;
     r = pthread_create(&copy_threads[i], NULL, hemem_parallel_memcpy_thread, (void*)i);
     assert(r == 0);
+    intercept_this_call = old_intercept_this_call;
   }
   for (i = 0; i < MAX_COPY_THREADS; i++) {
+    old_intercept_this_call = intercept_this_call;
+    intercept_this_call = false;
     r = pthread_join(copy_threads[i], NULL);
     assert(r == 0);
+    intercept_this_call = old_intercept_this_call;
   }
 }
 
@@ -383,7 +397,8 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_framenum)
   hemem_parallel_memcpy(new_addr, old_addr, PAGE_SIZE);
   gettimeofday(&end, NULL);
   LOG_TIME("memcpy_to_dram: %f s\n", elapsed(&start, &end));
-  
+ 
+#ifdef HEMEM_DEBUG 
   uint64_t* src = (uint64_t*)old_addr;
   uint64_t* dst = (uint64_t*)new_addr;
   for (int i = 0; i < (PAGE_SIZE / sizeof(uint64_t)); i++) {
@@ -392,6 +407,7 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_framenum)
       assert(dst[i] == src[i]);
     }
   }
+#endif
 
   gettimeofday(&start, NULL);
   newptr = libc_mmap((void*)page->va, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, new_addr_offset);
@@ -404,13 +420,6 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_framenum)
   }
   gettimeofday(&end, NULL);
   LOG_TIME("mmap_dram: %f s\n", elapsed(&start, &end));
-
-  /* for (int i = 0; i < (PAGE_SIZE / sizeof(uint64_t)); i++) { */
-  /*   if (dst[i] != src[i]) { */
-  /*     LOG("hemem_migrate_up: dst[%d] = %lu != src[%d] = %lu\n", i, dst[i], i, src[i]); */
-  /*     assert(dst[i] == src[i]); */
-  /*   } */
-  /* } */
 
   // re-register new mmap region with userfaultfd
   gettimeofday(&start, NULL);
@@ -425,15 +434,6 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_framenum)
   }
   gettimeofday(&end, NULL);
   LOG_TIME("uffdio_register: %f s\n", elapsed(&start, &end));
-  
-  /* uint64_t* new = (uint64_t*)newptr; */
-  /* for (int i = 0; i < (PAGE_SIZE / sizeof(uint64_t)); i++) { */
-  /*   if (new[i] != src[i]) { */
-  /*     LOG("hemem_migrate_up: new[%d] = 0x%" PRIx64" != src[%d] = 0x%" PRIx64" (dst[%d] = 0x%" PRIx64")\n", i, new[i], i, src[i], i, dst[i]); */
-  /*     LOG("hemem_migrate_up: address of new[%d]: %lx, page: %lx\n", i, (uint64_t)&new[i], ((uint64_t)&new[i] & ~(PAGE_SIZE - 1))); */
-  /*     assert(new[i] == src[i]); */
-  /*   } */
-  /* } */
 
   page->migrations_up++;
   migrations_up++;
@@ -481,6 +481,7 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_framenum)
   gettimeofday(&end, NULL);
   LOG_TIME("memcpy_to_nvm: %f s\n", elapsed(&start, &end));
 
+#ifdef HEMEM_DEBUG
   uint64_t* src = (uint64_t*)old_addr;
   uint64_t* dst = (uint64_t*)new_addr;
   for (int i = 0; i < (PAGE_SIZE / sizeof(uint64_t)); i++) {
@@ -489,6 +490,7 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_framenum)
       assert(dst[i] == src[i]);
     }
   }
+#endif
   
   gettimeofday(&start, NULL);
   newptr = libc_mmap((void*)page->va, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, new_addr_offset);
@@ -516,15 +518,6 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_framenum)
   gettimeofday(&end, NULL);
   LOG_TIME("uffdio_register: %f s\n", elapsed(&start, &end));
   
-  /* uint64_t* new = (uint64_t*)newptr; */
-  /* for (int i = 0; i < (PAGE_SIZE / sizeof(uint64_t)); i++) { */
-  /*   if (new[i] != src[i]) { */
-  /*     LOG("hemem_migrate_down: new[%d] = %lu != src[%d] = %lu(dst[%d] = %lu)\n", i, new[i], i, src[i], i, dst[i]); */
-  /*     LOG("hemem_migrate_down: address of new[%d]: %lx, page: %lx\n", i, (uint64_t)&new[i], ((uint64_t)&new[i] & ~(PAGE_SIZE - 1))); */
-  /*     assert(new[i] == src[i]); */
-  /*   } */
-  /* } */
-  
   page->migrations_down++;
   migrations_down++;
 
@@ -547,15 +540,6 @@ void hemem_wp_page(struct hemem_page *page, bool protect)
   struct timeval start, end;
 
   LOG("hemem_wp_page: wp addr %lx pte: %lx\n", addr, hemem_va_to_pa(addr));
-/*
-  // unmap page entirely during migration to prevent any access by process
- LOG("Write protect va: 0x%lx\n", addr);
-  ret = libc_munmap((void*)addr, PAGE_SIZE);
-  if (ret < 0) {
-    perror("munmap\n");
-    assert(0);
-  }
-  */
 
   gettimeofday(&start, NULL);
   wp.range.start = addr;
@@ -639,11 +623,13 @@ void handle_missing_fault(uint64_t page_boundry)
   memset(tmp_offset, 0, PAGE_SIZE);
   memsets++;
 
+#ifdef HEMEM_DEBUG
   char* tmp = (char*)tmp_offset;
   for (int i = 0; i < PAGE_SIZE; i++) {
     assert(tmp[i] == 0);
   }
-  
+#endif
+
   // now that we have an offset determined via the policy algorithm, actually map
   // the page for the application
   gettimeofday(&start, NULL);
