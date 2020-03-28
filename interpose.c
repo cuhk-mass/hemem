@@ -29,6 +29,11 @@ void* tmp_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t off
     return libc_mmap(addr, length, prot, flags, fd, offset);
   }
 
+  if ((flags & MAP_STACK) == MAP_STACK) {
+    // pthread mmaps are called with MAP_STACK
+    return libc_mmap(addr, length, prot, flags, fd, offset);
+  }
+
   if ((ret = hemem_mmap(addr, length, prot, flags, fd, offset)) == MAP_FAILED) {
     // hemem failed for some reason, try libc
     LOG("hemem mmap failed\n\tmmap(0x%lx, %ld, %x, %x, %d, %ld)\n", (uint64_t)addr, length, prot, flags, fd, offset);
@@ -83,7 +88,7 @@ static __attribute__((constructor)) void init(void)
 
   hemem_init();
 }
-
+/*
 void* malloc(size_t size)
 {
   void* ret;
@@ -102,3 +107,4 @@ void free(void* ptr)
   intercept_this_call = old_intercept_this_call;
 
 }
+*/
