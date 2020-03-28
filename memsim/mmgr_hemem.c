@@ -13,8 +13,8 @@
 
 // Keep at least 10% of fastmem free
 #define HEMEM_FASTFREE		(FASTMEM_SIZE / 10)
-#define HEMEM_COOL_RATE		GB(5)	// Cool bytes per HEMEM_INTERVAL
-#define HEMEM_THAW_RATE		GB(5)	// Warm bytes per HEMEM_INTERVAL
+#define HEMEM_COOL_RATE		GB(10)	// Cool bytes per HEMEM_INTERVAL
+#define HEMEM_THAW_RATE		(SLOWMEM_SIZE + FASTMEM_SIZE)	// Warm bytes per HEMEM_INTERVAL
 
 #define FASTMEM_GIGA_PAGES     	(FASTMEM_SIZE / GIGA_PAGE_SIZE)
 #define FASTMEM_HUGE_PAGES     	(FASTMEM_SIZE / HUGE_PAGE_SIZE)
@@ -219,7 +219,8 @@ static void move_hot(void)
     move_memory(FASTMEM, SLOWMEM, page_size(BASE));
     fastmem_freebytes -= page_size(BASE);
     slowmem_freebytes += page_size(BASE);
-    np->pte = alloc_ptables(p->vaddr, BASE, np->paddr);
+    np->vaddr = p->vaddr;
+    np->pte = alloc_ptables(np->vaddr, BASE, np->paddr);
     assert(np->pte != NULL && np->pte == p->pte);
     enqueue_fifo(&mem_active[FASTMEM][BASE], np);
 
@@ -256,8 +257,27 @@ static void move_cold(void)
 
  move:
   if(transition_bytes == 0) {
-    // Everything is hot -- nothing to move
-    return;
+    if(fastmem_freebytes < HEMEM_FASTFREE) {
+      LOG("[COLD emergency cooling -- picking random pages]\n");
+      // If low on memory and all is hot, we pick random pages to move down
+      for(enum pagetypes pt = GIGA; pt < NPAGETYPES; pt++) {
+	struct page *p;
+	while((p = dequeue_fifo(&mem_active[FASTMEM][pt])) != NULL) {
+	  enqueue_fifo(&transition[pt], p);
+
+	  p->pte->readonly = true;
+	  p->pte->migration = true;
+	  // Until enough free fastmem
+	  transition_bytes += page_size(pt);
+	  if(fastmem_freebytes + transition_bytes >= HEMEM_FASTFREE) {
+	    goto move;
+	  }
+	}
+      }
+    } else {
+      // Everything is hot and we're not low on fastmem -- nothing to move
+      return;
+    }
   }
   tlb_shootdown(0);	// Sync
 
@@ -354,6 +374,10 @@ static void thaw(void)
 	  continue;
 	}
 
+	if(p->vaddr < 1048576) {
+	  LOG("[THAW vaddr 0x%" PRIu64 "] accessed = %u\n", p->vaddr, p->pte->accessed);
+	}
+	
 	if(p->pte->accessed) {
 	  enqueue_fifo(&mem_active[mt][pt], p);
 	} else {
@@ -389,14 +413,14 @@ static void *hemem_thread(void *arg)
     // XXX: Can comment out for less overhead & accuracy
     tlb_shootdown(0);	// Sync active bit changes in TLB
 
-    // Always try to move hot memory up
-    if(fastmem_freebytes > 0) {
-      move_hot();
-    }
-
     // Move cold memory down if under memory pressure?
     if(fastmem_freebytes < HEMEM_FASTFREE) {
       move_cold();
+    }
+    
+    // Always try to move hot memory up
+    if(fastmem_freebytes > 0) {
+      move_hot();
     }
 
     tlb_shootdown(0);	// sync

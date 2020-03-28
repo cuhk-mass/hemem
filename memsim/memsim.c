@@ -252,10 +252,10 @@ static void memaccess(uint64_t addr, enum access_type type)
 	assert(!pte->readonly || type != TYPE_WRITE);
       }
 
-      if(!pte->accessed && pte->pagemap) {
-	LOG("[%s vaddr 0x%" PRIx64 ", pt %u], paddr 0x%" PRIx64 "\n",
-	    type == TYPE_WRITE ? "MODIFIED" : "ACCESSED",
-	    addr & pfn_mask(level - 2), level - 2, pte->addr);
+      if(!pte->accessed && pte->pagemap && addr < 1048576) {
+      	LOG("[%s vaddr 0x%" PRIx64 ", pt %u], paddr 0x%" PRIx64 "\n",
+      	    type == TYPE_WRITE ? "MODIFIED" : "ACCESSED",
+      	    addr & pfn_mask(level - 2), level - 2, pte->addr);
       }
       pte->accessed = true;
       if(type == TYPE_WRITE) {
@@ -418,11 +418,11 @@ int main(int argc, char *argv[])
   // GUPS!
   gups(10000000, 0, hotset_size, 0.9, WORKSET_SIZE);
   print_stats();
-  reset_stats();
+  /* reset_stats(); */
 
-  // Move hotset up
-  gups(10000000, WORKSET_SIZE - hotset_size, hotset_size, 0.9, WORKSET_SIZE);
+  /* // Move hotset up */
+  /* gups(10000000, WORKSET_SIZE - hotset_size, hotset_size, 0.9, WORKSET_SIZE); */
 
-  print_stats();
+  /* print_stats(); */
   return 0;
 }
