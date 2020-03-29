@@ -27,7 +27,7 @@ mmgr_hemem: mmgr_hemem.o memsim.o
 %.results.txt: %
 	./$< $(HOTSET_SIZE) > $@
 
-results.txt: mmgr_simple.results.txt mmgr_simple_mmm.results.txt mmgr_hemem.results.txt #mmgr_linux.results.txt
+results.txt: mmgr_simple.results.txt mmgr_simple_mmm.results.txt mmgr_hemem.results.txt mmgr_linux.results.txt
 	/bin/echo -ne "Benchmark\ttime [us]\tDRAM accesses\tNVM accesses\tTLB misses\tTLB hits\tTLB shootdowns\tpagefaults\t(MMM misses)\n" > results.txt
 	cat $^ >> results.txt
 
