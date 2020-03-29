@@ -418,11 +418,11 @@ int main(int argc, char *argv[])
   // GUPS!
   gups(10000000, 0, hotset_size, 0.9, WORKSET_SIZE);
   print_stats();
-  /* reset_stats(); */
+  reset_stats();
 
-  /* // Move hotset up */
-  /* gups(10000000, WORKSET_SIZE - hotset_size, hotset_size, 0.9, WORKSET_SIZE); */
+  // Move hotset up
+  gups(10000000, WORKSET_SIZE - hotset_size, hotset_size, 0.9, WORKSET_SIZE);
 
-  /* print_stats(); */
+  print_stats();
   return 0;
 }
