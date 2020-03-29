@@ -65,7 +65,7 @@ void add_runtime(size_t delta)
   }
   
   if(runtime - oldruntime > 1000000) {	// Every millisecond
-    /* fprintf(stderr, "Runtime: %.3f       \r", (float)runtime / 1000000000.0); */
+    fprintf(stderr, "Runtime: %.3f       \r", (float)runtime / 1000000000.0);
     oldruntime = runtime;
   }
 }

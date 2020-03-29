@@ -26,8 +26,7 @@ struct fifo_queue {
 };
 
 static struct pte pml4[512]; // Top-level page table (we only emulate one process)
-static struct fifo_queue pages_active[NMEMTYPES], pages_inactive[NMEMTYPES];
-static bool fastmem_bitmap[FASTMEM_PAGES], slowmem_bitmap[SLOWMEM_PAGES];
+static struct fifo_queue pages_active[NMEMTYPES], pages_inactive[NMEMTYPES], pages_free[NMEMTYPES];
 static pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
 static bool __thread in_kswapd = false;
 
@@ -173,38 +172,28 @@ static void *kswapd(void *arg)
     // Move hot pages from slowmem to fastmem
     for(struct page *p = dequeue_fifo(&pages_active[SLOWMEM]); p != NULL;
 	p = dequeue_fifo(&pages_active[SLOWMEM])) {
-      bool moved = false;
+      for(int tries = 0; tries < 2; tries++) {
+	struct page *np = dequeue_fifo(&pages_free[FASTMEM]);
 
-      for(int tries = 0; tries < 2 && !moved; tries++) {
-	for(uint64_t i = 0; i < FASTMEM_PAGES; i++) {
-	  if(fastmem_bitmap[i] == false) {
-	    fastmem_bitmap[i] = true;
+	if(np != NULL) {
+	  LOG("%zu cold (%" PRIu64 ") -> hot (%" PRIu64 "), "
+	      "slowmem.active = %zu, slowmem.inactive = %zu\n",
+	      runtime,
+	      p->framenum, np->framenum,
+	      pages_active[SLOWMEM].numentries,
+	      pages_inactive[SLOWMEM].numentries);
 
-	    // Free slowmem
-	    slowmem_bitmap[p->framenum] = false;
+	  // Remap page
+	  np->pte = p->pte;
+	  np->pte->addr = np->framenum * BASE_PAGE_SIZE;
+	  tlb_shootdown(0);
 
-	    LOG("%zu cold (%" PRIu64 ") -> hot (%" PRIu64 "), "
-		"slowmem.active = %zu, slowmem.inactive = %zu\n",
-		runtime,
-		p->framenum, i,
-		pages_active[SLOWMEM].numentries,
-		pages_inactive[SLOWMEM].numentries);
+	  // Put on fastmem active list
+	  enqueue_fifo(&pages_active[FASTMEM], np);
 
-	    // Remap page
-	    tlb_shootdown(p->framenum * BASE_PAGE_SIZE);
-	    p->framenum = i;
-	    p->pte->addr = p->framenum * BASE_PAGE_SIZE;
+	  // Free slowmem
+	  enqueue_fifo(&pages_free[SLOWMEM], p);
 
-	    // Put on fastmem active list
-	    enqueue_fifo(&pages_active[FASTMEM], p);
-
-	    moved = true;
-	    break;
-	  }
-	}
-
-	if(moved) {
-	  // Page moved -- we're done for this page
 	  break;
 	}
 
@@ -216,25 +205,19 @@ static void *kswapd(void *arg)
 	  goto out;
 	}
 
-	for(uint64_t i = 0; i < SLOWMEM_PAGES; i++) {
-	  if(slowmem_bitmap[i] == false) {
-	    slowmem_bitmap[i] = true;
+	np = dequeue_fifo(&pages_free[SLOWMEM]);
+	if(np != NULL) {
+	  // Remap page
+	  np->pte = cp->pte;
+	  np->pte->addr = (np->framenum * BASE_PAGE_SIZE) | SLOWMEM_BIT;
+	  tlb_shootdown(0);
 
-	    // Free fastmem
-	    fastmem_bitmap[cp->framenum] = false;
+	  // Put on slowmem inactive list
+	  enqueue_fifo(&pages_inactive[SLOWMEM], np);
 
-	    // Remap page
-	    tlb_shootdown(cp->framenum * BASE_PAGE_SIZE);
-	    cp->framenum = i;
-	    cp->pte->addr = (cp->framenum * BASE_PAGE_SIZE) | SLOWMEM_BIT;
-
-	    // Put on slowmem inactive list
-	    enqueue_fifo(&pages_inactive[SLOWMEM], cp);
-
-	    /* fprintf(stderr, "%zu hot -> cold\n", runtime); */
-
-	    break;
-	  }
+	  // Free fastmem
+	  enqueue_fifo(&pages_free[FASTMEM], cp);
+	  /* fprintf(stderr, "%zu hot -> cold\n", runtime); */
 	}
       }
     }
@@ -252,18 +235,14 @@ static uint64_t getmem(uint64_t addr, struct pte *pte)
 
   for(int tries = 0; tries < 2; tries++) {
     // Allocate from fastmem, put on active FIFO queue
-    for(uint64_t i = 0; i < FASTMEM_PAGES; i++) {
-      if(fastmem_bitmap[i] == false) {
-	fastmem_bitmap[i] = true;
+    struct page *newpage = dequeue_fifo(&pages_free[FASTMEM]);
 
-	struct page *newpage = calloc(1, sizeof(struct page));
-	newpage->framenum = i;
-	newpage->pte = pte;
-	enqueue_fifo(&pages_active[FASTMEM], newpage);
+    if(newpage != NULL) {
+      newpage->pte = pte;
+      enqueue_fifo(&pages_active[FASTMEM], newpage);
 
-	pthread_mutex_unlock(&global_lock);
-	return newpage->framenum * BASE_PAGE_SIZE;
-      }
+      pthread_mutex_unlock(&global_lock);
+      return newpage->framenum * BASE_PAGE_SIZE;
     }
 
     // Move a page to cold memory
@@ -275,33 +254,27 @@ static uint64_t getmem(uint64_t addr, struct pte *pte)
 
     // Move a cold page from fastmem to slowmem
     struct page *p = dequeue_fifo(&pages_inactive[FASTMEM]);
-    for(uint64_t i = 0; i < SLOWMEM_PAGES; i++) {
-      if(slowmem_bitmap[i] == false) {
-	slowmem_bitmap[i] = true;
-
-	// Emulate memory copy from fast to slow mem
-	if(!in_kswapd) {
-	  add_runtime(TIME_SLOWMOVE);
-	}
-
-	// Free fastmem
-	fastmem_bitmap[p->framenum] = false;
-
-	LOG("%zu OOM hot (%" PRIu64 ") -> cold (%" PRIu64 ")\n",
-	    runtime, p->framenum, i);
-
-	// Remap page
-	tlb_shootdown(p->framenum * BASE_PAGE_SIZE);
-	p->framenum = i;
-	p->pte->addr = (p->framenum * BASE_PAGE_SIZE) | SLOWMEM_BIT;
-
-	// Put on slowmem inactive list
-	enqueue_fifo(&pages_inactive[SLOWMEM], p);
-
-	break;
+    struct page *np = dequeue_fifo(&pages_free[SLOWMEM]);
+    if(np != NULL) {
+      // Emulate memory copy from fast to slow mem
+      if(!in_kswapd) {
+	add_runtime(TIME_SLOWMOVE);
       }
-    }
 
+      LOG("%zu OOM hot (%" PRIu64 ") -> cold (%" PRIu64 ")\n",
+	  runtime, p->framenum, np->framenum);
+
+      // Remap page
+      np->pte = p->pte;
+      np->pte->addr = (np->framenum * BASE_PAGE_SIZE) | SLOWMEM_BIT;
+      tlb_shootdown(0);
+
+      // Put on slowmem inactive list
+      enqueue_fifo(&pages_inactive[SLOWMEM], np);
+
+      // Free fastmem
+      enqueue_fifo(&pages_free[FASTMEM], p);
+    }
   }
 
   pthread_mutex_unlock(&global_lock);
@@ -343,6 +316,17 @@ void pagefault(uint64_t addr, bool readonly)
 void mmgr_init(void)
 {
   cr3 = pml4;
+
+  struct page *p = calloc(FASTMEM_PAGES, sizeof(struct page));
+  for(int i = 0; i < FASTMEM_PAGES; i++) {
+    p[i].framenum = i;
+    enqueue_fifo(&pages_free[FASTMEM], &p[i]);
+  }
+  p = calloc(SLOWMEM_PAGES, sizeof(struct page));
+  for(int i = 0; i < SLOWMEM_PAGES; i++) {
+    p[i].framenum = i;
+    enqueue_fifo(&pages_free[SLOWMEM], &p[i]);
+  }
   
   pthread_t thread;
   int r = pthread_create(&thread, NULL, kswapd, NULL);
