@@ -28,7 +28,7 @@ pthread_t fault_thread;
 int dramfd = -1;
 int nvmfd = -1;
 long uffd = -1;
-static bool init = false;
+bool is_init = false;
 _Atomic uint64_t mem_allocated = 0;
 _Atomic uint64_t fastmem_allocated = 0;
 _Atomic uint64_t slowmem_allocated = 0;
@@ -46,8 +46,8 @@ pthread_t copy_threads[MAX_COPY_THREADS];
 void *dram_devdax_mmap;
 void *nvm_devdax_mmap;
 
-__thread bool intercept_this_call = false;
-__thread bool old_intercept_this_call = false;
+__thread bool intercept_this_call = true;
+__thread bool old_intercept_this_call = true;
 
 struct pmemcpy {
   _Atomic void *dst;
@@ -135,6 +135,8 @@ void hemem_init()
   intercept_this_call = false;
   struct uffdio_api uffdio_api;
 
+  LOG("hemem_init: started\n");
+
   dramfd = open(DRAMPATH, O_RDWR);
   if (dramfd < 0) {
     perror("dram open");
@@ -199,8 +201,10 @@ void hemem_init()
   
   paging_init();
 
-  init = true;
+  is_init = true;
   intercept_this_call = old_intercept_this_call;
+
+  LOG("hemem_init: finished\n");
 }
 
 static void hemem_mmap_populate(void* addr, size_t length)
@@ -281,7 +285,7 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
   void *p;
   struct uffdio_base uffdio_base;
  
-  assert(init);
+  assert(is_init);
 
   if ((flags & MAP_PRIVATE) == MAP_PRIVATE) {
     flags &= ~MAP_PRIVATE;

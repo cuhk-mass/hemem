@@ -165,6 +165,10 @@ int main(int argc, char **argv)
   printf("%ld byte element size (%ld elements total)\n", elt_size, size / elt_size);
 
   p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+  if (p == MAP_FAILED) {
+    perror("mmap");
+    assert(0);
+  }
 
   gettimeofday(&stoptime, NULL);
   printf("Init took %.4f seconds\n", elapsed(&starttime, &stoptime));

@@ -4,7 +4,7 @@ CFLAGS = -g3 -Wall -O0 -fPIC
 LDFLAGS = -shared
 INCLUDES = -I/root/hmem/linux/usr/include
 LIBS = -lm -lpthread
-HEMEM_LIBS = $(LIBS) -ldl #-lsyscall_intercept
+HEMEM_LIBS = $(LIBS) -ldl -lsyscall_intercept
 
 default: all
 

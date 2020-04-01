@@ -307,6 +307,8 @@ void lru_init(void)
   uint64_t i;
   struct lru_node *n;
 
+  LOG("lru_init: started\n");
+
   n = calloc(FASTMEM_PAGES, sizeof(struct lru_node));
   for (i = 0; i < FASTMEM_PAGES; i++) {
     n[i].framenum = i;
@@ -327,5 +329,7 @@ void lru_init(void)
 #else
   LOG("Memory management policy is LRU-swap\n");
 #endif
+
+  LOG("lru_init: finished\n");
 
 }
