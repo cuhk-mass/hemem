@@ -18,7 +18,7 @@ int (*libc_munmap)(void *addr, size_t length) = NULL;
 void* (*libc_malloc)(size_t size) = NULL;
 void (*libc_free)(void* ptr) = NULL;
 
-static int mmap_filter(void *addr, size_t length, int prot, int flags, int fd, off_t offset, void *result)
+static int mmap_filter(void *addr, size_t length, int prot, int flags, int fd, off_t offset, uint64_t *result)
 {
   //ensure_init();
 
@@ -41,6 +41,11 @@ static int mmap_filter(void *addr, size_t length, int prot, int flags, int fd, o
     //    return libc_mmap(addr, length, prot, flags, fd, offset);
   }
 
+  if ((flags & MAP_NORESERVE) == MAP_NORESERVE) {
+    // malloc and friends seem to call mmap with MAP_NORESERVE, ignore for now
+    return 1;
+  }
+
   if (!is_init) {
     LOG("hemem interpose: calling libc mmap due to hemem init in progress\n");
     return 1;
@@ -52,7 +57,7 @@ static int mmap_filter(void *addr, size_t length, int prot, int flags, int fd, o
   }
 
   LOG("hemem interpose: calling hemem mmap\n");
-  if ((result = hemem_mmap(addr, length, prot, flags, fd, offset)) == MAP_FAILED) {
+  if ((*result = (uint64_t)hemem_mmap(addr, length, prot, flags, fd, offset)) == (uint64_t)MAP_FAILED) {
     // hemem failed for some reason, try libc
     LOG("hemem mmap failed\n\tmmap(0x%lx, %ld, %x, %x, %d, %ld)\n", (uint64_t)addr, length, prot, flags, fd, offset);
     //return libc_mmap(addr, length, prot, flags, fd, offset);
@@ -90,7 +95,7 @@ static int hook(long syscall_number, long arg0, long arg1, long arg2, long arg3,
       //LOG("hook: not intercepting this mmap call\n");
       //return 1;
     //}
-	  return mmap_filter((void*)arg0, (size_t)arg1, (int)arg2, (int)arg3, (int)arg4, (off_t)arg5, (void *)result);
+	  return mmap_filter((void*)arg0, (size_t)arg1, (int)arg2, (int)arg3, (int)arg4, (off_t)arg5, (uint64_t*)result);
 	} else {
     // ignore non-mmap system calls
 		return 1;
