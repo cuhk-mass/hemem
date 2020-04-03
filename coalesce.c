@@ -41,11 +41,11 @@ void coalesce_pages(uint64_t addr, uint32_t fd, uint64_t offset){
 
   //get offset
 
-  ret = mmap((void*) addr, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, fd, offset % HUGEPAGE_SIZE);
+  ret = libc_mmap((void*) addr, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, fd, offset % HUGEPAGE_SIZE);
 
   if(ret < 0) perror("coalesce mmap");
 
-  hemem_tlb_shootdown(addr);
+  //hemem_tlb_shootdown(addr);
   //range.start = addr;
   //range.len = HUGEPAGE_SIZE;
   //ret2 = ioctl(uffd, UFFDIO_TLBFLUSH, &range);
@@ -128,7 +128,7 @@ void break_huge_page(uint64_t addr, uint32_t fd, uint64_t offset){
   int i;
 
   for(i = 0; i < NUM_SMPAGES; i++){
-    mmap((void*) (addr + BASEPAGE_SIZE*i), BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, fd, offset + BASEPAGE_SIZE*i);
+    libc_mmap((void*) (addr + BASEPAGE_SIZE*i), BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, fd, offset + BASEPAGE_SIZE*i);
   }
 }
 

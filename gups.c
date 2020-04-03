@@ -88,6 +88,7 @@ static void *do_gups(void *arguments)
   index2 = 0;
 
   for (i = 0; i < args->iters; i++) {
+#ifdef HOTSPOT
     hot_num = lfsr % 4 + 8;
     for (j = 0; j < hot_num; j++) {
       lfsr = lfsr_fast(lfsr);
@@ -97,7 +98,7 @@ static void *do_gups(void *arguments)
       memcpy(&field[index1 * elt_size], data, elt_size);
     }
     i += hot_num;
-
+#endif
     lfsr = lfsr_fast(lfsr);
     index2 = lfsr % (args->size);
     memcpy(data, &field[index2 * elt_size], elt_size);
@@ -164,6 +165,7 @@ int main(int argc, char **argv)
   printf("field of 2^%lu (%lu) bytes\n", expt, size);
   printf("%ld byte element size (%ld elements total)\n", elt_size, size / elt_size);
 
+  //p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_POPULATE, -1, 0);
   p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 
   gettimeofday(&stoptime, NULL);
@@ -186,6 +188,7 @@ int main(int argc, char **argv)
       perror("malloc");
       exit(1);
     }
+
     int r = pthread_create(&t[i], NULL, calc_indices_thread, (void*)ga[i]);
     assert(r == 0); 
     */
@@ -208,12 +211,12 @@ int main(int argc, char **argv)
   // run through gups once to touch all memory
   // spawn gups worker threads
   for (i = 0; i < threads; i++) {
-    //printf("starting thread [%d]\n", i);
+    printf("starting thread [%d]\n", i);
     ga[i]->tid = i; 
     ga[i]->iters = updates;
     ga[i]->size = nelems;
     ga[i]->elt_size = elt_size;
-    //printf("  tid: [%d]  iters: [%llu]  size: [%llu]  elt size: [%llu]\n", ga[i]->tid, ga[i]->iters, ga[i]->size, ga[i]->elt_size);
+    printf("  tid: [%d]  iters: [%llu]  size: [%llu]  elt size: [%llu]\n", ga[i]->tid, ga[i]->iters, ga[i]->size, ga[i]->elt_size);
     int r = pthread_create(&t[i], NULL, do_gups, (void*)ga[i]);
     assert(r == 0);
   }
@@ -221,8 +224,10 @@ int main(int argc, char **argv)
   // wait for worker threads
   for (i = 0; i < threads; i++) {
     int r = pthread_join(t[i], NULL);
+    if(r < 0) perror("pthead_join");
     assert(r == 0);
   }
+
   hemem_print_stats();
   printf("Timing.\n");
   gettimeofday(&starttime, NULL);

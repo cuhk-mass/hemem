@@ -23,6 +23,7 @@
 
 #include "hemem.h"
 #include "paging.h"
+#include "interpose.h"
 
 struct huge_page {
   uint64_t base_addr;
