@@ -39,7 +39,7 @@
 #define MB(x)     (KB(x) * 1024)
 #define GB(x)     (MB(x) * 1024)
 
-#define SIZE      (GB(256))
+#define SIZE      (GB(16))
 
 int main(int argc, char **argv)
 {

@@ -309,13 +309,17 @@ void lru_init(void)
 
   LOG("lru_init: started\n");
 
+  internal_malloc = true;
   n = calloc(FASTMEM_PAGES, sizeof(struct lru_node));
+  internal_malloc = false;
   for (i = 0; i < FASTMEM_PAGES; i++) {
     n[i].framenum = i;
     lru_list_add(&dram_free_list, &n[i]);
   }
 
+  internal_malloc = true;
   n = calloc(SLOWMEM_PAGES, sizeof(struct lru_node));
+  internal_malloc = false;
   for (i = 0; i < SLOWMEM_PAGES; i++) {
     n[i].framenum = i;
     lru_list_add(&nvm_free_list, &n[i]);

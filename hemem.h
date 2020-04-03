@@ -26,10 +26,13 @@ extern "C" {
 #include "timer.h"
 #include "interpose.h"
 
+//#define HEMEM_DEBUG
+//#define HEMEM_THREAD_POOL
+
 #define MEM_BARRIER() __sync_synchronize()
 
 #define NVMSIZE   (2750L * (1024L * 1024L * 1024L))
-#define DRAMSIZE  (128L * (1024L * 1024L * 1024L))
+#define DRAMSIZE  (8L * (1024L * 1024L * 1024L))
 
 #define DRAMPATH  "/dev/dax0.0"
 #define NVMPATH   "/dev/dax1.0"
@@ -44,9 +47,9 @@ extern "C" {
 #define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
 
 FILE *hememlogf;
-#define LOG(...) printf(__VA_ARGS__)
+//#define LOG(...) printf(__VA_ARGS__)
 //#define LOG(...)	fprintf(hememlogf, __VA_ARGS__)
-//#define LOG(str, ...) while(0) {}
+#define LOG(str, ...) while(0) {}
 
 
 FILE *timef;
@@ -75,8 +78,7 @@ extern bool is_init;
 extern _Atomic(uint64_t) missing_faults_handled;
 extern _Atomic(uint64_t) migrations_up;
 extern _Atomic(uint64_t) migrations_down;
-extern __thread bool intercept_this_call;
-extern __thread bool old_intercept_this_call;
+extern __thread bool internal_malloc;
 
 struct hemem_page {
   uint64_t va;

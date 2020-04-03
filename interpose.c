@@ -26,23 +26,23 @@ static int mmap_filter(void *addr, size_t length, int prot, int flags, int fd, o
   // non-anonymous mappings should probably go to libc (e.g., file mappings)
   if (((flags & MAP_ANONYMOUS) != MAP_ANONYMOUS) && !((fd == dramfd) || (fd == nvmfd))) {
     LOG("hemem interpose: calling libc mmap due to non-anonymous, non-devdax mapping\n");
-    //return (void*)syscall_no_intercept(SYS_mmap, addr, length, prot,
-    //flags, fd, offset);
     return 1;
-    //    return libc_mmap(addr, length, prot, flags, fd, offset);
   }
 
   if ((flags & MAP_STACK) == MAP_STACK) {
     // pthread mmaps are called with MAP_STACK
     LOG("hemem interpose: calling libc mmap due to stack mapping\n");
-    //return (void*)syscall_no_intercept(SYS_mmap, addr, length, prot,
-    //flags, fd, offset);
     return 1;
-    //    return libc_mmap(addr, length, prot, flags, fd, offset);
   }
 
-  if ((flags & MAP_NORESERVE) == MAP_NORESERVE) {
-    // malloc and friends seem to call mmap with MAP_NORESERVE, ignore for now
+  if (((flags & MAP_NORESERVE) == MAP_NORESERVE)) {//} && internal_malloc) {
+    // malloc and friends seem to call mmap with MAP_NORESERVE, ignore our internal mallocs
+    LOG("hemem interpose: calling libc mmap due to internal malloc call\n");
+    return 1;
+  }
+
+  if (length < 4096) {
+    LOG("hemem interpose calling libc mmap due to small allocation size\n");
     return 1;
   }
 
@@ -56,11 +56,10 @@ static int mmap_filter(void *addr, size_t length, int prot, int flags, int fd, o
     return 1;
   }
 
-  LOG("hemem interpose: calling hemem mmap\n");
+  LOG("hemem interpose: calling hemem mmap(0x%lx, %ld, %x, %x, %d, %ld)\n", (uint64_t)addr, length, prot, flags, fd, offset);
   if ((*result = (uint64_t)hemem_mmap(addr, length, prot, flags, fd, offset)) == (uint64_t)MAP_FAILED) {
     // hemem failed for some reason, try libc
     LOG("hemem mmap failed\n\tmmap(0x%lx, %ld, %x, %x, %d, %ld)\n", (uint64_t)addr, length, prot, flags, fd, offset);
-    //return libc_mmap(addr, length, prot, flags, fd, offset);
   }
   return 0;
 }
@@ -89,12 +88,6 @@ static void* bind_symbol(const char *sym)
 static int hook(long syscall_number, long arg0, long arg1, long arg2, long arg3,	long arg4, long arg5,	long *result)
 {
 	if (syscall_number == SYS_mmap) {
-    //if (!intercept_this_call) {
-      // mmap was not called from a malloc or free call so we probably don't care
-      // about it, just let libc handle it normally
-      //LOG("hook: not intercepting this mmap call\n");
-      //return 1;
-    //}
 	  return mmap_filter((void*)arg0, (size_t)arg1, (int)arg2, (int)arg3, (int)arg4, (off_t)arg5, (uint64_t*)result);
 	} else {
     // ignore non-mmap system calls
@@ -116,26 +109,20 @@ static __attribute__((constructor)) void init(void)
 void* malloc(size_t size)
 {
   void* ret;
-  old_intercept_this_call = intercept_this_call;
-  intercept_this_call = true;
   if(libc_malloc == NULL) {
     libc_malloc = bind_symbol("malloc");
   }
   assert(libc_malloc != NULL);
   ret = libc_malloc(size);
-  intercept_this_call = old_intercept_this_call;
   return ret;
 }
 
 void free(void* ptr)
 {
-  old_intercept_this_call = intercept_this_call;
-  intercept_this_call = true;
   if(libc_free == NULL) {
     libc_free = bind_symbol("free");
   }
   assert(libc_free != NULL);
   libc_free(ptr);
-  intercept_this_call = old_intercept_this_call;
 }
 */
