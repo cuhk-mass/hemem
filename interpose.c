@@ -18,7 +18,7 @@ int (*libc_munmap)(void *addr, size_t length) = NULL;
 void* mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 {
   void *ret;
-  ensure_init();
+  //ensure_init();
 
   //TODO: figure out which mmap calls should go to libc vs hemem
   // non-anonymous mappings should probably go to libc (e.g., file mappings)
@@ -44,7 +44,7 @@ void* mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 
 int munmap(void *addr, size_t length)
 {
-  ensure_init();
+  //ensure_init();
   
   //TODO: figure out which munmap calls should go to libc vs hemem
   // for now, just call libc munmap because that's all hemem will do anyway
@@ -81,8 +81,8 @@ static __attribute__((constructor)) void init(void)
 {
   libc_mmap = bind_symbol("mmap");
   libc_munmap = bind_symbol("munmap");
-  libc_malloc = bind_symbol("malloc");
-  libc_free = bind_symbol("free");
+  //libc_malloc = bind_symbol("malloc");
+  //libc_free = bind_symbol("free");
   //intercept_hook_point = hook;
 
   hemem_init();
