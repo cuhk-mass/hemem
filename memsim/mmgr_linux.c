@@ -176,9 +176,8 @@ static void *kswapd(void *arg)
 	struct page *np = dequeue_fifo(&pages_free[FASTMEM]);
 
 	if(np != NULL) {
-	  LOG("%zu cold (%" PRIu64 ") -> hot (%" PRIu64 "), "
+	  LOG("cold (%" PRIu64 ") -> hot (%" PRIu64 "), "
 	      "slowmem.active = %zu, slowmem.inactive = %zu\n",
-	      runtime,
 	      p->framenum, np->framenum,
 	      pages_active[SLOWMEM].numentries,
 	      pages_inactive[SLOWMEM].numentries);
@@ -261,8 +260,8 @@ static uint64_t getmem(uint64_t addr, struct pte *pte)
 	add_runtime(TIME_SLOWMOVE);
       }
 
-      LOG("%zu OOM hot (%" PRIu64 ") -> cold (%" PRIu64 ")\n",
-	  runtime, p->framenum, np->framenum);
+      LOG("OOM hot (%" PRIu64 ") -> cold (%" PRIu64 ")\n",
+	  p->framenum, np->framenum);
 
       // Remap page
       np->pte = p->pte;

@@ -55,7 +55,9 @@ void memsim_nanosleep(size_t sleeptime)
 
 void add_runtime(size_t delta)
 {
+#ifndef LOG_DEBUG
   static size_t oldruntime = 0;
+#endif
   
   runtime += delta;
 
@@ -63,11 +65,13 @@ void add_runtime(size_t delta)
     wakeup_time = 0;
     sem_post(&wakeup_sem);
   }
-  
+
+#ifndef LOG_DEBUG
   if(runtime - oldruntime > 1000000) {	// Every millisecond
     fprintf(stderr, "Runtime: %.3f       \r", (float)runtime / 1000000000.0);
     oldruntime = runtime;
   }
+#endif
 }
 
 // From Wikipedia

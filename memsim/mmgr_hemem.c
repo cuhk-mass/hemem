@@ -29,6 +29,7 @@ struct page {
   // XXX: 1 vaddr per paddr, sharing not supported yet!
   uint64_t	paddr, vaddr;
   struct pte	*pte;
+  bool 		accessed2;
 };
 
 struct fifo_queue {
@@ -88,6 +89,11 @@ static struct page *dequeue_fifo(struct fifo_queue *queue)
   assert(queue->numentries > 0);
   queue->numentries--;
   return ret;
+}
+
+static struct page *peek_fifo(struct fifo_queue *queue)
+{
+  return queue->last;
 }
 
 static struct pte *alloc_ptables(uint64_t addr, enum pagetypes ptype,
@@ -326,6 +332,10 @@ static void move_cold(void)
 
 static void cool(void)
 {
+  struct page *bookmark[NMEMTYPES][NPAGETYPES];
+  
+  memset(bookmark, 0, sizeof(bookmark));
+
   // Data cools at HEMEM_COOL_RATE per HEMEM_INTERVAL
   for(uint64_t sweeped = 0; sweeped < HEMEM_COOL_RATE;) {
     uint64_t oldsweeped = sweeped;
@@ -334,15 +344,23 @@ static void cool(void)
       // Spread evenly over all page size types
       // XXX: Probably better to sweep in physical memory to defragment
       for(enum pagetypes pt = GIGA; pt < NPAGETYPES; pt++) {
-	struct page *p = dequeue_fifo(&mem_active[mt][pt]);
+	struct page *p = peek_fifo(&mem_active[mt][pt]);
 
-	if(p == NULL) {
+	if(p == NULL || bookmark[mt][pt] == p) {
+	  // Bail out if no more pages or if we've seen this page
+	  // before -- we've made it all the way around the FIFO queue
 	  continue;
 	}
+	p = dequeue_fifo(&mem_active[mt][pt]);
 
 	if(p->pte->accessed) {
 	  p->pte->accessed = false;
 	  enqueue_fifo(&mem_active[mt][pt], p);
+
+	  // Remember first recirculated page
+	  if(bookmark[mt][pt] == NULL) {
+	    bookmark[mt][pt] = p;
+	  }
 	} else {
 	  enqueue_fifo(&mem_inactive[mt][pt], p);
 	}
@@ -360,6 +378,10 @@ static void cool(void)
 
 static void thaw(void)
 {
+  struct page *bookmark[NMEMTYPES][NPAGETYPES];
+  
+  memset(bookmark, 0, sizeof(bookmark));
+  
   // Data thaws at HEMEM_THAW_RATE per HEMEM_INTERVAL
   for(uint64_t sweeped = 0; sweeped < HEMEM_THAW_RATE;) {
     uint64_t oldsweeped = sweeped;
@@ -368,20 +390,41 @@ static void thaw(void)
       // Spread evenly over all page size types
       // XXX: Probably better to sweep in physical memory to defragment
       for(enum pagetypes pt = GIGA; pt < NPAGETYPES; pt++) {
-	struct page *p = dequeue_fifo(&mem_inactive[mt][pt]);
+	bool recirculated = false;
+	struct page *p = peek_fifo(&mem_inactive[mt][pt]);
 
-	if(p == NULL) {
+	if(p == NULL || bookmark[mt][pt] == p) {
+	  // Bail out if no more pages or if we've seen this page
+	  // before -- we've made it all the way around the FIFO queue
 	  continue;
 	}
+	p = dequeue_fifo(&mem_inactive[mt][pt]);
 
 	if(p->vaddr < 1048576) {
-	  LOG("[THAW vaddr 0x%" PRIu64 "] accessed = %u\n", p->vaddr, p->pte->accessed);
+	  LOG("[THAW vaddr 0x%" PRIx64 "] accessed = %u, accessed2 = %u\n",
+	      p->vaddr, p->pte->accessed, p->accessed2);
 	}
 	
 	if(p->pte->accessed) {
-	  enqueue_fifo(&mem_active[mt][pt], p);
+	  if(p->accessed2) {
+	    LOG("[NOW HOT vaddr 0x%" PRIx64 "] accessed = %u, accessed2 = %u\n",
+		p->vaddr, p->pte->accessed, p->accessed2);
+	    p->accessed2 = false;
+	    enqueue_fifo(&mem_active[mt][pt], p);
+	  } else {
+	    p->accessed2 = true;
+	    p->pte->accessed = false;
+	    enqueue_fifo(&mem_inactive[mt][pt], p);
+	    recirculated = true;
+	  }
 	} else {
 	  enqueue_fifo(&mem_inactive[mt][pt], p);
+	  recirculated = true;
+	}
+
+	// Remember first recirculated page
+	if(recirculated && bookmark[mt][pt] == NULL) {
+	  bookmark[mt][pt] = p;
 	}
 	
 	sweeped += page_size(pt);
@@ -410,10 +453,10 @@ static void *hemem_thread(void *arg)
     cool();
     thaw();
 
-    // XXX: Can comment out for less overhead & accuracy
+    // Can comment out for less overhead & accuracy
     tlb_shootdown(0);	// Sync active bit changes in TLB
 
-    // Move cold memory down if under memory pressure?
+    // Move cold memory down if under memory pressure
     if(fastmem_freebytes < HEMEM_FASTFREE) {
       move_cold();
     }
@@ -476,7 +519,7 @@ static struct page *getmem(uint64_t addr)
     p = dequeue_fifo(&mem_free[SLOWMEM][pt]);
     // If NULL, we're totally out of mem
     assert(p != NULL);
-    enqueue_fifo(&mem_active[SLOWMEM][pt], p);
+    enqueue_fifo(&mem_inactive[SLOWMEM][pt], p);
     slowmem_freebytes -= page_size(pt);
   }
   

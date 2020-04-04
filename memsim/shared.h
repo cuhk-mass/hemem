@@ -38,8 +38,10 @@
 #define TIME_FASTMOVE		1000		// Move to fast memory
 #define TIME_TLBSHOOTDOWN	4000		// TLB shootdown
 
+// From Intel memory latency checker
 #define TIME_FASTMEM_READ	82
 #define TIME_FASTMEM_WRITE	82
+
 #define TIME_SLOWMEM_READ	1000		// From DCPMM QoS slides
 #define TIME_SLOWMEM_WRITE	1000		// maybe worse?
 
