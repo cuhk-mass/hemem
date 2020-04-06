@@ -51,8 +51,9 @@ __thread bool internal_malloc = false;
 
 struct pmemcpy {
 #ifdef HEMEM_THREAD_POOL
-  _Atomic bool activate;
-  _Atomic bool done_bitmap[MAX_COPY_THREADS];
+  /* _Atomic bool activate; */
+  /* _Atomic bool done_bitmap[MAX_COPY_THREADS]; */
+  pthread_barrier_t barrier;
 #endif
   _Atomic void *dst;
   _Atomic void *src;
@@ -73,9 +74,9 @@ void *hemem_parallel_memcpy_thread(void *arg)
   assert(tid < MAX_COPY_THREADS);
 
   for (;;) {
-    while(!pmemcpy.activate || pmemcpy.done_bitmap[tid]) {
-      MEM_BARRIER();
-    }
+    /* while(!pmemcpy.activate || pmemcpy.done_bitmap[tid]) { } */
+    int r = pthread_barrier_wait(&pmemcpy.barrier);
+    assert(r == 0 || r == PTHREAD_BARRIER_SERIAL_THREAD);
     if (tid == 0) {
       pmemcpys++;
     }
@@ -102,8 +103,11 @@ void *hemem_parallel_memcpy_thread(void *arg)
     }
 #endif
 
-    MEM_BARRIER();
-    pmemcpy.done_bitmap[tid] = true;
+    LOG("thread %lu done copying\n", tid);
+
+    r = pthread_barrier_wait(&pmemcpy.barrier);
+    assert(r == 0 || r == PTHREAD_BARRIER_SERIAL_THREAD);
+    /* pmemcpy.done_bitmap[tid] = true; */
   }
   return NULL;
 }
@@ -186,6 +190,12 @@ void hemem_init()
 {
   struct uffdio_api uffdio_api;
 
+  hememlogf = fopen("logs.txt", "w+");
+  if (hememlogf == NULL) {
+    perror("log file open\n");
+    assert(0);
+  }
+
   LOG("hemem_init: started\n");
 
   dramfd = open(DRAMPATH, O_RDWR);
@@ -226,12 +236,6 @@ void hemem_init()
     assert(0);
   }
 
-  hememlogf = fopen("logs.txt", "w+");
-  if (hememlogf == NULL) {
-    perror("log file open\n");
-    assert(0);
-  }
-
   timef = fopen("times.txt", "w+");
   if (timef == NULL) {
     perror("time file fopen\n");
@@ -251,10 +255,12 @@ void hemem_init()
   }
 #ifdef HEMEM_THREAD_POOL
   uint64_t i;
-  pmemcpy.activate = false;
-  for (i = 0; i < MAX_COPY_THREADS; i++) {
-    pmemcpy.done_bitmap[i] = false;
-  }
+  /* pmemcpy.activate = false; */
+  /* for (i = 0; i < MAX_COPY_THREADS; i++) { */
+  /*   pmemcpy.done_bitmap[i] = false; */
+  /* } */
+  int r = pthread_barrier_init(&pmemcpy.barrier, NULL, MAX_COPY_THREADS + 1);
+  assert(r == 0);
 
   for (i = 0; i < MAX_COPY_THREADS; i++) {
     s = pthread_create(&copy_threads[i], NULL, hemem_parallel_memcpy_thread, (void*)i);
@@ -410,36 +416,42 @@ int hemem_munmap(void* addr, size_t length)
 #ifdef HEMEM_THREAD_POOL
 static void hemem_parallel_memcpy(void *dst, void *src, size_t length)
 {
-  uint64_t i;
-  bool threads_done;
+  /* uint64_t i; */
+  /* bool all_threads_done; */
 
   pmemcpy.dst = dst;
   pmemcpy.src = src;
   pmemcpy.length = length;
 
-  MEM_BARRIER();
-  pmemcpy.activate = true;
+  int r = pthread_barrier_wait(&pmemcpy.barrier);
+  assert(r == 0 || r == PTHREAD_BARRIER_SERIAL_THREAD);
+  
+  LOG("parallel migration started\n");
+  
+  /* pmemcpy.activate = true; */
 
-  while (!threads_done) {
-    threads_done = true;
-    for (i = 0; i < MAX_COPY_THREADS; i++) {
-      MEM_BARRIER();
-      if (!pmemcpy.done_bitmap[i]) {
-        threads_done = false;
-        break;
-      }
-    }
-  }
-  pmemcpy.activate = false;
-  MEM_BARRIER();
+  /* while (!all_threads_done) { */
+  /*   all_threads_done = true; */
+  /*   for (i = 0; i < MAX_COPY_THREADS; i++) { */
+  /*     if (!pmemcpy.done_bitmap[i]) { */
+  /*       all_threads_done = false; */
+  /*       break; */
+  /*     } */
+  /*   } */
+  /* } */
 
-  for (i = 0; i < MAX_COPY_THREADS; i++) {
-    pmemcpy.done_bitmap[i] = false;
-  }
+  r = pthread_barrier_wait(&pmemcpy.barrier);
+  assert(r == 0 || r == PTHREAD_BARRIER_SERIAL_THREAD);
+  LOG("parallel migration finished\n");
+
+  /* pmemcpy.activate = false; */
+
+  /* for (i = 0; i < MAX_COPY_THREADS; i++) { */
+  /*   pmemcpy.done_bitmap[i] = false; */
+  /* } */
 }
 
 #else // HEMEM_THREAD_POOL
- 
 static void hemem_parallel_memcpy(void *dst, void *src, size_t length)
 {
   uint64_t i;
@@ -927,7 +939,6 @@ void hemem_clear_accessed_bit(uint64_t va)
 
   clear_accessed_bit(page_boundry);
  
-  MEM_BARRIER(); 
   range.start = page_boundry;
   range.len = PAGE_SIZE;
 

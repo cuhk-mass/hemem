@@ -26,13 +26,13 @@ extern "C" {
 #include "timer.h"
 #include "interpose.h"
 
-//#define HEMEM_DEBUG
-//#define HEMEM_THREAD_POOL
+#define HEMEM_DEBUG
+#define HEMEM_THREAD_POOL
 
 #define MEM_BARRIER() __sync_synchronize()
 
 #define NVMSIZE   (2750L * (1024L * 1024L * 1024L))
-#define DRAMSIZE  (8L * (1024L * 1024L * 1024L))
+#define DRAMSIZE  (128L * (1024L * 1024L * 1024L))
 
 #define DRAMPATH  "/dev/dax0.0"
 #define NVMPATH   "/dev/dax1.0"
@@ -66,7 +66,7 @@ FILE *timef;
 
 
 #define MAX_UFFD_MSGS	    (1)
-#define MAX_COPY_THREADS  (1)
+#define MAX_COPY_THREADS  (8)
 
 #define KSWAPD_INTERVAL   (1000000)
 
