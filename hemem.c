@@ -516,6 +516,7 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_framenum)
 #endif
 
   gettimeofday(&start, NULL);
+  assert(libc_mmap != NULL);
   newptr = libc_mmap((void*)page->va, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, new_addr_offset);
   if (newptr == MAP_FAILED) {
     perror("newptr mmap");

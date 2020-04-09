@@ -41,6 +41,10 @@ static int mmap_filter(void *addr, size_t length, int prot, int flags, int fd, o
     return 1;
   }
 
+  if (internal_malloc) {
+    return 1;
+  }
+
   if (length < 4096) {
     //LOG("hemem interpose calling libc mmap due to small allocation size\n");
     return 1;

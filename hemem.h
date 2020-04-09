@@ -26,7 +26,7 @@ extern "C" {
 #include "timer.h"
 #include "interpose.h"
 
-#define HEMEM_DEBUG
+//#define HEMEM_DEBUG
 #define HEMEM_THREAD_POOL
 
 #define MEM_BARRIER() __sync_synchronize()
@@ -47,7 +47,7 @@ extern "C" {
 #define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
 
 FILE *hememlogf;
-//#define LOG(...) printf(__VA_ARGS__)
+//#define LOG(...) fprintf(stderr, __VA_ARGS__)
 //#define LOG(...)	fprintf(hememlogf, __VA_ARGS__)
 #define LOG(str, ...) while(0) {}
 
@@ -65,8 +65,8 @@ FILE *timef;
 #endif
 
 
-#define MAX_UFFD_MSGS	    (1)
-#define MAX_COPY_THREADS  (8)
+#define MAX_UFFD_MSGS	    (8)
+#define MAX_COPY_THREADS  (4)
 
 #define KSWAPD_INTERVAL   (1000000)
 
