@@ -2,12 +2,15 @@ CC = gcc
 CFLAGS = -g -Wall -O2 -fPIC
 #CFLAGS = -g3 -Wall -fPIC
 LDFLAGS = -shared
-INCLUDES = -I/root/hmem/linux/usr/include
+INCLUDES = -I/usr/local/include
 LIBS = -lm -lpthread -ldl
 
 default: all
 
 all: gups-simple gups-lru gups-lru-modified
+
+gups-nohemem: gups-nohemem.o 
+	$(CC) $(CFLAGS) $(INCLUDES) -o gups-nohemem gups-nohemem.o zipf.o timer.o $(LIBS) -L. -lpmem
 
 gups-lru: gups.o libhemem-lru.so
 	$(CC) $(CFLAGS) $(INCLUDES) -o gups-lru gups.o zipf.o $(LIBS) -L. -lhemem-lru
@@ -20,6 +23,9 @@ gups-lru-modified: gups.o libhemem-modified-lru.so
 
 gups.o: gups.c zipf.c hemem.h timer.h gups.h
 	$(CC) $(CFLAGS) $(INCLUDES) -c gups.c zipf.c
+
+gups-nohemem.o: gups-nohemem.c zipf.c timer.h gups.h timer.c
+	$(CC) $(CFLAGS) $(INCLUDES) -c gups-nohemem.c zipf.c timer.c
 
 libhemem-lru.so: hemem-lru.o lru.o timer.o paging.o interpose.o
 	$(CC) $(LDFLAGS) -o libhemem-lru.so hemem-lru.o timer.o paging.o lru.o interpose.o
