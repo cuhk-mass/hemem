@@ -217,6 +217,8 @@ void *lru_kswapd()
   struct lru_node *cn;
   struct lru_node *nn;
 
+  free(malloc(65536));
+  
   in_kswapd = true;
 
   for (;;) {

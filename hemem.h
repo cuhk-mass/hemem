@@ -53,8 +53,8 @@ FILE *hememlogf;
 
 
 FILE *timef;
-#define LOG_TIME(str, ...) fprintf(timef, str, __VA_ARGS__)
-//#define LOG_TIME(str, ...) while(0) {}
+//#define LOG_TIME(str, ...) fprintf(timef, str, __VA_ARGS__)
+#define LOG_TIME(str, ...) while(0) {}
 
 #if defined (ALLOC_LRU)
   #define pagefault(...) lru_pagefault(__VA_ARGS__)
@@ -66,11 +66,11 @@ FILE *timef;
 
 
 #define MAX_UFFD_MSGS	    (8)
-#define MAX_COPY_THREADS  (4)
+#define MAX_COPY_THREADS  (1)
 
 #define KSWAPD_INTERVAL   (1000000)
 
-extern uint64_t base;
+extern uint64_t cr3;
 extern int dramfd;
 extern int nvmfd;
 extern int devmemfd;

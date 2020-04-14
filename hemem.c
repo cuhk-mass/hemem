@@ -38,11 +38,15 @@ _Atomic uint64_t migrations_up = 0;
 _Atomic uint64_t migrations_down = 0;
 _Atomic uint64_t pmemcpys = 0;
 _Atomic uint64_t memsets = 0;
-uint64_t base = 0;
+static bool cr3_set = false;
+uint64_t cr3 = 0;
 int devmemfd = -1;
 struct page_list list;
 pthread_t copy_threads[MAX_COPY_THREADS];
 
+#define MAXPAGES	262144
+static struct hemem_page freepages[MAXPAGES];
+static size_t nextfreepage = 0;
 
 void *dram_devdax_mmap;
 void *nvm_devdax_mmap;
@@ -189,7 +193,15 @@ struct hemem_page* find_page(uint64_t va)
 void hemem_init()
 {
   struct uffdio_api uffdio_api;
-
+  
+  {
+    // This call is dangerous. Ideally, all printf's should be
+    // replaced with logging macros that can print to stderr instead
+    // (which is unbuffered).
+    int r = setvbuf(stdout, NULL, _IONBF, 0);
+    assert(r == 0);
+  }
+  
   hememlogf = fopen("logs.txt", "w+");
   if (hememlogf == NULL) {
     perror("log file open\n");
@@ -269,7 +281,7 @@ void hemem_init()
 #endif
 
   paging_init();
-
+  
   is_init = true;
 
   LOG("hemem_init: finished\n");
@@ -349,11 +361,12 @@ static void hemem_mmap_populate(void* addr, size_t length)
   }
 }
 
+#define PAGE_ROUND_UP(x) (((x) + (PAGE_SIZE)-1) & (~((PAGE_SIZE)-1)))
 
 void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 {
   void *p;
-  struct uffdio_base uffdio_base;
+  struct uffdio_cr3 uffdio_cr3;
  
   assert(is_init);
 
@@ -374,6 +387,7 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
   }
   
   // reserve block of memory
+  length = PAGE_ROUND_UP(length);
   p = libc_mmap(addr, length, prot, flags, dramfd, offset);
   if (p == NULL || p == MAP_FAILED) {
     perror("mmap");
@@ -391,14 +405,14 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
     assert(0);
   }
 
-  uffdio_base.range.start = (uint64_t)p;
-  uffdio_base.range.len = length;
-
-  if (ioctl(uffd, UFFDIO_BASE, &uffdio_base) < 0) {
-    perror("ioctl uffdio_base");
-    assert(0);
+  if (!cr3_set) {
+    if (ioctl(uffd, UFFDIO_CR3, &uffdio_cr3) < 0) {
+      perror("ioctl uffdio_cr3");
+      assert(0);
+    }
+    cr3 = uffdio_cr3.cr3;
+    cr3_set = true;
   }
-  base = uffdio_base.base;
   
   if ((flags & MAP_POPULATE) == MAP_POPULATE) {
     hemem_mmap_populate(p, length);
@@ -710,13 +724,15 @@ void handle_missing_fault(uint64_t page_boundry)
   }
 
   gettimeofday(&missing_start, NULL);
-  internal_malloc = true;
-  page = (struct hemem_page*)calloc(1, sizeof(struct hemem_page));
-  internal_malloc = false;
-  if (page == NULL) {
-    perror("page calloc");
-    assert(0);
-  }
+  /* internal_malloc = true; */
+  assert(nextfreepage < MAXPAGES);
+  page = &freepages[nextfreepage++];
+  /* page = (struct hemem_page*)calloc(1, sizeof(struct hemem_page)); */
+  /* internal_malloc = false; */
+  /* if (page == NULL) { */
+  /*   perror("page calloc"); */
+  /*   assert(0); */
+  /* } */
   pthread_mutex_init(&(page->page_lock), NULL);
 
   // let policy algorithm do most of the heavy lifting of finding a free page
@@ -745,7 +761,12 @@ void handle_missing_fault(uint64_t page_boundry)
   newptr = libc_mmap((void*)page_boundry, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, (in_dram ? dramfd : nvmfd), offset);
   if (newptr == MAP_FAILED) {
     perror("newptr mmap");
-    free(page);
+    /* free(page); */
+    assert(0);
+  }
+  LOG("hemem: mmaping at %p\n", newptr);
+  if(newptr != (void *)page_boundry) {
+    printf("Not mapped where expected (%p != %p)\n", newptr, (void *)page_boundry);
     assert(0);
   }
   gettimeofday(&end, NULL);

@@ -37,7 +37,7 @@ static int mmap_filter(void *addr, size_t length, int prot, int flags, int fd, o
 
   if (((flags & MAP_NORESERVE) == MAP_NORESERVE)) {
     // thread stack is called without swap space reserved, so we can probably ignore these
-    //LOG("hemem interpose: calling libc mmap due to non-swap space reserved mapping\n");
+    LOG("hemem interpose: calling libc mmap due to non-swap space reserved mapping\n");
     return 1;
   }
 
