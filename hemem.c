@@ -38,7 +38,6 @@ _Atomic uint64_t migrations_up = 0;
 _Atomic uint64_t migrations_down = 0;
 _Atomic uint64_t pmemcpys = 0;
 _Atomic uint64_t memsets = 0;
-static bool cr3_set = false;
 uint64_t cr3 = 0;
 int devmemfd = -1;
 struct page_list list;
@@ -193,7 +192,8 @@ struct hemem_page* find_page(uint64_t va)
 void hemem_init()
 {
   struct uffdio_api uffdio_api;
-  
+  struct uffdio_cr3 uffdio_cr3;
+/*
   {
     // This call is dangerous. Ideally, all printf's should be
     // replaced with logging macros that can print to stderr instead
@@ -201,6 +201,7 @@ void hemem_init()
     int r = setvbuf(stdout, NULL, _IONBF, 0);
     assert(r == 0);
   }
+*/
   
   hememlogf = fopen("logs.txt", "w+");
   if (hememlogf == NULL) {
@@ -280,6 +281,12 @@ void hemem_init()
   }
 #endif
 
+  if (ioctl(uffd, UFFDIO_CR3, &uffdio_cr3) < 0) {
+    perror("ioctl uffdio_cr3");
+    assert(0);
+  }
+  cr3 = uffdio_cr3.cr3;
+
   paging_init();
   
   is_init = true;
@@ -333,7 +340,7 @@ static void hemem_mmap_populate(void* addr, size_t length)
     }
   
     if (newptr != (void*)page_boundry) {
-      printf("hemem: mmap populate: warning, newptr != page boundry\n");
+      fprintf(stderr, "hemem: mmap populate: warning, newptr != page boundry\n");
     }
 
     // re-register new mmap region with userfaultfd
@@ -366,7 +373,6 @@ static void hemem_mmap_populate(void* addr, size_t length)
 void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 {
   void *p;
-  struct uffdio_cr3 uffdio_cr3;
  
   assert(is_init);
 
@@ -403,15 +409,6 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
   if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
     perror("ioctl uffdio_register");
     assert(0);
-  }
-
-  if (!cr3_set) {
-    if (ioctl(uffd, UFFDIO_CR3, &uffdio_cr3) < 0) {
-      perror("ioctl uffdio_cr3");
-      assert(0);
-    }
-    cr3 = uffdio_cr3.cr3;
-    cr3_set = true;
   }
   
   if ((flags & MAP_POPULATE) == MAP_POPULATE) {
@@ -537,7 +534,7 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_framenum)
     assert(0);
   }
   if (newptr != (void*)page->va) {
-    printf("mapped address is not same as faulting address\n");
+    fprintf(stderr, "mapped address is not same as faulting address\n");
   }
   gettimeofday(&end, NULL);
   LOG_TIME("mmap_dram: %f s\n", elapsed(&start, &end));
@@ -620,7 +617,7 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_framenum)
     assert(0);
   }
   if (newptr != (void*)page->va) {
-    printf("mapped address is not same as faulting address\n");
+    fprintf(stderr, "mapped address is not same as faulting address\n");
   }
   gettimeofday(&end, NULL);
   LOG_TIME("mmap_nvm: %f s\n", elapsed(&start, &end));
@@ -766,14 +763,14 @@ void handle_missing_fault(uint64_t page_boundry)
   }
   LOG("hemem: mmaping at %p\n", newptr);
   if(newptr != (void *)page_boundry) {
-    printf("Not mapped where expected (%p != %p)\n", newptr, (void *)page_boundry);
+    fprintf(stderr, "Not mapped where expected (%p != %p)\n", newptr, (void *)page_boundry);
     assert(0);
   }
   gettimeofday(&end, NULL);
   LOG_TIME("mmap_%s: %f s\n", (in_dram ? "dram" : "nvm"), elapsed(&start, &end));
   
   if (newptr != (void*)page_boundry) {
-    printf("hemem: handle missing fault: warning, newptr != page boundry\n");
+    fprintf(stderr, "hemem: handle missing fault: warning, newptr != page boundry\n");
   }
 
   gettimeofday(&start, NULL);
@@ -806,7 +803,6 @@ void handle_missing_fault(uint64_t page_boundry)
   missing_faults_handled++;
   gettimeofday(&missing_end, NULL);
   LOG_TIME("hemem_missing_fault: %f s\n", elapsed(&missing_start, &missing_end));
-  //printf("page missing fault took %.4f seconds\n", elapsed(&start, &end));
 }
 
 
@@ -822,35 +818,30 @@ void *handle_fault()
   int nmsgs;
   int i;
 
-  //printf("fault handler entered\n");
-
   for (;;) {
     struct pollfd pollfd;
     int pollres;
     pollfd.fd = uffd;
     pollfd.events = POLLIN;
 
-    //printf("calling poll\n");
     pollres = poll(&pollfd, 1, -1);
-    //printf("poll returned\n");
 
     switch (pollres) {
     case -1:
       perror("poll");
       assert(0);
     case 0:
-      printf("poll read 0\n");
+      fprintf(stderr, "poll read 0\n");
       continue;
     case 1:
-      //printf("poll read 1\n");
       break;
     default:
-      printf("unexpected poll result\n");
+      fprintf(stderr, "unexpected poll result\n");
       assert(0);
     }
 
     if (pollfd.revents & POLLERR) {
-      printf("pollerr\n");
+      fprintf(stderr, "pollerr\n");
       assert(0);
     }
 
@@ -860,7 +851,7 @@ void *handle_fault()
 
     nread = read(uffd, &msg[0], MAX_UFFD_MSGS * sizeof(struct uffd_msg));
     if (nread == 0) {
-      printf("EOF on userfaultfd\n");
+      fprintf(stderr, "EOF on userfaultfd\n");
       assert(0);
     }
 
@@ -872,9 +863,8 @@ void *handle_fault()
       assert(0);
     }
 
-    //printf("nread: %d\tsize of uffd msg: %d\n", nread, sizeof(msg));
     if ((nread % sizeof(struct uffd_msg)) != 0) {
-      printf("invalid msg size: [%ld]\n", nread);
+      fprintf(stderr, "invalid msg size: [%ld]\n", nread);
       assert(0);
     }
 
@@ -883,24 +873,20 @@ void *handle_fault()
     for (i = 0; i < nmsgs; i++) {
       //TODO: check page fault event, handle it
       if (msg[i].event & UFFD_EVENT_PAGEFAULT) {
-        //printf("received a page fault event\n");
         fault_addr = (uint64_t)msg[i].arg.pagefault.address;
         fault_flags = msg[i].arg.pagefault.flags;
 
         // allign faulting address to page boundry
         // huge page boundry in this case due to dax allignment
         page_boundry = fault_addr & ~(PAGE_SIZE - 1);
-        //printf("page boundry is 0x%lx\n", page_boundry);
 
         if (fault_flags & UFFD_PAGEFAULT_FLAG_WP) {
-          //printf("received a write-protection fault at addr 0x%lx\n", fault_addr);
           handle_wp_fault(page_boundry);
         }
         else {
           handle_missing_fault(page_boundry);
         }
 
-        //printf("waking thread\n");
         // wake the faulting thread
         range.start = (uint64_t)page_boundry;
         range.len = PAGE_SIZE;
@@ -913,15 +899,15 @@ void *handle_fault()
         }
       }
       else if (msg[i].event & UFFD_EVENT_UNMAP){
-        printf("Received an unmap event\n");
+        fprintf(stderr, "Received an unmap event\n");
         assert(0);
       }
       else if (msg[i].event & UFFD_EVENT_REMOVE) {
-        printf("received a remove event\n");
+        fprintf(stderr, "received a remove event\n");
         assert(0);
       }
       else {
-        printf("received a non page fault event\n");
+        fprintf(stderr, "received a non page fault event\n");
         assert(0);
       }
     }
@@ -982,7 +968,7 @@ int hemem_get_accessed_bit(uint64_t va)
 
 void hemem_print_stats()
 {
-  printf("missing_faults_handled: [%lu]\tmigrations_up: [%lu]\tmigrations_down: [%lu]\tpmemcpys: [%lu]\tmemsets: [%lu]\n", missing_faults_handled, migrations_up, migrations_down, pmemcpys, memsets);
+  fprintf(stderr, "missing_faults_handled: [%lu]\tmigrations_up: [%lu]\tmigrations_down: [%lu]\tpmemcpys: [%lu]\tmemsets: [%lu]\n", missing_faults_handled, migrations_up, migrations_down, pmemcpys, memsets);
 }
 
 
