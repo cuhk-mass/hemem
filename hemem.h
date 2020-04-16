@@ -21,6 +21,7 @@ extern "C" {
 #endif
 
 #include "paging.h"
+#include "hemem-mmgr.h"
 #include "lru.h"
 #include "simple.h"
 #include "timer.h"
@@ -56,7 +57,10 @@ FILE *timef;
 //#define LOG_TIME(str, ...) fprintf(timef, str, __VA_ARGS__)
 #define LOG_TIME(str, ...) while(0) {}
 
-#if defined (ALLOC_LRU)
+#if defined (ALLOC_HEMEM)
+  #define pagefault(...) hemem_pagefault(__VA_ARGS__)
+  #define paging_init(...) hemem_mmgr_init(__VA_ARGS__)
+#elif defined (ALLOC_LRU)
   #define pagefault(...) lru_pagefault(__VA_ARGS__)
   #define paging_init(...) lru_init(__VA_ARGS__)
 #elif defined (ALLOC_SIMPLE)

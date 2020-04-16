@@ -32,8 +32,8 @@
 #include <sys/mman.h>
 #include <errno.h>
 
-#include "timer.h"
-#include "hemem.h"
+#include "../timer.h"
+#include "../hemem.h"
 
 
 #include "gups.h"

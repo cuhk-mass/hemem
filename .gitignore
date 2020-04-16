@@ -3,13 +3,13 @@
 *.txt
 *.patch
 *.data
-gups
-gups-lru
-gups-simple
-gups-lru-swap
-test
-test-simple
-tester
+microbenchmarks/gups
+microbenchmarks/gups-lru
+microbenchmarks/gups-simple
+microbenchmarks/gups-lru-swap
+microbenchmarks/test
+microbenchmarks/test-simple
+microbenchmarks/test-lru
 memsim/mmgr_simple
 memsim/mmgr_linux
 memsim/mmgr_simple_mmm
@@ -18,3 +18,4 @@ apps/
 logs/
 results/
 scripts/
+*tags

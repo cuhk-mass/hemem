@@ -8,25 +8,12 @@ HEMEM_LIBS = $(LIBS) -ldl -lsyscall_intercept
 
 default: all
 
-all: gups-simple gups-lru gups-lru-swap test test-simple
+all: hemem-libs
 
-test-simple: test.o libhemem-simple.so
-	$(CC) $(CFLAGS) $(INCLUDES) -o test-simple test.o $(LIBS) -L. -lhemem-simple
+hemem-libs: libhemem.so libhemem-lru.so libhemem-simple.so libhemem-lru-swap.so
 
-test: test.o libhemem-lru.so
-	$(CC) $(CFLAGS) $(INCLUDES) -o test test.o $(LIBS) -L. -lhemem-lru
-
-gups-lru: gups.o libhemem-lru.so
-	$(CC) $(CFLAGS) $(INCLUDES) -o gups-lru gups.o zipf.o $(LIBS) -L. -lhemem-lru
-
-gups-simple: gups.o libhemem-simple.so
-	$(CC) $(CFLAGS) $(INCLUDES) -o gups-simple gups.o zipf.o $(LIBS) -L. -lhemem-simple
-
-gups-lru-swap: gups.o libhemem-lru-swap.so
-	$(CC) $(CFLAGS) $(INCLUDES) -o gups-lru-swap gups.o zipf.o $(LIBS) -L. -lhemem-lru-swap
-
-gups.o: gups.c zipf.c hemem.h timer.h gups.h
-	$(CC) $(CFLAGS) $(INCLUDES) -c gups.c zipf.c
+libhemem.so: hemem.o hemem-mmgr.o timer.o paging.o interpose.o
+	$(CC) $(LDFLAGS) -o libhemem.so hemem.o timer.o paging.o hemem-mmgr.o interpose.o $(HEMEM_LIBS)
 
 libhemem-lru.so: hemem-lru.o lru.o timer.o paging.o interpose.o
 	$(CC) $(LDFLAGS) -o libhemem-lru.so hemem-lru.o timer.o paging.o lru.o interpose.o $(HEMEM_LIBS)
@@ -36,6 +23,9 @@ libhemem-simple.so: hemem-simple.o simple.o timer.o paging.o interpose.o
 
 libhemem-lru-swap.so: hemem-lru-swap.o lru_swap.o timer.o paging.o interpose.o
 	$(CC) $(LDFLAGS) -o libhemem-lru-swap.so hemem-lru-swap.o timer.o paging.o lru_swap.o interpose.o $(HEMEM_LIBS)
+
+hemem.o: hemem.c hemem.h paging.h hemem-mmgr.h interpose.h
+	$(CC) $(CFLAGS) $(INCLUDES) -D ALLOC_HEMEM -c hemem.c -o hemem.o
 
 hemem-lru.o: hemem.c hemem.h paging.h lru.h interpose.h
 	$(CC) $(CFLAGS) $(INCLUDES) -D ALLOC_LRU -c hemem.c -o hemem-lru.o
@@ -55,6 +45,9 @@ timer.o: timer.c timer.h
 paging.o: paging.c paging.h
 	$(CC) $(CFLAGS) $(INCLUDES) -c paging.c
 
+hemem-mmgr.o: hemem-mmgr.c hemem-mmgr.h hemem.h
+	$(CC) $(CFLAGS) $(INCLUDES) -c hemem-mmgr.c
+
 lru.o: lru.c lru.h hemem.h
 	$(CC) $(CFLAGS) $(INCLUDES) -c lru.c
 
@@ -64,8 +57,5 @@ simple.o: simple.c simple.h hemem.h
 lru_swap.o: lru.c lru.h hemem.h
 	$(CC) $(CFLAGS) $(INCLUDES) -D LRU_SWAP -c lru.c -o lru_swap.o
 
-test.o: test.c timer.h hemem.h
-	$(CC) $(CFLAGS) $(INCLUDES) -c test.c
-
 clean:
-	$(RM) *.o *.so gups-lru gups-simple gups-lru-swap
+	$(RM) *.o *.so

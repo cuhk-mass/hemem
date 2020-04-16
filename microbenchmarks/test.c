@@ -32,8 +32,8 @@
 #include <errno.h>
 #include <stdint.h>
 
-#include "timer.h"
-#include "hemem.h"
+#include "../timer.h"
+#include "../hemem.h"
 
 #define KB(x)     ((uint64_t)x * 1024)
 #define MB(x)     (KB(x) * 1024)
