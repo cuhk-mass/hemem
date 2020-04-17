@@ -31,7 +31,7 @@ pthread_t fault_thread;
 int dramfd = -1;
 int nvmfd = -1;
 long uffd = -1;
-static bool init = false;
+bool is_init = false;
 _Atomic uint64_t mem_allocated = 0;
 _Atomic uint64_t fastmem_allocated = 0;
 _Atomic uint64_t slowmem_allocated = 0;
@@ -41,15 +41,26 @@ _Atomic uint64_t migrations_up = 0;
 _Atomic uint64_t migrations_down = 0;
 _Atomic uint64_t pmemcpys = 0;
 _Atomic uint64_t memsets = 0;
-uint64_t base = 0;
+uint64_t cr3 = 0;
 int devmemfd = -1;
 struct page_list list;
 pthread_t copy_threads[MAX_COPY_THREADS];
 
+#define MAXPAGES	262144
+static struct hemem_page freepages[MAXPAGES];
+static size_t nextfreepage = 0;
+
 void *dram_devdax_mmap;
 void *nvm_devdax_mmap;
 
+__thread bool internal_malloc = false;
+
 struct pmemcpy {
+#ifdef HEMEM_THREAD_POOL
+  /* _Atomic bool activate; */
+  /* _Atomic bool done_bitmap[MAX_COPY_THREADS]; */
+  pthread_barrier_t barrier;
+#endif
   _Atomic void *dst;
   _Atomic void *src;
   _Atomic size_t length;
@@ -57,6 +68,57 @@ struct pmemcpy {
 
 static struct pmemcpy pmemcpy;
 
+#ifdef HEMEM_THREAD_POOL
+void *hemem_parallel_memcpy_thread(void *arg)
+{
+  uint64_t tid = (uint64_t)arg;
+  void *src;
+  void *dst;
+  size_t length;
+  size_t chunk_size;
+
+  assert(tid < MAX_COPY_THREADS);
+
+  for (;;) {
+    /* while(!pmemcpy.activate || pmemcpy.done_bitmap[tid]) { } */
+    int r = pthread_barrier_wait(&pmemcpy.barrier);
+    assert(r == 0 || r == PTHREAD_BARRIER_SERIAL_THREAD);
+    if (tid == 0) {
+      pmemcpys++;
+    }
+
+    // grab data out of shared struct
+    length = pmemcpy.length;
+    chunk_size = length / MAX_COPY_THREADS;
+    src = pmemcpy.src + (tid * chunk_size);
+    dst = pmemcpy.dst + (tid * chunk_size);
+
+    LOG("thread %lu copying %lu bytes from %lx to %lx\n", tid, chunk_size, (uint64_t)dst, (uint64_t)src);
+
+    memcpy(dst, src, chunk_size);
+
+#ifdef HEMEM_DEBUG
+    uint64_t *tmp1, *tmp2, i;
+    tmp1 = dst;
+    tmp2 = src;
+    for (i = 0; i < chunk_size / sizeof(uint64_t); i++) {
+      if (tmp1[i] != tmp2[i]) {
+        LOG("copy thread: dst[%lu] = %lu != src[%lu] = %lu\n", i, tmp1[i], i, tmp2[i]);
+        assert(tmp1[i] == tmp2[i]);
+      }
+    }
+#endif
+
+    LOG("thread %lu done copying\n", tid);
+
+    r = pthread_barrier_wait(&pmemcpy.barrier);
+    assert(r == 0 || r == PTHREAD_BARRIER_SERIAL_THREAD);
+    /* pmemcpy.done_bitmap[tid] = true; */
+  }
+  return NULL;
+}
+
+#else // HEMEM_THREAD_POOL
 
 void *hemem_parallel_memcpy_thread(void *arg)
 {
@@ -65,8 +127,6 @@ void *hemem_parallel_memcpy_thread(void *arg)
   void *dst;
   size_t length;
   size_t chunk_size;
-  uint64_t *tmp1, *tmp2;
-  uint64_t i;
 
   assert(tid < MAX_COPY_THREADS);
 
@@ -84,6 +144,8 @@ void *hemem_parallel_memcpy_thread(void *arg)
 
   memcpy(dst, src, chunk_size);
 
+#ifdef HEMEM_DEBUG
+  uint64_t *tmp1, *tmp2, i;
   tmp1 = dst;
   tmp2 = src;
   for (i = 0; i < chunk_size / sizeof(uint64_t); i++) {
@@ -92,9 +154,10 @@ void *hemem_parallel_memcpy_thread(void *arg)
       assert(tmp1[i] == tmp2[i]);
     }
   }
+#endif
   return NULL;
 }
-
+#endif // HEMEM_THREAD_POOL
 
 void enqueue_page(struct hemem_page *page)
 {
@@ -132,6 +195,24 @@ struct hemem_page* find_page(uint64_t va)
 void hemem_init()
 {
   struct uffdio_api uffdio_api;
+  struct uffdio_cr3 uffdio_cr3;
+/*
+  {
+    // This call is dangerous. Ideally, all printf's should be
+    // replaced with logging macros that can print to stderr instead
+    // (which is unbuffered).
+    int r = setvbuf(stdout, NULL, _IONBF, 0);
+    assert(r == 0);
+  }
+*/
+  
+  hememlogf = fopen("logs.txt", "w+");
+  if (hememlogf == NULL) {
+    perror("log file open\n");
+    assert(0);
+  }
+
+  LOG("hemem_init: started\n");
 
   dramfd = open(DRAMPATH, O_RDWR);
   if (dramfd < 0) {
@@ -152,7 +233,7 @@ void hemem_init()
   }
 
   uffdio_api.api = UFFD_API;
-  uffdio_api.features = UFFD_FEATURE_PAGEFAULT_FLAG_WP |  UFFD_FEATURE_MISSING_SHMEM | UFFD_FEATURE_MISSING_HUGETLBFS;
+  uffdio_api.features = UFFD_FEATURE_PAGEFAULT_FLAG_WP |  UFFD_FEATURE_MISSING_SHMEM | UFFD_FEATURE_MISSING_HUGETLBFS;// | UFFD_FEATURE_EVENT_UNMAP | UFFD_FEATURE_EVENT_REMOVE;
   uffdio_api.ioctls = 0;
   if (ioctl(uffd, UFFDIO_API, &uffdio_api) == -1) {
     perror("ioctl uffdio_api");
@@ -171,38 +252,53 @@ void hemem_init()
     assert(0);
   }
 
-  hememlogf = fopen("logs.txt", "w+");
-  if (hememlogf == NULL) {
-    perror("log file open\n");
-    assert(0);
-  }
-
   timef = fopen("times.txt", "w+");
   if (timef == NULL) {
     perror("time file fopen\n");
     assert(0);
   }
 
-  dram_devdax_mmap =libc_mmap(NULL, DRAMSIZE, PROT_READ | PROT_WRITE, MAP_SHARED, dramfd, 0);
+  dram_devdax_mmap =libc_mmap(NULL, DRAMSIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
   if (dram_devdax_mmap == MAP_FAILED) {
     perror("dram devdax mmap");
     assert(0);
   }
 
-  nvm_devdax_mmap =libc_mmap(NULL, NVMSIZE, PROT_READ | PROT_WRITE, MAP_SHARED, nvmfd, 0);
+  nvm_devdax_mmap =libc_mmap(NULL, NVMSIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
   if (nvm_devdax_mmap == MAP_FAILED) {
     perror("nvm devdax mmap");
     assert(0);
   }
-  
+#ifdef HEMEM_THREAD_POOL
+  uint64_t i;
+  /* pmemcpy.activate = false; */
+  /* for (i = 0; i < MAX_COPY_THREADS; i++) { */
+  /*   pmemcpy.done_bitmap[i] = false; */
+  /* } */
+  int r = pthread_barrier_init(&pmemcpy.barrier, NULL, MAX_COPY_THREADS + 1);
+  assert(r == 0);
+
+  for (i = 0; i < MAX_COPY_THREADS; i++) {
+    s = pthread_create(&copy_threads[i], NULL, hemem_parallel_memcpy_thread, (void*)i);
+    assert(s == 0);
+  }
+#endif
+
+  if (ioctl(uffd, UFFDIO_CR3, &uffdio_cr3) < 0) {
+    perror("ioctl uffdio_cr3");
+    assert(0);
+  }
+  cr3 = uffdio_cr3.cr3;
+
   paging_init();
 #ifdef COALESCE
   printf("coalesce_init\n");
   coalesce_init();
 #endif
-  init = 1;
+  
+  is_init = true;
 
-  init = true;
+  LOG("hemem_init: finished\n");
 }
 
 static void hemem_mmap_populate(void* addr, size_t length)
@@ -218,6 +314,7 @@ static void hemem_mmap_populate(void* addr, size_t length)
   void* page_boundry;
   uint64_t npages;
   int i;
+  void* tmpaddr;
 
 
   npages = length / PAGE_SIZE;
@@ -225,7 +322,9 @@ static void hemem_mmap_populate(void* addr, size_t length)
 
   LOG("hemem_mmap_populate: addr: 0x%lx, npages: %lu\n", (uint64_t)addr, npages);
   for (i = 0; i < npages; i++) {
+    internal_malloc = true;
     page = (struct hemem_page*)calloc(1, sizeof(struct hemem_page));
+    internal_malloc = false;
     if (page == NULL) {
       perror("page calloc");
       assert(0);
@@ -247,6 +346,10 @@ static void hemem_mmap_populate(void* addr, size_t length)
     // let policy algorithm do most of the heavy lifting of finding a free page
     offset = page->devdax_offset;
     in_dram = page->in_dram;
+
+    tmpaddr = (in_dram ? dram_devdax_mmap + offset : nvm_devdax_mmap + offset);
+    memset(tmpaddr, 0, PAGE_SIZE);
+    memsets++;
   
     // now that we have an offset determined via the policy algorithm, actually map
     // the page for the application
@@ -258,11 +361,8 @@ static void hemem_mmap_populate(void* addr, size_t length)
     }
   
     if (newptr != (void*)page_boundry) {
-      printf("hemem: mmap populate: warning, newptr != page boundry\n");
+      fprintf(stderr, "hemem: mmap populate: warning, newptr != page boundry\n");
     }
-
-    memset(newptr, 0, PAGE_SIZE);
-    memsets++;
 
     // re-register new mmap region with userfaultfd
     struct uffdio_register uffdio_register;
@@ -294,13 +394,13 @@ static void hemem_mmap_populate(void* addr, size_t length)
   }
 }
 
+#define PAGE_ROUND_UP(x) (((x) + (PAGE_SIZE)-1) & (~((PAGE_SIZE)-1)))
 
 void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 {
   void *p;
-  struct uffdio_base uffdio_base;
  
-  assert(init);
+  assert(is_init);
 
   if ((flags & MAP_PRIVATE) == MAP_PRIVATE) {
     flags &= ~MAP_PRIVATE;
@@ -319,6 +419,7 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
   }
   
   // reserve block of memory
+  length = PAGE_ROUND_UP(length);
   p = libc_mmap(addr, length, prot, flags, dramfd, offset);
   if (p == NULL || p == MAP_FAILED) {
     perror("mmap");
@@ -335,15 +436,6 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
     perror("ioctl uffdio_register");
     assert(0);
   }
-
-  uffdio_base.range.start = (uint64_t)p;
-  uffdio_base.range.len = length;
-
-  if (ioctl(uffd, UFFDIO_BASE, &uffdio_base) < 0) {
-    perror("ioctl uffdio_base");
-    assert(0);
-  }
-  base = uffdio_base.base;
   
   if ((flags & MAP_POPULATE) == MAP_POPULATE) {
     hemem_mmap_populate(p, length);
@@ -358,7 +450,45 @@ int hemem_munmap(void* addr, size_t length)
   return libc_munmap(addr, length);
 }
 
+#ifdef HEMEM_THREAD_POOL
+static void hemem_parallel_memcpy(void *dst, void *src, size_t length)
+{
+  /* uint64_t i; */
+  /* bool all_threads_done; */
 
+  pmemcpy.dst = dst;
+  pmemcpy.src = src;
+  pmemcpy.length = length;
+
+  int r = pthread_barrier_wait(&pmemcpy.barrier);
+  assert(r == 0 || r == PTHREAD_BARRIER_SERIAL_THREAD);
+  
+  LOG("parallel migration started\n");
+  
+  /* pmemcpy.activate = true; */
+
+  /* while (!all_threads_done) { */
+  /*   all_threads_done = true; */
+  /*   for (i = 0; i < MAX_COPY_THREADS; i++) { */
+  /*     if (!pmemcpy.done_bitmap[i]) { */
+  /*       all_threads_done = false; */
+  /*       break; */
+  /*     } */
+  /*   } */
+  /* } */
+
+  r = pthread_barrier_wait(&pmemcpy.barrier);
+  assert(r == 0 || r == PTHREAD_BARRIER_SERIAL_THREAD);
+  LOG("parallel migration finished\n");
+
+  /* pmemcpy.activate = false; */
+
+  /* for (i = 0; i < MAX_COPY_THREADS; i++) { */
+  /*   pmemcpy.done_bitmap[i] = false; */
+  /* } */
+}
+
+#else // HEMEM_THREAD_POOL
 static void hemem_parallel_memcpy(void *dst, void *src, size_t length)
 {
   uint64_t i;
@@ -378,7 +508,7 @@ static void hemem_parallel_memcpy(void *dst, void *src, size_t length)
     assert(r == 0);
   }
 }
-
+#endif // HEMEM_THREAD_POOL
 
 void hemem_migrate_up(struct hemem_page *page, uint64_t dram_framenum)
 {
@@ -389,7 +519,7 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_framenum)
   struct timeval start, end;
   uint64_t old_addr_offset, new_addr_offset;
 
-  LOG("hemem_migrate_up: migrate down addr: %lx pte: %lx\n", page->va, hemem_va_to_pa(page->va));
+  //LOG("hemem_migrate_up: migrate down addr: %lx pte: %lx\n", page->va, hemem_va_to_pa(page->va));
   
   gettimeofday(&migrate_start, NULL);
   
@@ -410,24 +540,27 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_framenum)
   hemem_parallel_memcpy(new_addr, old_addr, PAGE_SIZE);
   gettimeofday(&end, NULL);
   LOG_TIME("memcpy_to_dram: %f s\n", elapsed(&start, &end));
-  
+ 
+#ifdef HEMEM_DEBUG 
   uint64_t* src = (uint64_t*)old_addr;
   uint64_t* dst = (uint64_t*)new_addr;
   for (int i = 0; i < (PAGE_SIZE / sizeof(uint64_t)); i++) {
     if (dst[i] != src[i]) {
-      LOG("dst[%d] = %lu != src[%d] = %lu\n", i, dst[i], i, src[i]);
+      LOG("hemem_migrate_up: dst[%d] = %lu != src[%d] = %lu\n", i, dst[i], i, src[i]);
       assert(dst[i] == src[i]);
     }
   }
+#endif
 
   gettimeofday(&start, NULL);
+  assert(libc_mmap != NULL);
   newptr = libc_mmap((void*)page->va, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, dramfd, new_addr_offset);
   if (newptr == MAP_FAILED) {
     perror("newptr mmap");
     assert(0);
   }
   if (newptr != (void*)page->va) {
-    printf("mapped address is not same as faulting address\n");
+    fprintf(stderr, "mapped address is not same as faulting address\n");
   }
   gettimeofday(&end, NULL);
   LOG_TIME("mmap_dram: %f s\n", elapsed(&start, &end));
@@ -445,15 +578,6 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_framenum)
   }
   gettimeofday(&end, NULL);
   LOG_TIME("uffdio_register: %f s\n", elapsed(&start, &end));
-  
-  uint64_t* new = (uint64_t*)newptr;
-  for (int i = 0; i < (PAGE_SIZE / sizeof(uint64_t)); i++) {
-    if (new[i] != src[i]) {
-      LOG("new[%d] = %lu != src[%d] = %lu (dst[%d] = %lu)\n", i, new[i], i, src[i], i, dst[i]);
-      LOG("address of new[%d]: %lx, page: %lx\n", i, (uint64_t)&new[i], ((uint64_t)&new[i] & ~(PAGE_SIZE - 1)));
-      assert(new[i] == src[i]);
-    }
-  }
 
   page->migrations_up++;
   migrations_up++;
@@ -466,7 +590,7 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_framenum)
 #endif
   hemem_tlb_shootdown(page->va);
   
-  LOG("hemem_migrate_up: new pte: %lx\n", hemem_va_to_pa(page->va));
+  //LOG("hemem_migrate_up: new pte: %lx\n", hemem_va_to_pa(page->va));
 
   gettimeofday(&migrate_end, NULL);  
   LOG_TIME("hemem_migrate_up: %f s\n", elapsed(&migrate_start, &migrate_end));
@@ -482,7 +606,7 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_framenum)
   struct timeval start, end;
   uint64_t old_addr_offset, new_addr_offset;
 
-  LOG("hemem_migrate_down: migrate down addr: %lx pte: %lx\n", page->va, hemem_va_to_pa(page->va));
+  //LOG("hemem_migrate_down: migrate down addr: %lx pte: %lx\n", page->va, hemem_va_to_pa(page->va));
 
   gettimeofday(&migrate_start, NULL);
   
@@ -504,14 +628,16 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_framenum)
   gettimeofday(&end, NULL);
   LOG_TIME("memcpy_to_nvm: %f s\n", elapsed(&start, &end));
 
+#ifdef HEMEM_DEBUG
   uint64_t* src = (uint64_t*)old_addr;
   uint64_t* dst = (uint64_t*)new_addr;
   for (int i = 0; i < (PAGE_SIZE / sizeof(uint64_t)); i++) {
     if (dst[i] != src[i]) {
-      LOG("dst[%d] = %lu != src[%d] = %lu\n", i, dst[i], i, src[i]);
+      LOG("hemem_migrate_down: dst[%d] = %lu != src[%d] = %lu\n", i, dst[i], i, src[i]);
       assert(dst[i] == src[i]);
     }
   }
+#endif
   
   gettimeofday(&start, NULL);
   newptr = libc_mmap((void*)page->va, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, nvmfd, new_addr_offset);
@@ -520,7 +646,7 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_framenum)
     assert(0);
   }
   if (newptr != (void*)page->va) {
-    printf("mapped address is not same as faulting address\n");
+    fprintf(stderr, "mapped address is not same as faulting address\n");
   }
   gettimeofday(&end, NULL);
   LOG_TIME("mmap_nvm: %f s\n", elapsed(&start, &end));
@@ -539,15 +665,6 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_framenum)
   gettimeofday(&end, NULL);
   LOG_TIME("uffdio_register: %f s\n", elapsed(&start, &end));
   
-  uint64_t* new = (uint64_t*)newptr;
-  for (int i = 0; i < (PAGE_SIZE / sizeof(uint64_t)); i++) {
-    if (new[i] != src[i]) {
-      LOG("new[%d] = %lu != src[%d] = %lu(dst[%d] = %lu)\n", i, new[i], i, src[i], i, dst[i]);
-      LOG("address of new[%d]: %lx, page: %lx\n", i, (uint64_t)&new[i], ((uint64_t)&new[i] & ~(PAGE_SIZE - 1)));
-      assert(new[i] == src[i]);
-    }
-  }
-  
   page->migrations_down++;
   migrations_down++;
 
@@ -559,7 +676,7 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_framenum)
 #endif
   hemem_tlb_shootdown(page->va);
 
-  LOG("hemem_migrate_down: new pte: %lx\n", hemem_va_to_pa(page->va));
+  //LOG("hemem_migrate_down: new pte: %lx\n", hemem_va_to_pa(page->va));
 
   gettimeofday(&migrate_end, NULL);  
   LOG_TIME("hemem_migrate_down: %f s\n", elapsed(&migrate_start, &migrate_end));
@@ -572,16 +689,7 @@ void hemem_wp_page(struct hemem_page *page, bool protect)
   int ret;
   struct timeval start, end;
 
-  LOG("hemem_wp_page: wp addr %lx pte: %lx\n", addr, hemem_va_to_pa(addr));
-/*
-  // unmap page entirely during migration to prevent any access by process
- LOG("Write protect va: 0x%lx\n", addr);
-  ret = libc_munmap((void*)addr, PAGE_SIZE);
-  if (ret < 0) {
-    perror("munmap\n");
-    assert(0);
-  }
-  */
+  //LOG("hemem_wp_page: wp addr %lx pte: %lx\n", addr, hemem_va_to_pa(addr));
 
   gettimeofday(&start, NULL);
   wp.range.start = addr;
@@ -632,6 +740,7 @@ void handle_missing_fault(uint64_t page_boundry)
   struct timeval start, end;
   struct hemem_page *page;
   uint64_t offset;
+  void* tmp_offset;
   bool in_dram;
 
   // have we seen this page before?
@@ -644,11 +753,15 @@ void handle_missing_fault(uint64_t page_boundry)
   }
 
   gettimeofday(&missing_start, NULL);
-  page = (struct hemem_page*)calloc(1, sizeof(struct hemem_page));
-  if (page == NULL) {
-    perror("page calloc");
-    assert(0);
-  }
+  /* internal_malloc = true; */
+  assert(nextfreepage < MAXPAGES);
+  page = &freepages[nextfreepage++];
+  /* page = (struct hemem_page*)calloc(1, sizeof(struct hemem_page)); */
+  /* internal_malloc = false; */
+  /* if (page == NULL) { */
+  /*   perror("page calloc"); */
+  /*   assert(0); */
+  /* } */
   pthread_mutex_init(&(page->page_lock), NULL);
 
   // let policy algorithm do most of the heavy lifting of finding a free page
@@ -672,7 +785,18 @@ void handle_missing_fault(uint64_t page_boundry)
   offset = page->devdax_offset;
   in_dram = page->in_dram;
 
-  
+  tmp_offset = (in_dram) ? dram_devdax_mmap + offset : nvm_devdax_mmap + offset;
+
+  memset(tmp_offset, 0, PAGE_SIZE);
+  memsets++;
+
+#ifdef HEMEM_DEBUG
+  char* tmp = (char*)tmp_offset;
+  for (int i = 0; i < PAGE_SIZE; i++) {
+    assert(tmp[i] == 0);
+  }
+#endif
+
   // now that we have an offset determined via the policy algorithm, actually map
   // the page for the application
   gettimeofday(&start, NULL);
@@ -680,22 +804,19 @@ void handle_missing_fault(uint64_t page_boundry)
 
   if (newptr == MAP_FAILED) {
     perror("newptr mmap");
-    free(page);
+    /* free(page); */
+    assert(0);
+  }
+  LOG("hemem: mmaping at %p\n", newptr);
+  if(newptr != (void *)page_boundry) {
+    fprintf(stderr, "Not mapped where expected (%p != %p)\n", newptr, (void *)page_boundry);
     assert(0);
   }
   gettimeofday(&end, NULL);
   LOG_TIME("mmap_%s: %f s\n", (in_dram ? "dram" : "nvm"), elapsed(&start, &end));
   
   if (newptr != (void*)page_boundry) {
-    printf("hemem: handle missing fault: warning, newptr != page boundry\n");
-  }
-
-  memset(newptr, 0, PAGE_SIZE);
-  memsets++;
-
-  char* tmp = (char*)newptr;
-  for (int i = 0; i < PAGE_SIZE; i++) {
-    assert(tmp[i] == 0);
+    fprintf(stderr, "hemem: handle missing fault: warning, newptr != page boundry\n");
   }
 
   gettimeofday(&start, NULL);
@@ -725,7 +846,7 @@ void handle_missing_fault(uint64_t page_boundry)
 
   mem_allocated += PAGE_SIZE;
 
-  LOG("hemem_missing_fault: va: %lx assigned to %s frame %lu  pte: %lx\n", page->va, (in_dram ? "DRAM" : "NVM"), page->devdax_offset / PAGE_SIZE, hemem_va_to_pa(page->va));
+  //LOG("hemem_missing_fault: va: %lx assigned to %s frame %lu  pte: %lx\n", page->va, (in_dram ? "DRAM" : "NVM"), page->devdax_offset / PAGE_SIZE, hemem_va_to_pa(page->va));
 
   // place in hemem's page tracking list
   enqueue_page(page);
@@ -733,7 +854,6 @@ void handle_missing_fault(uint64_t page_boundry)
   missing_faults_handled++;
   gettimeofday(&missing_end, NULL);
   LOG_TIME("hemem_missing_fault: %f s\n", elapsed(&missing_start, &missing_end));
-  //printf("page missing fault took %.4f seconds\n", elapsed(&start, &end));
 }
 
 
@@ -749,35 +869,30 @@ void *handle_fault()
   int nmsgs;
   int i;
 
-  //printf("fault handler entered\n");
-
   for (;;) {
     struct pollfd pollfd;
     int pollres;
     pollfd.fd = uffd;
     pollfd.events = POLLIN;
 
-    //printf("calling poll\n");
     pollres = poll(&pollfd, 1, -1);
-    //printf("poll returned\n");
 
     switch (pollres) {
     case -1:
       perror("poll");
       assert(0);
     case 0:
-      printf("poll read 0\n");
+      fprintf(stderr, "poll read 0\n");
       continue;
     case 1:
-      //printf("poll read 1\n");
       break;
     default:
-      printf("unexpected poll result\n");
+      fprintf(stderr, "unexpected poll result\n");
       assert(0);
     }
 
     if (pollfd.revents & POLLERR) {
-      printf("pollerr\n");
+      fprintf(stderr, "pollerr\n");
       assert(0);
     }
 
@@ -787,7 +902,7 @@ void *handle_fault()
 
     nread = read(uffd, &msg[0], MAX_UFFD_MSGS * sizeof(struct uffd_msg));
     if (nread == 0) {
-      printf("EOF on userfaultfd\n");
+      fprintf(stderr, "EOF on userfaultfd\n");
       assert(0);
     }
 
@@ -799,9 +914,8 @@ void *handle_fault()
       assert(0);
     }
 
-    //printf("nread: %d\tsize of uffd msg: %d\n", nread, sizeof(msg));
     if ((nread % sizeof(struct uffd_msg)) != 0) {
-      printf("invalid msg size: [%ld]\n", nread);
+      fprintf(stderr, "invalid msg size: [%ld]\n", nread);
       assert(0);
     }
 
@@ -810,24 +924,20 @@ void *handle_fault()
     for (i = 0; i < nmsgs; i++) {
       //TODO: check page fault event, handle it
       if (msg[i].event & UFFD_EVENT_PAGEFAULT) {
-        //printf("received a page fault event\n");
         fault_addr = (uint64_t)msg[i].arg.pagefault.address;
         fault_flags = msg[i].arg.pagefault.flags;
 
         // allign faulting address to page boundry
         // huge page boundry in this case due to dax allignment
         page_boundry = fault_addr & ~(PAGE_SIZE - 1);
-        //printf("page boundry is 0x%lx\n", page_boundry);
 
         if (fault_flags & UFFD_PAGEFAULT_FLAG_WP) {
-          //printf("received a write-protection fault at addr 0x%lx\n", fault_addr);
           handle_wp_fault(page_boundry);
         }
         else {
           handle_missing_fault(page_boundry);
         }
 
-        //printf("waking thread\n");
         // wake the faulting thread
         range.start = (uint64_t)page_boundry;
         range.len = PAGE_SIZE;
@@ -839,8 +949,17 @@ void *handle_fault()
           assert(0);
         }
       }
+      else if (msg[i].event & UFFD_EVENT_UNMAP){
+        fprintf(stderr, "Received an unmap event\n");
+        assert(0);
+      }
+      else if (msg[i].event & UFFD_EVENT_REMOVE) {
+        fprintf(stderr, "received a remove event\n");
+        assert(0);
+      }
       else {
-        printf("Received a non page fault event\n");
+        fprintf(stderr, "received a non page fault event\n");
+        assert(0);
       }
     }
   }
@@ -879,7 +998,6 @@ void hemem_clear_accessed_bit(uint64_t va)
 
   clear_accessed_bit(page_boundry);
  
-  MEM_BARRIER(); 
   range.start = page_boundry;
   range.len = PAGE_SIZE;
 
@@ -901,7 +1019,7 @@ int hemem_get_accessed_bit(uint64_t va)
 
 void hemem_print_stats()
 {
-  printf("missing_faults_handled: [%lu]\tmigrations_up: [%lu]\tmigrations_down: [%lu]\tpmemcpys: [%lu]\tmemsets: [%lu]\n", missing_faults_handled, migrations_up, migrations_down, pmemcpys, memsets);
+  fprintf(stderr, "missing_faults_handled: [%lu]\tmigrations_up: [%lu]\tmigrations_down: [%lu]\tpmemcpys: [%lu]\tmemsets: [%lu]\n", missing_faults_handled, migrations_up, migrations_down, pmemcpys, memsets);
 }
 
 

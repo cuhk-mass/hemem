@@ -2,10 +2,6 @@
 
 #define HEMEM_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <pthread.h>
 #include <stdint.h>
 #include <inttypes.h>
@@ -20,17 +16,25 @@ extern "C" {
 #define _Atomic(X) std::atomic< X >
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "paging.h"
+#include "hemem-mmgr.h"
 #include "lru.h"
 #include "simple.h"
 #include "aligned.h"
 #include "timer.h"
 #include "interpose.h"
 
+//#define HEMEM_DEBUG
+#define HEMEM_THREAD_POOL
+
 #define MEM_BARRIER() __sync_synchronize()
 
 #define NVMSIZE   (2750L * (1024L * 1024L * 1024L))
-#define DRAMSIZE  (8L * (1024L * 1024L * 1024L))
+#define DRAMSIZE  (128L * (1024L * 1024L * 1024L))
 
 #define DRAMPATH  "/dev/dax0.0"
 #define NVMPATH   "/dev/dax1.0"
@@ -46,7 +50,7 @@ extern "C" {
 #define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
 
 FILE *hememlogf;
-//#define LOG(...) printf(__VA_ARGS__)
+//#define LOG(...) fprintf(stderr, __VA_ARGS__)
 //#define LOG(...)	fprintf(hememlogf, __VA_ARGS__)
 #define LOG(str, ...) while(0) {}
 
@@ -55,7 +59,10 @@ FILE *timef;
 //#define LOG_TIME(str, ...) fprintf(timef, str, __VA_ARGS__)
 #define LOG_TIME(str, ...) while(0) {}
 
-#if defined (ALLOC_LRU)
+#if defined (ALLOC_HEMEM)
+  #define pagefault(...) hemem_pagefault(__VA_ARGS__)
+  #define paging_init(...) hemem_mmgr_init(__VA_ARGS__)
+#elif defined (ALLOC_LRU)
   #define pagefault(...) lru_pagefault(__VA_ARGS__)
   #define paging_init(...) lru_init(__VA_ARGS__)
 #elif defined (ALLOC_SIMPLE)
@@ -64,16 +71,20 @@ FILE *timef;
 #endif
 
 
-#define MAX_UFFD_MSGS	    (1)
-#define MAX_COPY_THREADS  (2)
+#define MAX_UFFD_MSGS	    (8)
+#define MAX_COPY_THREADS  (4)
 
 #define KSWAPD_INTERVAL   (1000000)
 
-extern uint64_t base;
+extern uint64_t cr3;
+extern int dramfd;
+extern int nvmfd;
 extern int devmemfd;
+extern bool is_init;
 extern _Atomic(uint64_t) missing_faults_handled;
 extern _Atomic(uint64_t) migrations_up;
 extern _Atomic(uint64_t) migrations_down;
+extern __thread bool internal_malloc;
 
 struct hemem_page {
   uint64_t va;

@@ -32,8 +32,8 @@
 #include <sys/mman.h>
 #include <errno.h>
 
-#include "timer.h"
-#include "hemem.h"
+#include "../timer.h"
+#include "../hemem.h"
 
 
 #include "gups.h"
@@ -150,6 +150,7 @@ int main(int argc, char **argv)
   threads = atoi(argv[1]);
   assert(threads <= MAX_THREADS);
   ga = (struct gups_args**)malloc(threads * sizeof(struct gups_args*));
+  printf("size of ga: %lu\n", sizeof(ga));
   
   updates = atol(argv[2]);
   updates -= updates % 256;
@@ -167,6 +168,10 @@ int main(int argc, char **argv)
 
   //p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_POPULATE, -1, 0);
   p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+  if (p == MAP_FAILED) {
+    perror("mmap");
+    assert(0);
+  }
 
   gettimeofday(&stoptime, NULL);
   printf("Init took %.4f seconds\n", elapsed(&starttime, &stoptime));
@@ -284,16 +289,16 @@ int main(int argc, char **argv)
   printf("Elapsed time: %.4f seconds.\n", secs);
   gups = threads * ((double)updates) / (secs * 1.0e9);
   printf("GUPS = %.10f\n", gups);
+  
+  hemem_print_stats();
 #endif
   for (i = 0; i < threads; i++) {
-    free(ga[i]->indices);
+    //free(ga[i]->indices);
     free(ga[i]);
   }
   free(ga);
   
   //munmap(p, size);
-
-  hemem_print_stats();
 
   return 0;
 }
