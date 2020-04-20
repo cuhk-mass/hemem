@@ -318,16 +318,6 @@ static void memaccess(uint64_t addr, enum access_type type)
 
   accesses[(paddr & SLOWMEM_BIT) ? SLOWMEM : FASTMEM]++;
 #endif
-
-  /* if((pte->addr & SLOWMEM_BIT) && type == TYPE_READ) { */
-  /*   LOG("%zu memaccess %s %" PRIu64 " %s %" PRIu64 " %d\n", */
-  /* 	runtime, */
-  /* 	type == TYPE_READ ? "read" : "write", */
-  /* 	addr, */
-  /* 	(pte->addr & SLOWMEM_BIT) ? "slow" : "fast", */
-  /* 	(pte->addr & SLOWMEM_MASK) / BASE_PAGE_SIZE, */
-  /* 	listnum(pte)); */
-  /* } */
 }
 
 #define WORKSET_SIZE	SLOWMEM_SIZE
@@ -422,11 +412,12 @@ int main(int argc, char *argv[])
   // GUPS!
   gups(10000000, 0, hotset_size, 0.9, WORKSET_SIZE);
   print_stats();
-  reset_stats();
+  /* reset_stats(); */
 
-  // Move hotset up
-  gups(10000000, WORKSET_SIZE - hotset_size, hotset_size, 0.9, WORKSET_SIZE);
+  /* // Move hotset up */
+  /* gups(10000000, WORKSET_SIZE - hotset_size, hotset_size, 0.9, WORKSET_SIZE); */
 
-  print_stats();
+  /* print_stats(); */
+  listnum(NULL);
   return 0;
 }

@@ -29,7 +29,7 @@ struct page {
   // XXX: 1 vaddr per paddr, sharing not supported yet!
   uint64_t	paddr, vaddr;
   struct pte	*pte;
-  bool 		accessed2;
+  size_t	accesses, tot_accesses;
 };
 
 struct fifo_queue {
@@ -336,6 +336,8 @@ static void cool(void)
   
   memset(bookmark, 0, sizeof(bookmark));
 
+  size_t oldruntime = runtime;
+  
   // Data cools at HEMEM_COOL_RATE per HEMEM_INTERVAL
   for(uint64_t sweeped = 0; sweeped < HEMEM_COOL_RATE;) {
     uint64_t oldsweeped = sweeped;
@@ -371,9 +373,12 @@ static void cool(void)
 
     // If no progress then bail out
     if(sweeped == oldsweeped) {
+      LOG("COOL took %.3fs\n", (float)(runtime - oldruntime) / 1000000000.0);
       return;
     }
   }
+  
+  LOG("COOL took %.3fs\n", (float)(runtime - oldruntime) / 1000000000.0);
 }
 
 static void thaw(void)
@@ -381,6 +386,8 @@ static void thaw(void)
   struct page *bookmark[NMEMTYPES][NPAGETYPES];
   
   memset(bookmark, 0, sizeof(bookmark));
+
+  size_t oldruntime = runtime;
   
   // Data thaws at HEMEM_THAW_RATE per HEMEM_INTERVAL
   for(uint64_t sweeped = 0; sweeped < HEMEM_THAW_RATE;) {
@@ -401,18 +408,20 @@ static void thaw(void)
 	p = dequeue_fifo(&mem_inactive[mt][pt]);
 
 	if(p->vaddr < 1048576) {
-	  LOG("[THAW vaddr 0x%" PRIx64 "] accessed = %u, accessed2 = %u\n",
-	      p->vaddr, p->pte->accessed, p->accessed2);
+	  LOG("[THAW vaddr 0x%" PRIx64 "] accessed = %u, accesses = %zu, tot_accesses = %zu\n",
+	      p->vaddr, p->pte->accessed, p->accesses, p->tot_accesses);
 	}
 	
 	if(p->pte->accessed) {
-	  if(p->accessed2) {
-	    LOG("[NOW HOT vaddr 0x%" PRIx64 "] accessed = %u, accessed2 = %u\n",
-		p->vaddr, p->pte->accessed, p->accessed2);
-	    p->accessed2 = false;
+	  p->tot_accesses++;
+	  
+	  if(p->accesses >= 2) {
+	    LOG("[NOW HOT vaddr 0x%" PRIx64 "] accessed = %u, accesses = %zu, tot_accesses = %zu\n",
+		p->vaddr, p->pte->accessed, p->accesses, p->tot_accesses);
+	    p->accesses = 0;
 	    enqueue_fifo(&mem_active[mt][pt], p);
 	  } else {
-	    p->accessed2 = true;
+	    p->accesses++;
 	    p->pte->accessed = false;
 	    enqueue_fifo(&mem_inactive[mt][pt], p);
 	    recirculated = true;
@@ -433,9 +442,12 @@ static void thaw(void)
 
     // If no progress then bail out
     if(sweeped == oldsweeped) {
+      LOG("THAW took %.3fs\n", (float)(runtime - oldruntime) / 1000000000.0);
       return;
     }
   }
+  
+  LOG("THAW took %.3fs\n", (float)(runtime - oldruntime) / 1000000000.0);
 }
 
 static void *hemem_thread(void *arg)
