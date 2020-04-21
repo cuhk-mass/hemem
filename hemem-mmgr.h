@@ -20,18 +20,6 @@
 #define SLOWMEM_HUGE_PAGES  ((NVMSIZE) / (HUGEPAGE_SIZE))
 #define SLOWMEM_BASE_PAGES  ((NVMSIZE) / (BASEPAGE_SIZE))
 
-enum memtypes {
-  FASTMEM = 0,
-  SLOWMEM = 1,
-  NMEMTYPES,
-};
-
-enum pagetypes {
-  HUGEP = 0,
-  BASEP = 1,
-  NPAGETYPES
-};
-
 struct hemem_node {
   struct hemem_page *page;
   bool accessed2;

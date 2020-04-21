@@ -84,10 +84,23 @@ extern _Atomic(uint64_t) migrations_up;
 extern _Atomic(uint64_t) migrations_down;
 extern __thread bool internal_malloc;
 
+enum memtypes {
+  FASTMEM = 0,
+  SLOWMEM = 1,
+  NMEMTYPES,
+};
+
+enum pagetypes {
+  HUGEP = 0,
+  BASEP = 1,
+  NPAGETYPES
+};
+
 struct hemem_page {
   uint64_t va;
   uint64_t devdax_offset;
   bool in_dram;
+  enum pagetypes pt;
   bool migrating;
   pthread_mutex_t page_lock;
   uint64_t migrations_up, migrations_down;
@@ -99,6 +112,24 @@ struct page_list {
   struct hemem_page *first, *last;
   size_t numentries;
 };
+
+static inline uint64_t pt_to_pagesize(enum pagetypes pt)
+{
+  switch(pt) {
+  case HUGEP: return HUGEPAGE_SIZE;
+  case BASEP: return BASEPAGE_SIZE;
+  default: assert(!"Unknown page type");
+  }
+}
+
+static inline enum pagetypes pagesize_to_pt(uint64_t pagesize)
+{
+  switch (pagesize) {
+    case BASEPAGE_SIZE: return BASEP;
+    case HUGEPAGE_SIZE: return HUGEP;
+    default: assert(!"Unknown page ssize");
+  }
+}
 
 void hemem_init();
 void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
