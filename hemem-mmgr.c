@@ -109,7 +109,8 @@ again:
 
       nn = calloc(512, sizeof(struct hemem_node));
       for (size_t i = 0; i < 512; i++) {
-        // break up huge page
+        // TODO: break up huge page
+        nn[i].offset = hn->offset + (i * BASEPAGE_SIZE);
         enqueue_fifo(&mem_free[FASTMEM][BASEP], &nn[i]);
       }
       free(hn);
@@ -117,7 +118,7 @@ again:
       goto again;
     }
 
-    // move memory
+    // TODO: move memory
     fastmem_freebytes -= pt_to_pagesize(BASEP);
     slowmem_freebytes += pt_to_pagesize(BASEP);
     // update va
@@ -201,7 +202,7 @@ move:
         struct hemem_node *nn = dequeue_fifo(&mem_free[SLOWMEM][BASEP]);
         assert(nn != NULL);
 
-        // move memory
+        // TODO: move memory
         slowmem_freebytes -= pt_to_pagesize(BASEP);
         fastmem_freebytes += pt_to_pagesize(BASEP);
         // update address

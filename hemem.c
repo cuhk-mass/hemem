@@ -173,6 +173,28 @@ void enqueue_page(struct hemem_page *page)
   list.numentries++;
 }
 
+void remove_page(struct hemem_page *page)
+{
+  if (list.first == NULL) {
+    assert(list.last == NULL);
+    assert(list.numentries == 0);
+    return;
+  }
+
+  if (list.first == page) {
+    list.first = page->next;
+  }
+
+  if (page->next != NULL) {
+    page->next->prev = page->prev;
+  }
+
+  if (page->prev != NULL) {
+    page->prev->next = page->next;
+  }
+
+  list.numentries--;
+}
 
 struct hemem_page* find_page(uint64_t va)
 {
@@ -911,6 +933,142 @@ void *handle_fault()
         assert(0);
       }
     }
+  }
+}
+
+// coalesce 512 base pages starting at addr into a huge page
+// addr is the addr of the first base page to promote (must be hugepage aligned)
+void hemem_promote_pages(uint64_t addr)
+{
+  void * ret;
+  struct hemem_page *hugepage;
+  struct hemem_page *basepage;
+  uint64_t hugepage_offset;
+  bool in_dram;
+  bool migrating;
+  uint64_t hugepage_fd;
+
+  // ensure addr is hugepage aligned
+  assert(addr % HUGEPAGE_SIZE == 0);
+
+  // take some page properties from first base page
+  basepage = find_page(addr);
+  assert(basepage != NULL);
+  assert(basepage->pt == BASEP);
+
+  hugepage_offset = basepage->devdax_offset;
+  in_dram = basepage->in_dram;
+  migrating = basepage->migrating;
+  hugepage_fd = (in_dram) ? dramfd : nvmfd;
+  remove_page(basepage);
+  
+  // remove base pages from hemem tracking (already moved first page)
+  uint64_t basepage_addr = addr + BASEPAGE_SIZE;
+  for (uint64_t i = 0; i < 511; i++) {
+    struct hemem_page *page;
+    page = find_page(basepage_addr);
+    assert(page != NULL);
+    assert(page->pt == BASEP);
+    remove_page(page);
+    basepage_addr += BASEPAGE_SIZE;
+  }
+
+  assert(nextfreepage < MAXPAGES);
+  hugepage = &freepages[nextfreepage++];
+
+  ret = libc_mmap((void*)addr, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, hugepage_fd, hugepage_offset);
+  if (ret == MAP_FAILED) {
+    perror("coalesce page mmap");
+    assert(0);
+  }
+  if (ret != (void*)addr) {
+    fprintf(stderr, "promote pages: not mapped where expected: %p != %p\n", ret, (void*)addr);
+  }
+
+  struct uffdio_register uffdio_register;
+  uffdio_register.range.start = addr;
+  uffdio_register.range.len = HUGEPAGE_SIZE;
+  uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
+  uffdio_register.ioctls = 0;
+  if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
+    perror("promote pages ioctl uffdio_register");
+    assert(0);
+  }
+
+  hugepage->va = addr;
+  hugepage->devdax_offset = hugepage_offset;
+  hugepage->in_dram = in_dram;
+  hugepage->pt = HUGEP;
+  hugepage->migrating = migrating;
+  pthread_mutex_init(&(hugepage->page_lock), NULL);
+  hugepage->migrations_up = hugepage->migrations_down = 0;
+
+  enqueue_page(hugepage);
+}
+
+// demote huge page starting at addr into 512 base pages
+// addr is the addr of the hugepage to demote (must be hugepage aligned)
+void hemem_demote_pages(uint64_t addr)
+{
+  void* ret;
+  struct hemem_page *hugepage;
+  struct hemem_page *page;
+  uint64_t basepage_addr;
+  uint64_t basepage_offset;
+  uint32_t basepage_fd;
+
+  // ensure addr is start of a huge page
+  assert(addr % HUGEPAGE_SIZE == 0);
+
+  // find the hemem huge page
+  hugepage = find_page(addr);
+  assert(hugepage != NULL);
+  assert(hugepage->pt == HUGEP);
+
+  // remove it from hemem tracking list
+  remove_page(hugepage);
+
+  // for each base page
+  for (uint64_t i = 0; i < 512; i++) {
+    // grab a new page
+    //TODO: Probably need lists for page sizes rather than fixed size array
+    assert(nextfreepage < MAXPAGES);
+    page = &freepages[nextfreepage++];
+
+    basepage_addr = hugepage->va + (i * BASEPAGE_SIZE);
+    basepage_offset = hugepage->devdax_offset + (i * BASEPAGE_SIZE);
+    basepage_fd = (hugepage->in_dram) ? dramfd : nvmfd;
+
+    ret = libc_mmap((void*)basepage_addr, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, basepage_fd, basepage_offset);
+    if (ret == MAP_FAILED) {
+      perror("demote pages mmap");
+      assert(0);
+    }
+    if (ret != (void*)basepage_addr) {
+      fprintf(stderr, "demote pages: not mapped where expected: %p != %p\n", ret, (void*)basepage_addr);
+    }
+
+    // re-register wiht userfault
+    struct uffdio_register uffdio_register;
+    uffdio_register.range.start = basepage_addr;
+    uffdio_register.range.len = BASEPAGE_SIZE;
+    uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
+    uffdio_register.ioctls = 0;
+    if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
+      perror("demote pages ioctl uffdio_register");
+      assert(0);
+    }
+
+    page->va = basepage_addr;
+    page->devdax_offset = basepage_offset;
+    page->in_dram = hugepage->in_dram;
+    page->pt = BASEP;
+    page->migrating = hugepage->migrating;
+    pthread_mutex_init(&(page->page_lock), NULL);
+    page->migrations_up = page->migrations_down = 0;
+
+    // add base page to hemem tracking list
+    enqueue_page(page);
   }
 }
 
