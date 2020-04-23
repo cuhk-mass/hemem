@@ -27,6 +27,7 @@ extern "C" {
 #include "aligned.h"
 #include "timer.h"
 #include "interpose.h"
+#include "bitmap.h"
 
 //#define HEMEM_DEBUG
 #define HEMEM_THREAD_POOL
@@ -50,9 +51,9 @@ extern "C" {
 #define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
 
 FILE *hememlogf;
-//#define LOG(...) fprintf(stderr, __VA_ARGS__)
+#define LOG(...) fprintf(stderr, __VA_ARGS__)
 //#define LOG(...)	fprintf(hememlogf, __VA_ARGS__)
-#define LOG(str, ...) while(0) {}
+//#define LOG(str, ...) while(0) {}
 
 
 FILE *timef;
@@ -93,6 +94,7 @@ struct hemem_page {
   bool migrating;
   pthread_mutex_t page_lock;
   uint64_t migrations_up, migrations_down;
+  uint64_t size;
 
   struct hemem_page *next, *prev;
 };
@@ -105,10 +107,15 @@ struct page_list {
 void hemem_init();
 void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
 int hemem_munmap(void* addr, size_t length);
+int hemem_madvise(void* addr, size_t length, int advice);
+
 void *handle_fault();
 void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset);
 void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset);
 void hemem_wp_page(struct hemem_page *page, bool protect);
+
+void hemem_combine_base_pages(uint64_t addr);
+void hemem_break_huge_page(uint64_t addr, uint32_t fd, uint64_t offset, struct bitmap* map);
 
 uint64_t hemem_va_to_pa(uint64_t va);
 void hemem_clear_accessed_bit(uint64_t va);

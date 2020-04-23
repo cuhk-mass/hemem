@@ -25,6 +25,7 @@
 #include "lru.h"
 #include "coalesce.h"
 #include "aligned.h"
+#include "bitmap.h"
 
 pthread_t fault_thread;
 
@@ -46,7 +47,8 @@ int devmemfd = -1;
 struct page_list list;
 pthread_t copy_threads[MAX_COPY_THREADS];
 
-#define MAXPAGES	262144
+//#define MAXPAGES	262144
+#define MAXPAGES	2621440
 static struct hemem_page freepages[MAXPAGES];
 static size_t nextfreepage = 0;
 
@@ -161,11 +163,11 @@ void *hemem_parallel_memcpy_thread(void *arg)
 
 void enqueue_page(struct hemem_page *page)
 {
-  assert(page->prev == NULL);
+  //assert(page->prev == NULL);
   page->next = list.first;
   if (list.first != NULL) {
-    assert(list.first->prev == NULL);
-    list.first->prev = page;
+    //assert(list.first->prev == NULL);
+    //list.first->prev = page;
   }
   else {
     assert(list.last == NULL);
@@ -190,6 +192,43 @@ struct hemem_page* find_page(uint64_t va)
 
   return NULL;
 }
+
+void print_pages()
+{
+  struct hemem_page *cur = list.first;
+
+  while (cur != NULL) {
+    printf("page addr %p\n", cur->va);
+    cur = cur->next;
+  }
+
+  return NULL;
+}
+
+
+int delete_page(uint64_t va)
+{
+  struct hemem_page *cur = list.first;
+  struct hemem_page *next;
+
+  if(cur->va == va){
+    list.first = cur->next;
+    //free(cur);
+    return 1;
+  }
+  while (cur->next != NULL) {
+    if (cur->next->va == va) {
+      next = cur->next;
+      cur->next = next->next;
+      mem_allocated-=next->size;
+      //free(next);
+      return 1;
+    }
+    cur = cur->next;
+  }
+  return 0;
+}
+
 
 
 void hemem_init()
@@ -304,7 +343,7 @@ void hemem_init()
 static void hemem_mmap_populate(void* addr, size_t length)
 {
   void* p;
-  struct uffdio_base uffdio_base;
+  struct uffdio_cr3 uffdio_base;
   // Page mising fault case - probably the first touch case
   // allocate in DRAM via LRU
   void* newptr;
@@ -444,6 +483,94 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
   return p;
 }
 
+int hemem_madvise(void* addr, size_t length, int advice){
+
+  uint64_t i;
+
+  for(i = (uint64_t) addr; i < (uint64_t) (addr+length); i=+ PAGE_SIZE){
+    struct hemem_page* this_page = find_page(i);
+    if(this_page){
+      if(this_page->in_dram) decr_dram_huge_page(this_page->va);
+      else decr_nvm_huge_page(this_page->va);
+      delete_page(this_page->va);
+    }
+  }
+  return 0;
+}
+
+void hemem_combine_base_pages(uint64_t addr){
+
+  uint64_t i = addr;
+  struct hemem_page* page, *old_page;
+  
+  assert(nextfreepage < MAXPAGES);
+  page = &freepages[nextfreepage++];
+  //printf("combining huge page\n");
+  //printf("getting page for huge page %p\n", addr);
+
+  do{
+    old_page = find_page(i);
+    i+=BASEPAGE_SIZE;
+  }
+  while(old_page == NULL && i<(addr + HUGEPAGE_SIZE));
+
+  if(i >= (addr + HUGEPAGE_SIZE)){
+    printf("can't find base pages to coalesce, this shouldn't happen\n");
+    printf("addr = %p, i = %p\n", addr, i);
+    print_pages();
+    //LOG("can't find base pages to coalesce, this shouldn't happen\n");
+    exit(0);
+    return;
+  }
+  page->va = addr;
+  page->devdax_offset = old_page->devdax_offset & HUGEPAGE_MASK;
+  page->in_dram = old_page->in_dram;
+  page->migrating = old_page->migrating;
+  page->migrations_up = page->migrations_down = 0;
+  page->size = HUGEPAGE_SIZE;
+  mem_allocated += HUGEPAGE_SIZE;
+  enqueue_page(page);
+
+  //printf("check 1, %p up to %p\n",addr,addr+HUGEPAGE_SIZE);
+  for(i = (uint64_t) addr; i < (uint64_t) (addr+HUGEPAGE_SIZE); i+= BASEPAGE_SIZE){
+    struct hemem_page* this_page = find_page(i);
+    if(this_page){
+      //if(this_page->in_dram) decr_dram_huge_page(this_page->va);
+      //else decr_nvm_huge_page(this_page->va);
+      delete_page(this_page->va);
+      //printf("page %p found\n", i);
+    }
+    //else printf("page %p not found\n", i);
+  }
+  //printf("huge page combined\n");
+}
+
+void hemem_break_huge_page(uint64_t addr, uint32_t fd, uint64_t offset, struct bitmap* map){
+
+  int i;
+  struct hemem_page* old_page = find_page(addr);
+  struct hemem_page* page;
+  delete_page(addr);
+ 
+  LOG("breaking huge page at %p\n", addr);
+
+  for(i = 0; i < HUGEPAGE_SIZE/BASEPAGE_SIZE; i++){
+    if(bitmap_get(map, i)){
+      page = &freepages[nextfreepage++];
+      ///printf("getting page for breakdown (shouldn't happen)\n");
+      page->va = addr;
+      page->devdax_offset = old_page->devdax_offset & HUGEPAGE_MASK;
+      page->in_dram = old_page->in_dram;
+      page->migrating = old_page->migrating;
+      page->migrations_up = page->migrations_down = 0;
+      page->size = BASEPAGE_SIZE;
+      mem_allocated += BASEPAGE_SIZE;
+      enqueue_page(page);
+
+      libc_mmap((void*) (addr + BASEPAGE_SIZE*i), BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, fd, offset + BASEPAGE_SIZE*i);
+    }
+  }
+}
 
 int hemem_munmap(void* addr, size_t length)
 {
@@ -756,6 +883,7 @@ void handle_missing_fault(uint64_t page_boundry)
   /* internal_malloc = true; */
   assert(nextfreepage < MAXPAGES);
   page = &freepages[nextfreepage++];
+  //printf("getting page for pagefault at %p\n", page_boundry);
   /* page = (struct hemem_page*)calloc(1, sizeof(struct hemem_page)); */
   /* internal_malloc = false; */
   /* if (page == NULL) { */
@@ -772,9 +900,11 @@ void handle_missing_fault(uint64_t page_boundry)
   void* huge_page = check_aligned(page_boundry);
 
   if(huge_page) {
+    LOG("aligned page fault at %p\n", page_boundry);
     aligned_pagefault(page, huge_page);
     check_in_dram(page, huge_page, dramfd, nvmfd);
   } else {
+    LOG("unaligned page fault at %p\n", page_boundry);
     pagefault(page); 
   }
 #else
@@ -835,11 +965,8 @@ void handle_missing_fault(uint64_t page_boundry)
 
   // use mmap return addr to track new page's virtual address
   page->va = (uint64_t)newptr;
-  
-#ifdef COALESCE  
-  if(page->in_dram) incr_dram_huge_page(page->va, dramfd, offset);
-  else incr_nvm_huge_page(page->va, nvmfd, offset);
-#endif
+  page->size = PAGE_SIZE;
+
   page->migrating = false;
  
   pthread_mutex_init(&(page->page_lock), NULL);
@@ -850,6 +977,13 @@ void handle_missing_fault(uint64_t page_boundry)
 
   // place in hemem's page tracking list
   enqueue_page(page);
+
+#ifdef COALESCE  
+  LOG("incrementing huge page\n");
+  if(page->in_dram) incr_dram_huge_page(page->va, dramfd, offset);
+  else incr_nvm_huge_page(page->va, nvmfd, offset);
+  LOG("page incremented\n");
+#endif
 
   missing_faults_handled++;
   gettimeofday(&missing_end, NULL);
@@ -1019,7 +1153,7 @@ int hemem_get_accessed_bit(uint64_t va)
 
 void hemem_print_stats()
 {
-  fprintf(stderr, "missing_faults_handled: [%lu]\tmigrations_up: [%lu]\tmigrations_down: [%lu]\tpmemcpys: [%lu]\tmemsets: [%lu]\n", missing_faults_handled, migrations_up, migrations_down, pmemcpys, memsets);
+  fprintf(stderr, "mem_allocated: [%lu]\tmissing_faults_handled: [%lu]\tmigrations_up: [%lu]\tmigrations_down: [%lu]\tpmemcpys: [%lu]\tmemsets: [%lu]\tnextfreepage[%lu]\n", mem_allocated, missing_faults_handled, migrations_up, migrations_down, pmemcpys, memsets, nextfreepage);
 }
 
 

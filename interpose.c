@@ -17,6 +17,7 @@ void* (*libc_mmap)(void *addr, size_t length, int prot, int flags, int fd, off_t
 int (*libc_munmap)(void *addr, size_t length) = NULL;
 void* (*libc_malloc)(size_t size) = NULL;
 void (*libc_free)(void* ptr) = NULL;
+int (*libc_madvise)(void* addr, size_t length, int advice);
 
 static int mmap_filter(void *addr, size_t length, int prot, int flags, int fd, off_t offset, uint64_t *result)
 {
@@ -68,6 +69,23 @@ static int mmap_filter(void *addr, size_t length, int prot, int flags, int fd, o
   return 0;
 }
 
+static int madvise_filter(void* addr, size_t length, int advice, uint64_t *result) {
+
+  if(((uint64_t) addr) & 0xfff || length < 0){
+    LOG("madvise interpose: addr not aligned or negative length\n");
+    return 1;
+  }
+
+  if(advice != MADV_DONTNEED){
+    LOG("madvise interpose: advice other than MADV_DONTNEED\n");
+    return 1;
+  }
+
+  LOG("madvice interpose: calling hemem_madvise\n");
+  *result = hemem_madvise(addr, length, advice);
+  return 0;
+}
+
 /* 
 static int munmap_filter(void *addr, size_t length)
 {
@@ -92,8 +110,14 @@ static int hook(long syscall_number, long arg0, long arg1, long arg2, long arg3,
 {
 	if (syscall_number == SYS_mmap) {
 	  return mmap_filter((void*)arg0, (size_t)arg1, (int)arg2, (int)arg3, (int)arg4, (off_t)arg5, (uint64_t*)result);
-	} else {
-    // ignore non-mmap system calls
+	} 
+#ifdef COALESCE
+  else if (syscall_number == SYS_madvise){
+    return madvise_filter((void*) arg0, (size_t) arg1, (int) arg2, (uint64_t*) result);
+  } 
+#endif
+  else {
+    // ignore non-mmap/madvise system calls
 		return 1;
 	}
 }
@@ -104,6 +128,7 @@ static __attribute__((constructor)) void init(void)
   libc_munmap = bind_symbol("munmap");
   libc_malloc = bind_symbol("malloc");
   libc_free = bind_symbol("free");
+  libc_madvise = bind_symbol("madvise");
   intercept_hook_point = hook;
 
   hemem_init();

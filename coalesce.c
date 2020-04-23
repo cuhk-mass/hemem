@@ -27,6 +27,7 @@
 
 #include "coalesce.h"
 #include "hash.h"
+#include "bitmap.h"
 
 #define NUM_SMPAGES 512
 #define HASHTABLE_SIZE 81920UL
@@ -41,8 +42,11 @@ void coalesce_pages(uint64_t addr, uint32_t fd, uint64_t offset){
 
   //get offset
 
-  ret = libc_mmap((void*) addr, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, fd, offset % HUGEPAGE_SIZE);
 
+  LOG("coalescing pages at %p\n", addr);
+  hemem_combine_base_pages(addr);
+
+  ret = libc_mmap((void*) addr, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, fd, offset % HUGEPAGE_SIZE);
   if(ret < 0) perror("coalesce mmap");
 
   //hemem_tlb_shootdown(addr);
@@ -56,24 +60,31 @@ void coalesce_pages(uint64_t addr, uint32_t fd, uint64_t offset){
 void coalesce_init() {
   dram_hp_ht = ht_alloc(HASHTABLE_SIZE);
   nvm_hp_ht = ht_alloc(HASHTABLE_SIZE);
+  LOG("coalesce init\n");
   //uffd = syscall(__NR_userfaultfd, O_CLOEXEC | O_NONBLOCK);
 }
 
 void* check_aligned(uint64_t addr){
-  void* ret = ht_search(dram_hp_ht, addr % HUGEPAGE_SIZE);
+  void* ret = ht_search(dram_hp_ht, addr - (addr & HUGEPAGE_MASK));
 
   if(ret) return ret;
-  else return (void*) ht_search(nvm_hp_ht, addr % HUGEPAGE_SIZE);
+  else return (void*) ht_search(nvm_hp_ht, addr - (addr & HUGEPAGE_MASK));
 }
 
 void incr_dram_huge_page (uint64_t addr, uint32_t fd, uint64_t offset){
-  addr = addr % HUGEPAGE_SIZE;
+  uint64_t bp_addr = addr;
+  uint64_t page_offset = addr & HUGEPAGE_MASK;
+  addr = bp_addr - page_offset;
+
+  LOG("incrementing dram page at %p\n", addr);
 
   struct huge_page* this_hp = (struct huge_page*) ht_search(dram_hp_ht, addr); 
   
   if(this_hp){
     this_hp->num_faulted++;
-    if(this_hp->num_faulted == NUM_SMPAGES) coalesce_pages(addr, fd, offset); 
+    //printf("incrementing base page %p inside huge page %p\n", bp_addr, addr);
+    bitmap_set(&(this_hp->map), page_offset/4096);
+    if(this_hp->num_faulted/NUM_SMPAGES > COALESCE_RATIO) coalesce_pages(addr, fd, offset); 
   } else {
     ht_insert(dram_hp_ht, addr, offset % HUGEPAGE_SIZE, 1, fd);
   }
@@ -81,12 +92,17 @@ void incr_dram_huge_page (uint64_t addr, uint32_t fd, uint64_t offset){
 
 
 void incr_nvm_huge_page (uint64_t addr, uint32_t fd, uint64_t offset){
-  addr = addr % HUGEPAGE_SIZE;
+  uint64_t bp_addr = addr;
+  uint64_t page_offset = addr & HUGEPAGE_MASK;
+  addr = bp_addr - page_offset;
 
+  LOG("incrementing nvm page at %p\n", addr);
+  
   struct huge_page* this_hp = (struct huge_page*) ht_search(nvm_hp_ht, addr); 
   
   if(this_hp){
     this_hp->num_faulted++;
+    bitmap_set(&(this_hp->map), page_offset/4096);
     if(this_hp->num_faulted == NUM_SMPAGES) coalesce_pages(addr, fd, offset); 
   } else {
     ht_insert(nvm_hp_ht, addr, offset % HUGEPAGE_SIZE, 1, fd);
@@ -133,13 +149,18 @@ void break_huge_page(uint64_t addr, uint32_t fd, uint64_t offset){
 }
 
 void decr_dram_huge_page(uint64_t addr) {
-  addr = addr % HUGEPAGE_SIZE;
+  uint64_t bp_addr = addr;
+  uint64_t page_offset = addr & HUGEPAGE_MASK;
+  addr = bp_addr - page_offset;
+
+  LOG("decrementing dram page at %p\n", addr);
 
   struct huge_page* this_hp = (struct huge_page*) ht_search(dram_hp_ht, addr);
 
   if(this_hp){
-    if(this_hp->num_faulted == NUM_SMPAGES) break_huge_page(addr, this_hp->fd, this_hp->offset);
     this_hp->num_faulted--;
+    bitmap_unset(&(this_hp->map), page_offset/4096);
+    if((this_hp->num_faulted)/NUM_SMPAGES < BREAK_RATIO) hemem_break_huge_page(addr, this_hp->fd, this_hp->offset, &(this_hp->map));
     if(this_hp->num_faulted == 0) ht_delete(dram_hp_ht, (struct bucket*) this_hp);
   } else {
     LOG("decrementing nonexistent huge page\n");
@@ -147,13 +168,18 @@ void decr_dram_huge_page(uint64_t addr) {
 }
 
 void decr_nvm_huge_page(uint64_t addr) {
-  addr = addr % HUGEPAGE_SIZE;
+  uint64_t bp_addr = addr;
+  uint64_t page_offset = addr & HUGEPAGE_MASK;
+  addr = bp_addr - page_offset;
+
+  LOG("decrementing nvm page at %p\n", addr);
 
   struct huge_page* this_hp = (struct huge_page*) ht_search(nvm_hp_ht, addr);
 
   if(this_hp){
-    if(this_hp->num_faulted == NUM_SMPAGES) break_huge_page(addr, this_hp->fd, this_hp->offset);
     this_hp->num_faulted--;
+    bitmap_unset(&(this_hp->map), page_offset/4096);
+    if((this_hp->num_faulted)/NUM_SMPAGES < BREAK_RATIO) hemem_break_huge_page(addr, this_hp->fd, this_hp->offset, &(this_hp->map));
     if(this_hp->num_faulted == 0) ht_delete(nvm_hp_ht, (struct bucket*) this_hp);
   } else {
     LOG("decrementing nonexistent huge page\n");

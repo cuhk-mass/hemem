@@ -18,11 +18,14 @@
  * =====================================================================================
  */
 
+#include <string.h>
+
 struct bucket {
   uint64_t value;
   uint64_t value2;
   uint32_t value3;
   uint16_t value4;
+  uint8_t bytes[64];
   struct bucket* next;
 };
 
@@ -70,6 +73,7 @@ static inline void ht_insert(struct hash_table* ht, uint64_t value, uint64_t val
     new_bucket->value2 = value2;
     new_bucket->value3 = value3;
     new_bucket->value4 = value4;
+    memset(&(new_bucket->bytes), 0, 64);
 
     while(bucket->next != NULL) bucket = bucket->next;
     bucket->next = new_bucket;

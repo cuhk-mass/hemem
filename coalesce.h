@@ -24,12 +24,17 @@
 #include "hemem.h"
 #include "paging.h"
 #include "interpose.h"
+#include "bitmap.h"
+
+#define COALESCE_RATIO 0.9
+#define BREAK_RATIO 0.5
 
 struct huge_page {
   uint64_t base_addr;
   uint64_t offset;
   uint32_t fd;
   uint16_t num_faulted;
+  struct bitmap map;
 };
 
 extern long uffd;
@@ -37,6 +42,8 @@ extern long uffd;
 void coalesce_init();
 void incr_dram_huge_page(uint64_t addr, uint32_t fd, uint64_t offset);
 void incr_nvm_huge_page(uint64_t addr, uint32_t fd, uint64_t offset);
+void decr_dram_huge_page(uint64_t addr);
+void decr_nvm_huge_page(uint64_t addr);
 void* check_aligned(uint64_t addr);
 void decrement_huge_page(uint64_t addr);
 void migrate_to_dram_hp(uint64_t addr, uint32_t fd, uint64_t offset);
