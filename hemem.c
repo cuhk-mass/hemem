@@ -43,9 +43,7 @@ int devmemfd = -1;
 struct page_list list;
 pthread_t copy_threads[MAX_COPY_THREADS];
 
-#define MAXPAGES	262144
-static struct hemem_page freepages[MAXPAGES];
-static size_t nextfreepage = 0;
+static struct page_list freepages;
 
 void *dram_devdax_mmap;
 void *nvm_devdax_mmap;
@@ -156,33 +154,66 @@ void *hemem_parallel_memcpy_thread(void *arg)
 }
 #endif // HEMEM_THREAD_POOL
 
-void enqueue_page(struct hemem_page *page)
+void enqueue_page(struct page_list *list, struct hemem_page *page)
 {
   assert(page->prev == NULL);
-  page->next = list.first;
-  if (list.first != NULL) {
-    assert(list.first->prev == NULL);
-    list.first->prev = page;
+  page->next = list->first;
+  if (list->first != NULL) {
+    assert(list->first->prev == NULL);
+    list->first->prev = page;
   }
   else {
-    assert(list.last == NULL);
-    assert(list.numentries == 0);
-    list.last = page;
+    assert(list->last == NULL);
+    assert(list->numentries == 0);
+    list->last = page;
   }
-  list.first = page;
-  list.numentries++;
+  list->first = page;
+  list->numentries++;
 }
 
-void remove_page(struct hemem_page *page)
+struct hemem_page* dequeue_page(struct page_list *list)
 {
-  if (list.first == NULL) {
-    assert(list.last == NULL);
-    assert(list.numentries == 0);
+  struct hemem_page *ret = list->last;
+
+  if (ret == NULL) {
+    assert(list->numentries == 0);
+    return ret;
+  }
+
+  list->last = ret->prev;
+  if (list->last != NULL) {
+    list->last->next = NULL;
+  }
+  else {
+    list->first = NULL;
+  }
+
+  ret->prev = ret->next = NULL;
+  assert(list->numentries > 0);
+  list->numentries--;
+  return ret;
+}
+
+struct hemem_page* hemem_get_free_page()
+{
+  return dequeue_page(&freepages);
+}
+
+void hemem_put_free_page(struct hemem_page *page)
+{
+  enqueue_page(&freepages, page);
+}
+
+void remove_page(struct page_list *list, struct hemem_page *page)
+{
+  if (list->first == NULL) {
+    assert(list->last == NULL);
+    assert(list->numentries == 0);
     return;
   }
 
-  if (list.first == page) {
-    list.first = page->next;
+  if (list->first == page) {
+    list->first = page->next;
   }
 
   if (page->next != NULL) {
@@ -193,12 +224,12 @@ void remove_page(struct hemem_page *page)
     page->prev->next = page->next;
   }
 
-  list.numentries--;
+  list->numentries--;
 }
 
-struct hemem_page* find_page(uint64_t va)
+struct hemem_page* find_page(struct page_list *list, uint64_t va)
 {
-  struct hemem_page *cur = list.first;
+  struct hemem_page *cur = list->first;
 
   while (cur != NULL) {
     if (cur->va == va) {
@@ -232,6 +263,12 @@ void hemem_init()
   }
 
   LOG("hemem_init: started\n");
+
+  // pre-allocate maximum amount of pages
+  for (int i = 0; i < (DRAMSIZE + NVMSIZE) / BASEPAGE_SIZE; i++) {
+    struct hemem_page *p = calloc(1, sizeof(struct hemem_page));
+    enqueue_page(&freepages, p);
+  }
 
   dramfd = open(DRAMPATH, O_RDWR);
   if (dramfd < 0) {
@@ -385,7 +422,7 @@ static void hemem_mmap_populate(void* addr, size_t length)
     mem_allocated += PAGE_SIZE;
 
     // place in hemem's page tracking list
-    enqueue_page(page);
+    enqueue_page(&list, page);
     page_boundry += PAGE_SIZE;
   }
 }
@@ -706,7 +743,7 @@ void handle_wp_fault(uint64_t page_boundry)
 
   //assert(!"NYI");
 
-  page = find_page(page_boundry);
+  page = find_page(&list, page_boundry);
   assert(page != NULL);
 
   LOG("hemem: handle_wp_fault: waiting for migration for page %lx\n", page_boundry);
@@ -732,9 +769,10 @@ void handle_missing_fault(uint64_t page_boundry)
   uint64_t offset;
   void* tmp_offset;
   bool in_dram;
+  uint64_t pagesize;
 
   // have we seen this page before?
-  page = find_page(page_boundry);
+  page = find_page(&list, page_boundry);
   if (page != NULL) {
     // if yes, must have unmapped it for migration, wait for migration to finish
     LOG("hemem: encountered a page in the middle of migration, waiting\n");
@@ -743,33 +781,29 @@ void handle_missing_fault(uint64_t page_boundry)
   }
 
   gettimeofday(&missing_start, NULL);
-  /* internal_malloc = true; */
-  assert(nextfreepage < MAXPAGES);
-  page = &freepages[nextfreepage++];
-  /* page = (struct hemem_page*)calloc(1, sizeof(struct hemem_page)); */
-  /* internal_malloc = false; */
-  /* if (page == NULL) { */
-  /*   perror("page calloc"); */
-  /*   assert(0); */
-  /* } */
-  pthread_mutex_init(&(page->page_lock), NULL);
 
   // let policy algorithm do most of the heavy lifting of finding a free page
   gettimeofday(&start, NULL);
-  pagefault(page); 
+  page = pagefault(); 
   gettimeofday(&end, NULL);
+  page->prev = page->next = NULL;
   LOG_TIME("page_fault: %f s\n", elapsed(&start, &end));
   offset = page->devdax_offset;
   in_dram = page->in_dram;
+  switch (page->pt) {
+    case BASEP: pagesize = BASEPAGE_SIZE; break;
+    case HUGEP: pagesize = HUGEPAGE_SIZE; break;
+    default: assert(!"handle_missing_fault: unsupported page size");
+  }
 
   tmp_offset = (in_dram) ? dram_devdax_mmap + offset : nvm_devdax_mmap + offset;
 
-  memset(tmp_offset, 0, PAGE_SIZE);
+  memset(tmp_offset, 0, pagesize);
   memsets++;
 
 #ifdef HEMEM_DEBUG
   char* tmp = (char*)tmp_offset;
-  for (int i = 0; i < PAGE_SIZE; i++) {
+  for (int i = 0; i < pagesize; i++) {
     assert(tmp[i] == 0);
   }
 #endif
@@ -777,7 +811,7 @@ void handle_missing_fault(uint64_t page_boundry)
   // now that we have an offset determined via the policy algorithm, actually map
   // the page for the application
   gettimeofday(&start, NULL);
-  newptr = libc_mmap((void*)page_boundry, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, (in_dram ? dramfd : nvmfd), offset);
+  newptr = libc_mmap((void*)page_boundry, pagesize, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, (in_dram ? dramfd : nvmfd), offset);
   if (newptr == MAP_FAILED) {
     perror("newptr mmap");
     /* free(page); */
@@ -799,7 +833,7 @@ void handle_missing_fault(uint64_t page_boundry)
   // re-register new mmap region with userfaultfd
   struct uffdio_register uffdio_register;
   uffdio_register.range.start = (uint64_t)newptr;
-  uffdio_register.range.len = PAGE_SIZE;
+  uffdio_register.range.len = pagesize;
   uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
   uffdio_register.ioctls = 0;
   if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
@@ -812,15 +846,16 @@ void handle_missing_fault(uint64_t page_boundry)
   // use mmap return addr to track new page's virtual address
   page->va = (uint64_t)newptr;
   page->migrating = false;
+  page->migrations_up = page->migrations_down = 0;
  
   pthread_mutex_init(&(page->page_lock), NULL);
 
-  mem_allocated += PAGE_SIZE;
+  mem_allocated += pagesize;
 
-  //LOG("hemem_missing_fault: va: %lx assigned to %s frame %lu  pte: %lx\n", page->va, (in_dram ? "DRAM" : "NVM"), page->devdax_offset / PAGE_SIZE, hemem_va_to_pa(page->va));
+  //LOG("hemem_missing_fault: va: %lx assigned to %s frame %lu  pte: %lx\n", page->va, (in_dram ? "DRAM" : "NVM"), page->devdax_offset / pagesize, hemem_va_to_pa(page->va));
 
   // place in hemem's page tracking list
-  enqueue_page(page);
+  enqueue_page(&list, page);
 
   missing_faults_handled++;
   gettimeofday(&missing_end, NULL);
@@ -951,30 +986,29 @@ void hemem_promote_pages(uint64_t addr)
   // ensure addr is hugepage aligned
   assert(addr % HUGEPAGE_SIZE == 0);
 
-  // take some page properties from first base page
-  basepage = find_page(addr);
+  basepage = find_page(&list, addr);
   assert(basepage != NULL);
   assert(basepage->pt == BASEP);
 
+  // take some page properties from first base page
   hugepage_offset = basepage->devdax_offset;
   in_dram = basepage->in_dram;
   migrating = basepage->migrating;
   hugepage_fd = (in_dram) ? dramfd : nvmfd;
-  remove_page(basepage);
+  remove_page(&list, basepage);
   
   // remove base pages from hemem tracking (already moved first page)
   uint64_t basepage_addr = addr + BASEPAGE_SIZE;
   for (uint64_t i = 0; i < 511; i++) {
     struct hemem_page *page;
-    page = find_page(basepage_addr);
+    page = find_page(&list, basepage_addr);
     assert(page != NULL);
     assert(page->pt == BASEP);
-    remove_page(page);
+    remove_page(&list, page);
     basepage_addr += BASEPAGE_SIZE;
   }
 
-  assert(nextfreepage < MAXPAGES);
-  hugepage = &freepages[nextfreepage++];
+  hugepage = dequeue_page(&freepages);
 
   ret = libc_mmap((void*)addr, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, hugepage_fd, hugepage_offset);
   if (ret == MAP_FAILED) {
@@ -1003,7 +1037,7 @@ void hemem_promote_pages(uint64_t addr)
   pthread_mutex_init(&(hugepage->page_lock), NULL);
   hugepage->migrations_up = hugepage->migrations_down = 0;
 
-  enqueue_page(hugepage);
+  enqueue_page(&list, hugepage);
 }
 
 // demote huge page starting at addr into 512 base pages
@@ -1012,32 +1046,27 @@ void hemem_demote_pages(uint64_t addr)
 {
   void* ret;
   struct hemem_page *hugepage;
-  struct hemem_page *page;
-  uint64_t basepage_addr;
-  uint64_t basepage_offset;
-  uint32_t basepage_fd;
 
   // ensure addr is start of a huge page
   assert(addr % HUGEPAGE_SIZE == 0);
 
   // find the hemem huge page
-  hugepage = find_page(addr);
+  hugepage = find_page(&list, addr);
   assert(hugepage != NULL);
   assert(hugepage->pt == HUGEP);
 
   // remove it from hemem tracking list
-  remove_page(hugepage);
+  remove_page(&list, hugepage);
 
   // for each base page
   for (uint64_t i = 0; i < 512; i++) {
     // grab a new page
     //TODO: Probably need lists for page sizes rather than fixed size array
-    assert(nextfreepage < MAXPAGES);
-    page = &freepages[nextfreepage++];
+    struct hemem_page *page = dequeue_page(&freepages);
 
-    basepage_addr = hugepage->va + (i * BASEPAGE_SIZE);
-    basepage_offset = hugepage->devdax_offset + (i * BASEPAGE_SIZE);
-    basepage_fd = (hugepage->in_dram) ? dramfd : nvmfd;
+    uint64_t basepage_addr = hugepage->va + (i * BASEPAGE_SIZE);
+    uint64_t basepage_offset = hugepage->devdax_offset + (i * BASEPAGE_SIZE);
+    uint32_t basepage_fd = (hugepage->in_dram) ? dramfd : nvmfd;
 
     ret = libc_mmap((void*)basepage_addr, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, basepage_fd, basepage_offset);
     if (ret == MAP_FAILED) {
@@ -1068,7 +1097,7 @@ void hemem_demote_pages(uint64_t addr)
     page->migrations_up = page->migrations_down = 0;
 
     // add base page to hemem tracking list
-    enqueue_page(page);
+    enqueue_page(&list, page);
   }
 }
 

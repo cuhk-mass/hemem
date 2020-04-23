@@ -22,7 +22,7 @@ struct lru_list {
 };
 
 void *lru_kswapd();
-void lru_pagefault(struct hemem_page *page);
+struct hemem_page* lru_pagefault();
 void lru_init(void);
 
 #endif /*  HEMEM_LRU_MODIFIED_H  */

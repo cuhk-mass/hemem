@@ -107,6 +107,8 @@ again:
       struct hemem_node *hn = dequeue_fifo(&mem_free[FASTMEM][HUGEP]);
       assert(hn != NULL);
 
+      hemem_demote_pages(hn->page->va);
+
       nn = calloc(512, sizeof(struct hemem_node));
       for (size_t i = 0; i < 512; i++) {
         // TODO: break up huge page
@@ -353,12 +355,16 @@ static void *hemem_thread(void *arg)
   return NULL;
 }
 
-static struct hemem_node*  hemem_allocate_page(uint64_t addr, struct hemem_page *page)
+struct hemem_page* hemem_pagefault()
 {
-  struct hemem_node *n = NULL;
+  struct hemem_page *page;
+  struct hemem_node *n;
   enum pagetypes pt;
-
+  
   pthread_mutex_lock(&global_lock);
+
+  page = hemem_get_free_page();
+  assert(page != NULL);
 
   for (pt = HUGEP; pt < NPAGETYPES; pt++) {
     // check that we're not fragmented at this page size
@@ -379,8 +385,10 @@ static struct hemem_node*  hemem_allocate_page(uint64_t addr, struct hemem_page 
     // out of fastmem, look for slowmem
     pt = BASEP;
     n = dequeue_fifo(&mem_free[SLOWMEM][pt]);
+
     // if NULL, totally out of memory
     assert(n != NULL);
+
     n->page = page;
     n->page->pt = pt;
     n->page->in_dram = false;
@@ -390,22 +398,8 @@ static struct hemem_node*  hemem_allocate_page(uint64_t addr, struct hemem_page 
 
   pthread_mutex_unlock(&global_lock);
 
-  return n;
-}
-
-void hemem_pagefault(struct hemem_page *page)
-{
-  struct hemem_node *n;
-
-  assert(page != NULL);
-  pthread_mutex_lock(&page->page_lock);
-
-  n = hemem_allocate_page(page->va, page);
   page->devdax_offset = n->offset;
-  page->next = NULL;
-  page->prev = NULL;
-
-  pthread_mutex_unlock(&page->page_lock);
+  return page;
 }
 
 void hemem_mmgr_init(void)

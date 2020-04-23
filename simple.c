@@ -32,17 +32,16 @@ uint64_t fastmem = 0;
 uint64_t slowmem = 0;
 bool slowmem_switch = false;
 
-void simple_allocate_page(struct hemem_page *page)
+struct hemem_page* simple_pagefault()
 {
+  struct hemem_page* page = hemem_get_free_page();
   struct timeval start, end;
 
   gettimeofday(&start, NULL);
-  if (fastmem< DRAMSIZE) {
+  if (fastmem < DRAMSIZE) {
     page->in_dram = true;
     page->devdax_offset = fastmem;
     page->pt = pagesize_to_pt(PAGE_SIZE);
-    page->next = NULL;
-    page->prev = NULL;
     fastmem += PAGE_SIZE;
     assert(fastmem <= DRAMSIZE);
   }
@@ -51,8 +50,6 @@ void simple_allocate_page(struct hemem_page *page)
     page->in_dram = false;
     page->devdax_offset = slowmem;
     page->pt = pagesize_to_pt(PAGE_SIZE);
-    page->next = NULL;
-    page->prev = NULL;
     slowmem += PAGE_SIZE;
     assert(slowmem <= NVMSIZE);
     if (!slowmem_switch) {
@@ -63,12 +60,8 @@ void simple_allocate_page(struct hemem_page *page)
 
   gettimeofday(&end, NULL);
   LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
-}
-
-void simple_pagefault(struct hemem_page *page)
-{
-  assert(page != NULL);
-  simple_allocate_page(page);
+  
+  return page;
 }
 
 void simple_init(void)

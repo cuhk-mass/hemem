@@ -138,6 +138,8 @@ void *handle_fault();
 void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset);
 void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset);
 void hemem_wp_page(struct hemem_page *page, bool protect);
+struct hemem_page* hemem_get_free_page();
+void hemem_put_free_page(struct hemem_page*);
 void hemem_promote_pages(uint64_t addr);
 void hemem_demote_pages(uint64_t addr);
 

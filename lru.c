@@ -131,85 +131,6 @@ static void expand_caches(struct lru_list *active, struct lru_list *inactive)
 }
 
 
-/*  called with global lock held via lru_pagefault function */
-static uint64_t lru_allocate_page(uint64_t addr, struct hemem_page *page)
-{
-  struct timeval start, end;
-  struct lru_node *node;
-#ifdef LRU_SWAP
-  struct lru_node *cn;
-  int tries;
-#endif
-
-  pthread_mutex_lock(&global_lock);
-  
-  gettimeofday(&start, NULL);
-#ifdef LRU_SWAP
-  for (tries = 0; tries < 2; tries++) {
-#endif
-    node = lru_list_remove(&dram_free_list);
-    if (node != NULL) {
-      node->page = page;
-      node->page->in_dram = true;
-      lru_list_add(&active_list, node);
-
-      pthread_mutex_unlock(&global_lock);
-
-      gettimeofday(&end, NULL);
-      LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
-
-      return node->framenum * PAGE_SIZE;
-    }
-    
-#ifndef LRU_SWAP
-    // DRAM is full, fall back to NVM
-    node = lru_list_remove(&nvm_free_list);
-    if (node != NULL) {
-      node->page = page;
-      node->page->in_dram = false;
-      lru_list_add(&nvm_active_list, node);
-
-      pthread_mutex_unlock(&global_lock);
-      
-      gettimeofday(&end, NULL);
-      LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
-
-      return node->framenum * PAGE_SIZE;
-    }
-    
-#else
-    // DRAM was full, try to free some space by moving a cold page down
-    if (inactive_list.numentries == 0){
-      // force some pages down to slow memory/inactive list
-      shrink_caches(&active_list, &inactive_list);
-    }
-
-    // move a cold page from dram to nvm
-    cn = lru_list_remove(&inactive_list);
-    node = lru_list_remove(&nvm_free_list);
-    if (node != NULL) {
-      LOG("Out of hot memory -> move hot frame %lu to cold frame %lu\n", cn->framenum, node->framenum);
-      LOG("\tmoving va: 0x%lx\n", cn->page->va);
-
-      node->page = cn->page;
-      lru_migrate_down(cn, node->framenum);
-
-      lru_list_add(&nvm_inactive_list, node);
-
-      lru_list_add(&dram_free_list, cn);
-    }
-    
-    
-#endif
-#ifdef LRU_SWAP
-  }
-#endif
-
-  pthread_mutex_unlock(&global_lock);
-  assert(!"Out of memory");
-}
-
-
 void *lru_kswapd()
 {
   int tries;
@@ -285,21 +206,93 @@ out:
 }
 
 
-void lru_pagefault(struct hemem_page *page)
+struct hemem_page* lru_pagefault()
 {
-  uint64_t offset;
+  struct hemem_page *page = hemem_get_free_page();
+  struct timeval start, end;
+  struct lru_node *node;
+#ifdef LRU_SWAP
+  struct lru_node *cn;
+  int tries;
+#endif
 
   assert(page != NULL);
-  pthread_mutex_lock(&(page->page_lock));
-  
   // do the heavy lifting of finding the devdax file offset to place the page
-  offset = lru_allocate_page(page->va, page);
-  page->devdax_offset = offset;
-  page->pt = pagesize_to_pt(PAGE_SIZE);
-  page->next = NULL;
-  page->prev = NULL;
 
-  pthread_mutex_unlock(&(page->page_lock));
+  pthread_mutex_lock(&global_lock);
+  
+  gettimeofday(&start, NULL);
+#ifdef LRU_SWAP
+  for (tries = 0; tries < 2; tries++) {
+#endif
+    node = lru_list_remove(&dram_free_list);
+    if (node != NULL) {
+      node->page = page;
+      lru_list_add(&active_list, node);
+
+      pthread_mutex_unlock(&global_lock);
+
+      gettimeofday(&end, NULL);
+      LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
+      
+      page->in_dram = true;
+      page->devdax_offset = node->framenum * PAGE_SIZE;
+      page->pt = pagesize_to_pt(PAGE_SIZE);
+      
+      return page;
+    }
+    
+#ifndef LRU_SWAP
+    // DRAM is full, fall back to NVM
+    node = lru_list_remove(&nvm_free_list);
+    if (node != NULL) {
+      node->page = page;
+      lru_list_add(&nvm_active_list, node);
+
+      pthread_mutex_unlock(&global_lock);
+      
+      gettimeofday(&end, NULL);
+      LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
+      
+      page->in_dram = false;
+      page->devdax_offset = node->framenum * PAGE_SIZE;
+      page->pt = pagesize_to_pt(PAGE_SIZE);
+  
+      return page;
+    }
+    
+#else
+    // DRAM was full, try to free some space by moving a cold page down
+    if (inactive_list.numentries == 0){
+      // force some pages down to slow memory/inactive list
+      shrink_caches(&active_list, &inactive_list);
+    }
+
+    // move a cold page from dram to nvm
+    cn = lru_list_remove(&inactive_list);
+    node = lru_list_remove(&nvm_free_list);
+    if (node != NULL) {
+      LOG("Out of hot memory -> move hot frame %lu to cold frame %lu\n", cn->framenum, node->framenum);
+      LOG("\tmoving va: 0x%lx\n", cn->page->va);
+
+      node->page = cn->page;
+      lru_migrate_down(cn, node->framenum);
+
+      lru_list_add(&nvm_inactive_list, node);
+
+      lru_list_add(&dram_free_list, cn);
+    }
+    
+    
+#endif // ifndef LRU_SWAP
+#ifdef LRU_SWAP
+  }
+#endif
+
+  pthread_mutex_unlock(&global_lock);
+  assert(!"Out of memory");
+
+  return NULL;
 }
 
 

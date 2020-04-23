@@ -34,7 +34,7 @@ struct hemem_list {
 };
 
 void *hemem_kswapd(void);
-void hemem_pagefault(struct hemem_page *page);
+struct hemem_page* hemem_pagefault();
 void hemem_mmgr_init(void);
 
 #endif
