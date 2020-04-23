@@ -40,6 +40,7 @@ void simple_allocate_page(struct hemem_page *page)
   if (fastmem< DRAMSIZE) {
     page->in_dram = true;
     page->devdax_offset = fastmem;
+    page->pt = pagesize_to_pt(PAGE_SIZE);
     page->next = NULL;
     page->prev = NULL;
     fastmem += PAGE_SIZE;
@@ -49,6 +50,7 @@ void simple_allocate_page(struct hemem_page *page)
     assert(slowmem < NVMSIZE);
     page->in_dram = false;
     page->devdax_offset = slowmem;
+    page->pt = pagesize_to_pt(PAGE_SIZE);
     page->next = NULL;
     page->prev = NULL;
     slowmem += PAGE_SIZE;

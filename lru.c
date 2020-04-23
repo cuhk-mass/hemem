@@ -295,6 +295,7 @@ void lru_pagefault(struct hemem_page *page)
   // do the heavy lifting of finding the devdax file offset to place the page
   offset = lru_allocate_page(page->va, page);
   page->devdax_offset = offset;
+  page->pt = pagesize_to_pt(PAGE_SIZE);
   page->next = NULL;
   page->prev = NULL;
 

@@ -20,14 +20,6 @@ static pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
 static _Atomic uint64_t fastmem_freebytes = DRAMSIZE;
 static _Atomic uint64_t slowmem_freebytes = NVMSIZE;
 
-static inline uint64_t pagesize(enum pagetypes pt)
-{
-  switch(pt) {
-  case HUGEP: return HUGEPAGE_SIZE;
-  case BASEP: return BASEPAGE_SIZE;
-  default: assert(!"Unknown page type");
-  }
-}
 
 static void enqueue_fifo(struct hemem_list *queue, struct hemem_node *entry)
 {
@@ -73,19 +65,157 @@ static struct hemem_node *peek_fifo(struct hemem_list *queue)
   return queue->last;
 }
 
-static void move_memory(enum memtypes dst, enum memtypes src, size_t size)
-{
-
-}
-
 static void move_hot(void)
 {
+  struct hemem_list transition[NPAGETYPES];
+  size_t transition_bytes = 0;
+  struct hemem_node *n;
 
+  memset(transition, 0, NPAGETYPES * sizeof(struct hemem_list));
+
+  // identify pages for movement and mark read-only until out of fastmem
+  while (transition_bytes + pt_to_pagesize(BASEP) < fastmem_freebytes) {
+    n = dequeue_fifo(&mem_active[SLOWMEM][BASEP]);
+
+    if (n == NULL) {
+      // no more active pages
+      break;
+    }
+
+    enqueue_fifo(&transition[BASEP], n);
+    n->page->migrating = true;
+    hemem_wp_page(n->page, true);
+
+    transition_bytes += pt_to_pagesize(BASEP);
+  }
+
+  if (transition_bytes == 0) {
+    // everything is cold or we are out of fastmem -- bail out
+    return;
+  }
+
+  hemem_tlb_shootdown(0);
+
+  while ((n = dequeue_fifo(&transition[BASEP])) != NULL) {
+    struct hemem_node *nn;
+
+again:
+    nn = dequeue_fifo(&mem_free[FASTMEM][BASEP]);
+
+    if (nn == NULL) {
+      // break up a huge page
+      struct hemem_node *hn = dequeue_fifo(&mem_free[FASTMEM][HUGEP]);
+      assert(hn != NULL);
+
+      nn = calloc(512, sizeof(struct hemem_node));
+      for (size_t i = 0; i < 512; i++) {
+        // TODO: break up huge page
+        nn[i].offset = hn->offset + (i * BASEPAGE_SIZE);
+        enqueue_fifo(&mem_free[FASTMEM][BASEP], &nn[i]);
+      }
+      free(hn);
+
+      goto again;
+    }
+
+    // TODO: move memory
+    fastmem_freebytes -= pt_to_pagesize(BASEP);
+    slowmem_freebytes += pt_to_pagesize(BASEP);
+    // update va
+    // update pages
+    enqueue_fifo(&mem_active[FASTMEM][BASEP], nn);
+
+    hemem_wp_page(n->page, false);
+    n->page->migrating = false;
+    enqueue_fifo(&mem_free[SLOWMEM][BASEP], n);
+  }
 }
 
 static void move_cold(void)
 {
+  struct hemem_list transition[NPAGETYPES];
+  size_t transition_bytes = 0;
 
+  memset(transition, 0, NPAGETYPES * sizeof(struct hemem_list));
+
+  for (enum pagetypes pt = HUGEP; pt < NPAGETYPES; pt++) {
+    struct hemem_node *n;
+
+    while ((n = dequeue_fifo(&mem_inactive[FASTMEM][pt])) != NULL) {
+      enqueue_fifo(&transition[pt], n);
+
+      n->page->migrating = true;
+      hemem_wp_page(n->page, true);
+      transition_bytes += pt_to_pagesize(pt);
+
+      // until enough free fastmem
+      if (fastmem_freebytes + transition_bytes >= HEMEM_FASTFREE) {
+        goto move;
+      }
+    }
+  }
+
+move:
+  if (transition_bytes == 0) {
+    if (fastmem_freebytes <= HEMEM_FASTFREE) {
+      LOG("COLD emergency cooling -- picking a random page\n");
+      // if low on memory and all is hot, pick a random page to move down
+      for (enum pagetypes pt = HUGEP; pt < NPAGETYPES; pt++) {
+        struct hemem_node *n;
+        while ((n = dequeue_fifo(&mem_active[FASTMEM][pt])) != NULL) {
+          enqueue_fifo(&transition[pt], n);
+
+          n->page->migrating = true;
+          hemem_wp_page(n->page, true);
+          transition_bytes += pt_to_pagesize(pt);
+
+          if (fastmem_freebytes + transition_bytes >= HEMEM_FASTFREE) {
+            goto move;
+          }
+        }
+      }
+    }
+    else {
+      // everything is hot and we are not low on fastmem -- nothing to move
+      return;
+    }
+  }
+
+  hemem_tlb_shootdown(0);
+
+  LOG("COLD identified %zu bytes as cold\n", transition_bytes);
+
+  // move cold pages down (and split them into base pages
+  for (enum pagetypes pt = HUGEP; pt < NPAGETYPES; pt++) {
+    struct hemem_node *n;
+
+    while((n = dequeue_fifo(&transition[pt])) != NULL) {
+      size_t times = 1;
+
+      switch (pt) {
+        case BASEP: times = 1; break;
+        case HUGEP: times = 512; break;
+        default: assert("Unknown page type"); break;
+      }
+
+      for (size_t i = 0; i < times; i++) {
+        struct hemem_node *nn = dequeue_fifo(&mem_free[SLOWMEM][BASEP]);
+        assert(nn != NULL);
+
+        // TODO: move memory
+        slowmem_freebytes -= pt_to_pagesize(BASEP);
+        fastmem_freebytes += pt_to_pagesize(BASEP);
+        // update address
+        // update page
+        enqueue_fifo(&mem_inactive[SLOWMEM][BASEP], nn);
+      }
+
+      hemem_wp_page(n->page, false);
+      n->page->migrating = false;
+      // fastmem page is now free
+      enqueue_fifo(&mem_free[FASTMEM][pt], n);
+    }  
+  }
 }
 
 static void cool(void)
@@ -125,7 +255,7 @@ static void cool(void)
           enqueue_fifo(&mem_inactive[mt][pt], n);
         }
 
-        sweeped += pagesize(pt);
+        sweeped += pt_to_pagesize(pt);
       }
     }
 
@@ -181,7 +311,7 @@ static void thaw(void)
           bookmark[mt][pt] = n;
         }
 
-        sweeped += pagesize(pt);
+        sweeped += pt_to_pagesize(pt);
       }
     }
     
@@ -223,15 +353,59 @@ static void *hemem_thread(void *arg)
   return NULL;
 }
 
-static struct hemem_node* hemem_allocate_page(uint64_t addr, struct hemem_page *page)
+static struct hemem_node*  hemem_allocate_page(uint64_t addr, struct hemem_page *page)
 {
   struct hemem_node *n = NULL;
+  enum pagetypes pt;
+
+  pthread_mutex_lock(&global_lock);
+
+  for (pt = HUGEP; pt < NPAGETYPES; pt++) {
+    // check that we're not fragmented at this page size
+    //TODO?
+
+    n = dequeue_fifo(&mem_free[FASTMEM][pt]);
+    if (n != NULL) {
+      n->page = page;
+      n->page->pt = pt;
+      n->page->in_dram = true;
+      enqueue_fifo(&mem_active[FASTMEM][pt], n);
+      fastmem_freebytes -= pt_to_pagesize(pt);
+      break;
+    }
+  }
+
+  if (n == NULL) {
+    // out of fastmem, look for slowmem
+    pt = BASEP;
+    n = dequeue_fifo(&mem_free[SLOWMEM][pt]);
+    // if NULL, totally out of memory
+    assert(n != NULL);
+    n->page = page;
+    n->page->pt = pt;
+    n->page->in_dram = false;
+    enqueue_fifo(&mem_inactive[SLOWMEM][pt], n);
+    slowmem_freebytes -= pt_to_pagesize(pt);
+  }
+
+  pthread_mutex_unlock(&global_lock);
 
   return n;
 }
 
 void hemem_pagefault(struct hemem_page *page)
 {
+  struct hemem_node *n;
+
+  assert(page != NULL);
+  pthread_mutex_lock(&page->page_lock);
+
+  n = hemem_allocate_page(page->va, page);
+  page->devdax_offset = n->offset;
+  page->next = NULL;
+  page->prev = NULL;
+
+  pthread_mutex_unlock(&page->page_lock);
 }
 
 void hemem_mmgr_init(void)
