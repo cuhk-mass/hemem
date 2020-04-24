@@ -21,6 +21,8 @@ struct pte		*cr3 = NULL;
 _Atomic size_t		runtime = 0;	   // Elapsed simulation time (ns)
 static size_t		last_time = 0;
 static const char	*progname = NULL;
+_Atomic size_t		memsim_timebound = 0;
+__thread bool		memsim_timebound_thread = false;
 
 // Hardware 2-level TLB emulating Cascade Lake
 struct tlbe {
@@ -44,10 +46,16 @@ static size_t mmm_misses = 0;
 #endif
 
 static _Atomic size_t wakeup_time = 0;
-static sem_t wakeup_sem;
+static sem_t wakeup_sem, timebound_sem;
 
 void memsim_nanosleep(size_t sleeptime)
 {
+  if(memsim_timebound != 0) {
+    assert(memsim_timebound_thread == true);
+    memsim_timebound = 0;
+    sem_post(&timebound_sem);
+  }
+  
   assert(wakeup_time == 0);
   wakeup_time = runtime + sleeptime;
   sem_wait(&wakeup_sem);
@@ -66,6 +74,10 @@ void add_runtime(size_t delta)
     sem_post(&wakeup_sem);
   }
 
+  if(memsim_timebound != 0 && runtime >= memsim_timebound && !memsim_timebound_thread) {
+    sem_wait(&timebound_sem);
+  }
+  
 #ifndef LOG_DEBUG
   if(runtime - oldruntime > 1000000) {	// Every millisecond
     fprintf(stderr, "Runtime: %.3f       \r", (float)runtime / 1000000000.0);
@@ -354,7 +366,7 @@ static void gups(size_t iters, uint64_t hotset_start, uint64_t hotset_size,
 
 static void reset_stats(void)
 {
-  LOG("%zu --- reset_stats ---\n", runtime);
+  LOG("--- reset_stats ---\n");
 
   last_time = runtime;
   accesses[FASTMEM] = accesses[SLOWMEM] = 0;
@@ -397,6 +409,8 @@ int main(int argc, char *argv[])
 
   int r = sem_init(&wakeup_sem, 0, 0);
   assert(r == 0);
+  r = sem_init(&timebound_sem, 0, 0);
+  assert(r == 0);
   
   mmgr_init();
 
@@ -412,12 +426,12 @@ int main(int argc, char *argv[])
   // GUPS!
   gups(10000000, 0, hotset_size, 0.9, WORKSET_SIZE);
   print_stats();
-  /* reset_stats(); */
+  reset_stats();
 
-  /* // Move hotset up */
-  /* gups(10000000, WORKSET_SIZE - hotset_size, hotset_size, 0.9, WORKSET_SIZE); */
+  // Move hotset up
+  gups(10000000, WORKSET_SIZE - hotset_size, hotset_size, 0.9, WORKSET_SIZE);
 
-  /* print_stats(); */
+  print_stats();
   listnum(NULL);
   return 0;
 }

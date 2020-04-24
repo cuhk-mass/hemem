@@ -68,7 +68,10 @@ enum memtypes {
 };
 
 enum pagetypes {
-  GIGA = 0, HUGE, BASE, NPAGETYPES
+  GIGA = 0,
+  HUGE,
+  BASE,
+  NPAGETYPES
 };
 
 // Page table entry
@@ -100,6 +103,8 @@ int listnum(struct pte *pte);
 
 extern _Atomic size_t runtime;
 extern struct pte *cr3;
+extern _Atomic size_t memsim_timebound;
+extern __thread bool memsim_timebound_thread;
 
 static inline uint64_t page_size(enum pagetypes pt)
 {
