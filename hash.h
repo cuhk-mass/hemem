@@ -57,13 +57,13 @@ static inline struct hash_table* ht_alloc(uint32_t size) {
 
 static inline void ht_insert(struct hash_table* ht, uint64_t value, uint64_t value2, uint32_t value3, uint16_t value4){
   uint16_t index = hash(value, ht->n_buckets);
-  struct bucket* bucket = &(ht->buckets[index]);
+  struct bucket* this_bucket = &(ht->buckets[index]);
 
-  if(bucket->value == -1){
-    bucket->value = value;
-    bucket->value2 = value2;
-    bucket->value3 = value3;
-    bucket->value4 = value4;
+  if(this_bucket->value == -1){
+    this_bucket->value = value;
+    this_bucket->value2 = value2;
+    this_bucket->value3 = value3;
+    this_bucket->value4 = value4;
   } 
   else {
     struct bucket* new_bucket = malloc(sizeof(struct bucket));
@@ -75,8 +75,8 @@ static inline void ht_insert(struct hash_table* ht, uint64_t value, uint64_t val
     new_bucket->value4 = value4;
     memset(&(new_bucket->bytes), 0, 64);
 
-    while(bucket->next != NULL) bucket = bucket->next;
-    bucket->next = new_bucket;
+    while(this_bucket->next != NULL) this_bucket = this_bucket->next;
+    this_bucket->next = new_bucket;
   } 
 }
 

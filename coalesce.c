@@ -46,7 +46,7 @@ void coalesce_pages(uint64_t addr, uint32_t fd, uint64_t offset){
   LOG("coalescing pages at %p\n", addr);
   hemem_combine_base_pages(addr);
 
-  ret = libc_mmap((void*) addr, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, fd, offset % HUGEPAGE_SIZE);
+  ret = libc_mmap((void*) addr, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, fd, offset & ~(HUGEPAGE_MASK));
   if(ret < 0) perror("coalesce mmap");
 
   //hemem_tlb_shootdown(addr);
@@ -86,7 +86,7 @@ void incr_dram_huge_page (uint64_t addr, uint32_t fd, uint64_t offset){
     bitmap_set(&(this_hp->map), page_offset/4096);
     if(this_hp->num_faulted/NUM_SMPAGES > COALESCE_RATIO) coalesce_pages(addr, fd, offset); 
   } else {
-    ht_insert(dram_hp_ht, addr, offset % HUGEPAGE_SIZE, 1, fd);
+    ht_insert(dram_hp_ht, addr, offset & ~(HUGEPAGE_MASK), fd, 1);
   }
 }
 
@@ -105,7 +105,7 @@ void incr_nvm_huge_page (uint64_t addr, uint32_t fd, uint64_t offset){
     bitmap_set(&(this_hp->map), page_offset/4096);
     if(this_hp->num_faulted == NUM_SMPAGES) coalesce_pages(addr, fd, offset); 
   } else {
-    ht_insert(nvm_hp_ht, addr, offset % HUGEPAGE_SIZE, 1, fd);
+    ht_insert(nvm_hp_ht, addr, offset & (~HUGEPAGE_SIZE), fd, 1);
   }
 }
 

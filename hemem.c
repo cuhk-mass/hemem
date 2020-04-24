@@ -353,7 +353,6 @@ void hemem_init()
 
   paging_init();
 #ifdef COALESCE
-  printf("coalesce_init\n");
   coalesce_init();
 #endif
   
@@ -440,7 +439,8 @@ static void hemem_mmap_populate(void* addr, size_t length)
     page->va = (uint64_t)newptr;
     page->migrating = false;
  
-#ifdef COALESCE  
+#ifdef COALESCE 
+    LOG("in populate: incrementing huge page %p with fd %u or %u\n", page->va, dramfd, nvmfd);
     if(page->in_dram) incr_dram_huge_page(page->va, dramfd, offset);
     else incr_nvm_huge_page(page->va, nvmfd, offset);
 #endif
@@ -545,7 +545,7 @@ void hemem_combine_base_pages(uint64_t addr){
     return;
   }
   page->va = addr;
-  page->devdax_offset = old_page->devdax_offset & HUGEPAGE_MASK;
+  page->devdax_offset = old_page->devdax_offset & (~HUGEPAGE_MASK);
   page->in_dram = old_page->in_dram;
   page->migrating = old_page->migrating;
   page->migrations_up = page->migrations_down = 0;
@@ -581,7 +581,7 @@ void hemem_break_huge_page(uint64_t addr, uint32_t fd, uint64_t offset, struct b
       page = &freepages[nextfreepage++];
       ///printf("getting page for breakdown (shouldn't happen)\n");
       page->va = addr;
-      page->devdax_offset = old_page->devdax_offset & HUGEPAGE_MASK;
+      page->devdax_offset = old_page->devdax_offset + i*BASEPAGE_SIZE;
       page->in_dram = old_page->in_dram;
       page->migrating = old_page->migrating;
       page->migrations_up = page->migrations_down = 0;
@@ -1001,10 +1001,9 @@ void handle_missing_fault(uint64_t page_boundry)
   enqueue_page(page);
 
 #ifdef COALESCE  
-  LOG("incrementing huge page\n");
+  LOG("incrementing huge page %p with fd %u or %u\n", page->va, dramfd, nvmfd);
   if(page->in_dram) incr_dram_huge_page(page->va, dramfd, offset);
   else incr_nvm_huge_page(page->va, nvmfd, offset);
-  LOG("page incremented\n");
 #endif
 
   missing_faults_handled++;

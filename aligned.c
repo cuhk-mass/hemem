@@ -54,7 +54,8 @@ void check_in_dram(struct hemem_page* page, void* huge_page, uint32_t dramfd, ui
     page->in_dram = false;
     return;
   }
-  LOG("fd is in neither dram or nvm, something has gone wrong\n");
+  LOG("fd is in neither dram or nvm, something has gone wrong with %p; this fd: %u nvm: %u dram: %u\n", this_hp, this_hp->fd, dramfd, nvmfd);
+  exit(0);
 }
 void aligned_init(void)
 {
