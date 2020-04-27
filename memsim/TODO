@@ -1,14 +1,22 @@
 --- Now ---
 
-* Implement paper description of memory management
+* For a consecutive virtual address range, we can track what base page mappings are completely in
+  NVM
+  * For those, we can check the larger page table entries
 
-* Linux will move pages unmodified (whatever size they were)
+* Implement page frequency tracking, instead of LRU tracking
 
 * We can move small 4K pages up, and space them out to allow the rest
-   to move up if needed
+  to move up if needed
 
 --- Done ---
+
+x Implement paper description of memory management
 
 x Implement memory mode
 
 x Fix page and TLB lookups (need page alignment, not absolute addresses)
+
+--- Later ---
+
+* Linux will move pages unmodified (whatever size they were)

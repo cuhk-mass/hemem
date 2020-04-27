@@ -1,6 +1,6 @@
 CFLAGS = -g3 -Wall -pthread
 CFLAGS += -DLOG_DEBUG
-#CFLAGS += -O2
+CFLAGS += -O2
 LDFLAGS = -pthread
 
 # 1MB hotset

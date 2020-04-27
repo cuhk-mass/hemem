@@ -329,7 +329,7 @@ static void move_cold(void)
       slowmem_freebytes -= page_size(BASE);
       fastmem_freebytes += page_size(BASE);
       np->vaddr = p->vaddr + (i * BASE_PAGE_SIZE);
-      np->pte = alloc_ptables(np->vaddr, BASE, np->paddr + (i * BASE_PAGE_SIZE));
+      np->pte = alloc_ptables(np->vaddr, BASE, np->paddr);
       assert(np->pte != NULL);
       add_hash(&mem_inactive[SLOWMEM], np);
     }
@@ -376,7 +376,7 @@ static void sweep(struct pte *ptable)
 	  continue;
 	}
 	
-	if(p->accesses >= 2) {
+	if(p->accesses >= 1) {
 	  if(p->vaddr < 1048576) {
 	    LOG("[NOW HOT vaddr 0x%" PRIx64 "] accesses = %zu\n",
 		p->vaddr, p->accesses);
@@ -404,11 +404,16 @@ static void sweep(struct pte *ptable)
 
 static void *hemem_thread(void *arg)
 {
+  size_t last_time = 0;
+  
   in_background = true;
   memsim_timebound_thread = true;
 
   for(;;) {
-    memsim_nanosleep(HEMEM_INTERVAL);
+    ssize_t sleep_time = HEMEM_INTERVAL - (runtime - last_time);
+    assert(sleep_time <= HEMEM_INTERVAL);
+    memsim_nanosleep(sleep_time < 0 ? 0 : sleep_time);
+    last_time = runtime;
     memsim_timebound = runtime + HEMEM_INTERVAL / 2;
 
     pthread_mutex_lock(&global_lock);
