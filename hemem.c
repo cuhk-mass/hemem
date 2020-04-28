@@ -325,6 +325,7 @@ void hemem_init()
     perror("nvm devdax mmap");
     assert(0);
   }
+
 #ifdef HEMEM_THREAD_POOL
   uint64_t i;
   /* pmemcpy.activate = false; */
@@ -365,6 +366,7 @@ static void hemem_mmap_populate(void* addr, size_t length)
   uint64_t npages;
   int i;
   void* tmpaddr;
+  uint64_t pagesize;
 
 
   npages = length / PAGE_SIZE;
@@ -372,26 +374,30 @@ static void hemem_mmap_populate(void* addr, size_t length)
 
   LOG("hemem_mmap_populate: addr: 0x%lx, npages: %lu\n", (uint64_t)addr, npages);
   for (i = 0; i < npages; i++) {
-    internal_malloc = true;
-    page = (struct hemem_page*)calloc(1, sizeof(struct hemem_page));
-    internal_malloc = false;
+    page = pagefault();
     if (page == NULL) {
-      perror("page calloc");
+      perror("mmap populate pagefault");
       assert(0);
     }
 
     // let policy algorithm do most of the heavy lifting of finding a free page
-    pagefault(page); 
+    pagefault(page);
+    page->prev = page->next = NULL; 
     offset = page->devdax_offset;
     in_dram = page->in_dram;
+    switch (page->pt) {
+      case BASEP: pagesize = BASEPAGE_SIZE; break;
+      case HUGEP: pagesize = HUGEPAGE_SIZE; break;
+      default: assert(!"mmap populate: unsupported page size");
+    }
 
     tmpaddr = (in_dram ? dram_devdax_mmap + offset : nvm_devdax_mmap + offset);
-    memset(tmpaddr, 0, PAGE_SIZE);
+    memset(tmpaddr, 0, pagesize);
     memsets++;
   
     // now that we have an offset determined via the policy algorithm, actually map
     // the page for the application
-    newptr = libc_mmap((void*)page_boundry, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, (in_dram ? dramfd : nvmfd), offset);
+    newptr = libc_mmap((void*)page_boundry, pagesize, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, (in_dram ? dramfd : nvmfd), offset);
     if (newptr == MAP_FAILED) {
       perror("newptr mmap");
       free(page);
@@ -416,6 +422,7 @@ static void hemem_mmap_populate(void* addr, size_t length)
     // use mmap return addr to track new page's virtual address
     page->va = (uint64_t)newptr;
     page->migrating = false;
+    page->migrations_up = page->migrations_down = 0;
  
     pthread_mutex_init(&(page->page_lock), NULL);
 
@@ -470,9 +477,9 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
     assert(0);
   }
   
-  if ((flags & MAP_POPULATE) == MAP_POPULATE) {
+  //if ((flags & MAP_POPULATE) == MAP_POPULATE) {
     hemem_mmap_populate(p, length);
-  }
+  //}
   
   return p;
 }
