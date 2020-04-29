@@ -18,8 +18,6 @@
  * =====================================================================================
  */
 
-#include <string.h>
-
 struct bucket {
   uint64_t value;
   uint64_t value2;
@@ -58,6 +56,7 @@ static inline struct hash_table* ht_alloc(uint32_t size) {
 static inline void ht_insert(struct hash_table* ht, uint64_t value, uint64_t value2, uint32_t value3, uint16_t value4){
   uint16_t index = hash(value, ht->n_buckets);
   struct bucket* this_bucket = &(ht->buckets[index]);
+  int i;
 
   if(this_bucket->value == -1){
     this_bucket->value = value;
@@ -73,8 +72,8 @@ static inline void ht_insert(struct hash_table* ht, uint64_t value, uint64_t val
     new_bucket->value2 = value2;
     new_bucket->value3 = value3;
     new_bucket->value4 = value4;
-    memset(&(new_bucket->bytes), 0, 64);
-
+    for(i = 0; i<64; i++) new_bucket->bytes[i] = 0;
+    
     while(this_bucket->next != NULL) this_bucket = this_bucket->next;
     this_bucket->next = new_bucket;
   } 
@@ -82,23 +81,24 @@ static inline void ht_insert(struct hash_table* ht, uint64_t value, uint64_t val
 
 static inline struct bucket* ht_search(struct hash_table* ht, uint64_t value){
   uint16_t index = hash(value, ht->n_buckets);
-  struct bucket* bucket = &(ht->buckets[index]);
+  struct bucket* this_bucket = &(ht->buckets[index]);
 
   do {
-    if (bucket->value == value) return bucket;
-  } while (bucket->next != NULL);
+    if (this_bucket->value == value) return this_bucket;
+    this_bucket = this_bucket->next;
+  } while (this_bucket != NULL);
 
   return 0;
 }
 
-static inline void ht_delete(struct hash_table* ht, struct bucket* bucket){
-  if(bucket->next == NULL) bucket->value = -1;
+static inline void ht_delete(struct hash_table* ht, struct bucket* this_bucket){
+  if(this_bucket->next == NULL) this_bucket->value = -1;
   else {
-    bucket->value = bucket->next->value;
-    bucket->value2 = bucket->next->value2;
-    bucket->value3 = bucket->next->value3;
-    bucket->value4 = bucket->next->value4;
-    bucket->next = bucket->next->next;
+    this_bucket->value = this_bucket->next->value;
+    this_bucket->value2 = this_bucket->next->value2;
+    this_bucket->value3 = this_bucket->next->value3;
+    this_bucket->value4 = this_bucket->next->value4;
+    this_bucket->next = this_bucket->next->next;
   }
 
 }

@@ -65,7 +65,10 @@ void coalesce_init() {
 }
 
 void* check_aligned(uint64_t addr){
+  
+  LOG("checking for addr %p in huge page %p \n", addr, addr - (addr & HUGEPAGE_MASK));
   void* ret = ht_search(dram_hp_ht, addr - (addr & HUGEPAGE_MASK));
+  //LOG("got %p \n", ret);
 
   if(ret) return ret;
   else return (void*) ht_search(nvm_hp_ht, addr - (addr & HUGEPAGE_MASK));
@@ -79,13 +82,17 @@ void incr_dram_huge_page (uint64_t addr, uint32_t fd, uint64_t offset){
   LOG("incrementing dram page at %p\n", addr);
 
   struct huge_page* this_hp = (struct huge_page*) ht_search(dram_hp_ht, addr); 
-  
+ 
+  LOG("hp found? %p\n", this_hp);
+
   if(this_hp){
     this_hp->num_faulted++;
     //printf("incrementing base page %p inside huge page %p\n", bp_addr, addr);
     bitmap_set(&(this_hp->map), page_offset/4096);
+    LOG("bitmap set at %u\n", page_offset/4096);
     if(this_hp->num_faulted/NUM_SMPAGES > COALESCE_RATIO) coalesce_pages(addr, fd, offset); 
   } else {
+    LOG("inserting to hash table %p, %p, %u\n", addr, offset & ~(HUGEPAGE_MASK), fd);
     ht_insert(dram_hp_ht, addr, offset & ~(HUGEPAGE_MASK), fd, 1);
   }
 }
@@ -161,7 +168,7 @@ void decr_dram_huge_page(uint64_t addr) {
     this_hp->num_faulted--;
     bitmap_unset(&(this_hp->map), page_offset/4096);
     if((this_hp->num_faulted)/NUM_SMPAGES < BREAK_RATIO) hemem_break_huge_page(addr, this_hp->fd, this_hp->offset, &(this_hp->map));
-    if(this_hp->num_faulted == 0) ht_delete(dram_hp_ht, (struct bucket*) this_hp);
+    //if(this_hp->num_faulted == 0) ht_delete(dram_hp_ht, (struct bucket*) this_hp);
   } else {
     LOG("decrementing nonexistent huge page\n");
   }
@@ -180,7 +187,7 @@ void decr_nvm_huge_page(uint64_t addr) {
     this_hp->num_faulted--;
     bitmap_unset(&(this_hp->map), page_offset/4096);
     if((this_hp->num_faulted)/NUM_SMPAGES < BREAK_RATIO) hemem_break_huge_page(addr, this_hp->fd, this_hp->offset, &(this_hp->map));
-    if(this_hp->num_faulted == 0) ht_delete(nvm_hp_ht, (struct bucket*) this_hp);
+    //if(this_hp->num_faulted == 0) ht_delete(nvm_hp_ht, (struct bucket*) this_hp);
   } else {
     LOG("decrementing nonexistent huge page\n");
   }

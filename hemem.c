@@ -487,6 +487,7 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
   }  
   assert(p != NULL && p != MAP_FAILED);
 
+  LOG("mmaped at %p with offset %p\n", p, offset);
   // register with uffd
   struct uffdio_register uffdio_register;
   uffdio_register.range.start = (uint64_t)p;
@@ -892,6 +893,7 @@ void handle_missing_fault(uint64_t page_boundry)
   void* tmp_offset;
   bool in_dram;
 
+  LOG("missing page fault at %p\n", page_boundry);
   // have we seen this page before?
   page = find_page(page_boundry);
   if (page != NULL) {
@@ -959,7 +961,7 @@ void handle_missing_fault(uint64_t page_boundry)
     /* free(page); */
     assert(0);
   }
-  LOG("hemem: mmaping at %p\n", newptr);
+  LOG("hemem: mmaping at %p with offset %p\n", newptr, offset);
   if(newptr != (void *)page_boundry) {
     fprintf(stderr, "Not mapped where expected (%p != %p)\n", newptr, (void *)page_boundry);
     assert(0);
@@ -1001,13 +1003,13 @@ void handle_missing_fault(uint64_t page_boundry)
   enqueue_page(page);
 
 #ifdef COALESCE  
-  LOG("incrementing huge page %p with fd %u or %u\n", page->va, dramfd, nvmfd);
   if(page->in_dram) incr_dram_huge_page(page->va, dramfd, offset);
   else incr_nvm_huge_page(page->va, nvmfd, offset);
 #endif
 
   missing_faults_handled++;
   gettimeofday(&missing_end, NULL);
+  LOG("finished page fault of %p\n", page->va);
   LOG_TIME("hemem_missing_fault: %f s\n", elapsed(&missing_start, &missing_end));
 }
 
