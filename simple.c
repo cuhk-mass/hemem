@@ -43,15 +43,21 @@ struct hemem_page* simple_pagefault()
     page->devdax_offset = fastmem;
     page->pt = pagesize_to_pt(PAGE_SIZE);
     fastmem += PAGE_SIZE;
+    ignore_this_mmap = true;
     assert(fastmem <= DRAMSIZE);
+    ignore_this_mmap = false;
   }
   else {
+    ignore_this_mmap = true;
     assert(slowmem < NVMSIZE);
+    ignore_this_mmap = false;
     page->in_dram = false;
     page->devdax_offset = slowmem;
     page->pt = pagesize_to_pt(PAGE_SIZE);
     slowmem += PAGE_SIZE;
+    ignore_this_mmap = true;
     assert(slowmem <= NVMSIZE);
+    ignore_this_mmap = false;
     if (!slowmem_switch) {
       LOG("Switched to allocating from slowmem\n");
       slowmem_switch = true;

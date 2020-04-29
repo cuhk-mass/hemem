@@ -27,8 +27,7 @@ extern "C" {
 #include "timer.h"
 #include "interpose.h"
 
-//#define HEMEM_DEBUG
-#define HEMEM_THREAD_POOL
+#define HEMEM_DEBUG
 
 #define MEM_BARRIER() __sync_synchronize()
 
@@ -48,9 +47,9 @@ extern "C" {
 #define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
 
 FILE *hememlogf;
-//#define LOG(...) fprintf(stderr, __VA_ARGS__)
+#define LOG(...) fprintf(stderr, __VA_ARGS__)
 //#define LOG(...)	fprintf(hememlogf, __VA_ARGS__)
-#define LOG(str, ...) while(0) {}
+//#define LOG(str, ...) while(0) {}
 
 
 FILE *timef;
@@ -83,6 +82,8 @@ extern _Atomic(uint64_t) missing_faults_handled;
 extern _Atomic(uint64_t) migrations_up;
 extern _Atomic(uint64_t) migrations_down;
 extern __thread bool internal_malloc;
+
+extern __thread bool ignore_this_mmap;
 
 enum memtypes {
   FASTMEM = 0,
@@ -118,7 +119,7 @@ static inline uint64_t pt_to_pagesize(enum pagetypes pt)
   switch(pt) {
   case HUGEP: return HUGEPAGE_SIZE;
   case BASEP: return BASEPAGE_SIZE;
-  default: assert(!"Unknown page type");
+  default: ignore_this_mmap = true; assert(!"Unknown page type"); ignore_this_mmap = false;
   }
 }
 
@@ -127,7 +128,7 @@ static inline enum pagetypes pagesize_to_pt(uint64_t pagesize)
   switch (pagesize) {
     case BASEPAGE_SIZE: return BASEP;
     case HUGEPAGE_SIZE: return HUGEP;
-    default: assert(!"Unknown page ssize");
+    default: ignore_this_mmap = true;  assert(!"Unknown page ssize"); ignore_this_mmap = false;
   }
 }
 

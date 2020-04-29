@@ -23,14 +23,20 @@ static _Atomic uint64_t slowmem_freebytes = NVMSIZE;
 
 static void enqueue_fifo(struct hemem_list *queue, struct hemem_node *entry)
 {
+  ignore_this_mmap = true;
   assert(entry->prev == NULL);
+  ignore_this_mmap = false;
   entry->next = queue->first;
   if(queue->first != NULL) {
+    ignore_this_mmap = true;
     assert(queue->first->prev == NULL);
+    ignore_this_mmap = false;
     queue->first->prev = entry;
   } else {
+    ignore_this_mmap = true;
     assert(queue->last == NULL);
     assert(queue->numentries == 0);
+    ignore_this_mmap = false;
     queue->last = entry;
   }
 
@@ -43,7 +49,9 @@ static struct hemem_node *dequeue_fifo(struct hemem_list *queue)
   struct hemem_node *ret = queue->last;
 
   if(ret == NULL) {
+    ignore_this_mmap = true;
     assert(queue->numentries == 0);
+    ignore_this_mmap = false;
     return ret;
   }
 
@@ -55,7 +63,9 @@ static struct hemem_node *dequeue_fifo(struct hemem_list *queue)
   }
 
   ret->prev = ret->next = NULL;
+  ignore_this_mmap = true;
   assert(queue->numentries > 0);
+  ignore_this_mmap = false;
   queue->numentries--;
   return ret;
 }
@@ -105,7 +115,9 @@ again:
     if (nn == NULL) {
       // break up a huge page
       struct hemem_node *hn = dequeue_fifo(&mem_free[FASTMEM][HUGEP]);
+      ignore_this_mmap = true;
       assert(hn != NULL);
+      ignore_this_mmap = false;
 
       hemem_demote_pages(hn->page->va);
 
@@ -197,12 +209,14 @@ move:
       switch (pt) {
         case BASEP: times = 1; break;
         case HUGEP: times = 512; break;
-        default: assert("Unknown page type"); break;
+        default: ignore_this_mmap = true; assert("Unknown page type"); ignore_this_mmap = false;
       }
 
       for (size_t i = 0; i < times; i++) {
         struct hemem_node *nn = dequeue_fifo(&mem_free[SLOWMEM][BASEP]);
+        ignore_this_mmap = true;
         assert(nn != NULL);
+        ignore_this_mmap = false;
 
         // TODO: move memory
         slowmem_freebytes -= pt_to_pagesize(BASEP);
@@ -364,7 +378,9 @@ struct hemem_page* hemem_pagefault()
   pthread_mutex_lock(&global_lock);
 
   page = hemem_get_free_page();
+  ignore_this_mmap = true;
   assert(page != NULL);
+  ignore_this_mmap = false;
 
   for (pt = HUGEP; pt < NPAGETYPES; pt++) {
     // check that we're not fragmented at this page size
@@ -387,7 +403,9 @@ struct hemem_page* hemem_pagefault()
     n = dequeue_fifo(&mem_free[SLOWMEM][pt]);
 
     // if NULL, totally out of memory
+    ignore_this_mmap = true;
     assert(n != NULL);
+    ignore_this_mmap = false;
 
     n->page = page;
     n->page->pt = pt;
@@ -422,7 +440,9 @@ void hemem_mmgr_init(void)
   }
 
   r = pthread_create(&thread, NULL, hemem_thread, NULL);
+  ignore_this_mmap = true;
   assert(r == 0);
+  ignore_this_mmap = false;
 
   LOG("Memory management policy is Hemem\n");
 }

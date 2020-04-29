@@ -28,7 +28,7 @@ static void lru_migrate_down(struct lru_node *n, uint64_t i)
   LOG("hemem: lru_migrate_down: migrating %lx to NVM frame %lu\n", n->page->va, i);
   n->page->migrating = true;
   hemem_wp_page(n->page, true);
-  hemem_migrate_down(n->page, i);
+  hemem_migrate_down(n->page, i * pt_to_pagesize(n->page->pt));
   n->page->migrating = false; 
   LOG("hemem: lru_migrate_down: done migrating to NVM\n");
   pthread_mutex_unlock(&(n->page->page_lock));
@@ -40,7 +40,7 @@ static void lru_migrate_up(struct lru_node *n, uint64_t i)
   LOG("hemem: lru_migrate_up: migrating %lx to DRAM frame %lu\n", n->page->va, i);
   n->page->migrating = true;
   hemem_wp_page(n->page, true);
-  hemem_migrate_up(n->page, i);
+  hemem_migrate_up(n->page, i * pt_to_pagesize(n->page->pt));
   n->page->migrating = false;
   LOG("hemem: lru_migrate_up: done migrating to DRAM\n");
   pthread_mutex_unlock(&(n->page->page_lock));
@@ -48,15 +48,21 @@ static void lru_migrate_up(struct lru_node *n, uint64_t i)
 
 static void lru_list_add(struct lru_list *list, struct lru_node *node)
 {
+  ignore_this_mmap = true;
   assert(node->prev == NULL);
+  ignore_this_mmap = false;
   node->next = list->first;
   if (list->first != NULL) {
+    ignore_this_mmap = true;
     assert(list->first->prev == NULL);
+    ignore_this_mmap = false;
     list->first->prev = node;
   }
   else {
+    ignore_this_mmap = true;
     assert(list->last == NULL);
     assert(list->numentries == 0);
+    ignore_this_mmap = false;
     list->last = node;
   }
 
@@ -70,7 +76,9 @@ static struct lru_node* lru_list_remove(struct lru_list *list)
   struct lru_node *ret = list->last;
 
   if (ret == NULL) {
+    ignore_this_mmap = true;
     assert(list->numentries == 0);
+    ignore_this_mmap = false;
     return ret;
   }
 
@@ -84,7 +92,9 @@ static struct lru_node* lru_list_remove(struct lru_list *list)
 
   ret->prev = NULL;
   ret->next = NULL;
+  ignore_this_mmap = true;
   assert(list->numentries > 0);
+  ignore_this_mmap = false;
   list->numentries--;
   return ret;
 }
@@ -216,7 +226,9 @@ struct hemem_page* lru_pagefault()
   int tries;
 #endif
 
+  ignore_this_mmap = true;
   assert(page != NULL);
+  ignore_this_mmap = false;
   // do the heavy lifting of finding the devdax file offset to place the page
 
   pthread_mutex_lock(&global_lock);
@@ -290,7 +302,9 @@ struct hemem_page* lru_pagefault()
 #endif
 
   pthread_mutex_unlock(&global_lock);
+  ignore_this_mmap = true;
   assert(!"Out of memory");
+  ignore_this_mmap = false;
 
   return NULL;
 }
@@ -322,7 +336,9 @@ void lru_init(void)
   }
 
   r = pthread_create(&kswapd_thread, NULL, lru_kswapd, NULL);
+  ignore_this_mmap = true;
   assert(r == 0);
+  ignore_this_mmap = false;
   
 #ifndef LRU_SWAP
   LOG("Memory management policy is LRU\n");
