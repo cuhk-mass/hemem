@@ -49,9 +49,8 @@ static bool __thread in_background = false;
 static _Atomic bool background_wait = false;
 static _Atomic uint64_t fastmem_freebytes = FASTMEM_SIZE;
 static _Atomic uint64_t slowmem_freebytes = SLOWMEM_SIZE;
-static size_t hotset_size = 0;
-
-/* static int recstats_level; */
+//static size_t hotset_size = 0;
+static int recstats_level;
 
 static void rec_stats(struct pte *ptable, uint64_t vaddr)
 {
