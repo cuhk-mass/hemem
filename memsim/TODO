@@ -1,14 +1,19 @@
 --- Now ---
 
-* For a consecutive virtual address range, we can track what base page mappings are completely in
-  NVM
-  * For those, we can check the larger page table entries
+* If data is read-only, then migrate up only if it's at least a huge
+  page worth of data or if it's scattered 4K pages.
+* If data is written, then always migrate anything that's touched up.
+* When moving 4K pages up, space them out to allow the rest to move up if needed
 
+* When to promote to huge page?
+  * If hot dataset is smaller than fastmem, we should always promote
+  * If hot dataset is larger than fastmem, we should reduce bloating
+   
 * Implement page frequency tracking, instead of LRU tracking
 
-* We can move small 4K pages up, and space them out to allow the rest
-  to move up if needed
-
+* Could do inclusive caching for read-only data
+  * Detect if written through dirty bit
+   
 --- Done ---
 
 x Implement paper description of memory management
@@ -17,6 +22,10 @@ x Implement memory mode
 
 x Fix page and TLB lookups (need page alignment, not absolute addresses)
 
+x For a consecutive virtual address range, we can track what base page mappings are completely in
+  NVM
+  x For those, we can check the larger page table entries
+
 --- Later ---
 
-* Linux will move pages unmodified (whatever size they were)
+x Linux will move pages unmodified (whatever size they were)

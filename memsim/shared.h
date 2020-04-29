@@ -76,18 +76,21 @@ enum pagetypes {
 
 // Page table entry
 struct pte {
-  uint64_t addr;		// Physical address
-  struct pte *next;		// Next page table pointer
-
   // Hardware bits
+  uint64_t addr;			// Page physical address, if pagemap
+  struct pte *next;			// Next page table pointer, if !pagemap
   _Atomic bool present;
   bool readonly;
   bool accessed;
   bool modified;
-  _Atomic bool pagemap;		// This PTE maps a page
+  _Atomic bool pagemap;			// This PTE maps a page
 
-  // OS bits
-  _Atomic bool migration;	// Range is under migration
+  // OS bits (16 bits available)
+  _Atomic bool migration;		// Range is under migration
+  _Atomic bool all_slow;		// All in slowmem
+
+  // Statistics
+  size_t ups, downs;
 };
 
 // readonly is set if the page was a write to a read-only

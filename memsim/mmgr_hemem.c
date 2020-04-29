@@ -30,8 +30,10 @@ struct page {
   uint64_t		paddr, vaddr;
   struct pte		*pte;
   enum pagetypes	type;
-  size_t		accesses, tot_accesses;
+  size_t		accesses;
   UT_hash_handle	hh;
+
+  // Statistics
 };
 
 struct fifo_queue {
@@ -47,9 +49,43 @@ static bool __thread in_background = false;
 static _Atomic bool background_wait = false;
 static _Atomic uint64_t fastmem_freebytes = FASTMEM_SIZE;
 static _Atomic uint64_t slowmem_freebytes = SLOWMEM_SIZE;
+static size_t hotset_size = 0;
+
+/* static int recstats_level; */
+
+static void rec_stats(struct pte *ptable, uint64_t vaddr)
+{
+  recstats_level++;
+  
+  for(int i = 0; i < 512; i++) {
+    if(!ptable[i].present) {
+      assert(ptable[i].ups == 0 && ptable[i].downs == 0);
+      continue;
+    }
+
+    assert(recstats_level >= 1 && recstats_level <= 4);
+    if(ptable[i].ups > 1 || ptable[i].downs > 1) {
+      LOG("vaddr = 0x%" PRIx64 ", level = %u, ups = %zu, downs = %zu\n",
+	  vaddr + i * ((uint64_t)1 << ((5ULL - recstats_level) * 9 + 3)),
+	  recstats_level, ptable[i].ups, ptable[i].downs);
+    }
+    
+    if(!ptable[i].pagemap) {
+      assert(ptable[i].next != NULL);
+      rec_stats(ptable[i].next, vaddr + i * (1 << ((5 - recstats_level) * 9 + 3)));
+    }
+  }
+
+  recstats_level--;
+}
 
 int listnum(struct pte *pte)
 {
+  LOG("--- rec_stats ---\n");
+
+  recstats_level = 0;
+  rec_stats(pml4, 0);
+  
   // Unused debug function
   return -1;
 }
@@ -142,6 +178,11 @@ static struct pte *alloc_ptables(uint64_t addr, enum pagetypes ptype,
       }
     }
 
+    // Reset all_slow hint if part of virtual range is not in slowmem
+    if(!(paddr & SLOWMEM_BIT)) {
+      pte->all_slow = false;
+    }
+    
     ptable = pte->next;
   }
 
@@ -237,9 +278,11 @@ static void move_hot(void)
       goto again;
     }
 
-    LOG("[HOT vaddr 0x%" PRIx64 ", pt = %u] paddr 0x%" PRIx64 " -> 0x%" PRIx64
-	", fastmem_free = %" PRIu64 ", slowmem_free = %" PRIu64 "\n",
-	p->vaddr, BASE, p->paddr, np->paddr, fastmem_freebytes, slowmem_freebytes);
+    if(p->vaddr < 1048576) {
+      LOG("[HOT vaddr 0x%" PRIx64 ", pt = %u] paddr 0x%" PRIx64 " -> 0x%" PRIx64
+	  ", fastmem_free = %" PRIu64 ", slowmem_free = %" PRIu64 "\n",
+	  p->vaddr, BASE, p->paddr, np->paddr, fastmem_freebytes, slowmem_freebytes);
+    }
 
     move_memory(FASTMEM, SLOWMEM, page_size(BASE));
     fastmem_freebytes -= page_size(BASE);
@@ -247,6 +290,7 @@ static void move_hot(void)
     np->vaddr = p->vaddr;
     np->pte = alloc_ptables(np->vaddr, BASE, np->paddr);
     assert(np->pte != NULL && np->pte == p->pte);
+    np->pte->ups++;
     add_hash(&mem_active[FASTMEM], np);
 
     // Release read-only lock, reset migration hint
@@ -308,6 +352,8 @@ static void move_cold(void)
   while((p = dequeue_fifo(&transition)) != NULL) {
     size_t times = 1;
 
+    /* p->pte->downs++; */
+    
     switch(p->type) {
     case BASE: times = 1; break;
     case HUGE: times = 512; break;
@@ -319,7 +365,7 @@ static void move_cold(void)
       struct page *np = dequeue_fifo(&mem_free[SLOWMEM][BASE]);
       assert(np != NULL);
 
-      if(i == 0) {
+      if(i == 0 && p->vaddr < 1048576) {
 	LOG("[COLD vaddr 0x%" PRIx64 ", pt = %u] paddr 0x%" PRIx64 " -> 0x%" PRIx64
 	    ", fastmem_free = %" PRIu64 ", slowmem_free = %" PRIu64 "\n",
 	    p->vaddr, p->type, p->paddr, np->paddr, fastmem_freebytes, slowmem_freebytes);
@@ -331,10 +377,12 @@ static void move_cold(void)
       np->vaddr = p->vaddr + (i * BASE_PAGE_SIZE);
       np->pte = alloc_ptables(np->vaddr, BASE, np->paddr);
       assert(np->pte != NULL);
+      np->pte->downs++;
       add_hash(&mem_inactive[SLOWMEM], np);
     }
 
-    // Release read-only lock, reset migration hint
+    // Release read-only lock, reset migration hint, set all_slow hint
+    p->pte->all_slow = true;
     p->pte->readonly = false;
     p->pte->migration = false;
     // Fastmem page is now free
@@ -342,11 +390,14 @@ static void move_cold(void)
   }
 }
 
-static size_t pages_swept[NPAGETYPES];
+static size_t pages_swept[NPAGETYPES], pages_skipped[NPAGETYPES];
 static int level;
 
-static void sweep(struct pte *ptable)
+// Returns whether all pages are in slowmem at the level sweeped
+static bool sweep(struct pte *ptable)
 {
+  bool all_slow = true;
+
   level++;
   
   for(int i = 0; i < 512; i++) {
@@ -359,11 +410,19 @@ static void sweep(struct pte *ptable)
 
       assert(level >= 2 && level <= 4);
       pages_swept[level - 2]++;
+
+      if(mt == FASTMEM) {
+	all_slow = false;
+      }
       
       if(!ptable[i].accessed) {
 	// Page not accessed - mark inactive if active
 	struct page *p = find_hash(&mem_active[mt], ptable[i].addr);
 	if(p != NULL) {
+	  if(mt == SLOWMEM) {
+	    LOG("slowmem active -> inactive\n");
+	  }
+	  
 	  del_hash(&mem_active[mt], p);
 	  add_hash(&mem_inactive[mt], p);
 	}
@@ -395,11 +454,29 @@ static void sweep(struct pte *ptable)
       }
     } else {
       assert(ptable[i].next != NULL);
-      sweep(ptable[i].next);
+
+      // Skip if all pages are in slowmem and none were touched
+      if(ptable[i].all_slow && !ptable[i].accessed) {
+	pages_skipped[level - 2]++;
+	continue;
+      }
+      
+      // Reset accessed bit at this level
+      ptable[i].accessed = false;
+      
+      bool is_slow = sweep(ptable[i].next);
+
+      if(!is_slow) {
+	assert(!ptable[i].all_slow);
+	all_slow = false;
+      } else {
+	ptable[i].all_slow = true;
+      }
     }
   }
 
   level--;
+  return all_slow;
 }
 
 static void *hemem_thread(void *arg)
@@ -423,13 +500,15 @@ static void *hemem_thread(void *arg)
     // Track hot/cold memory
     for(enum pagetypes i = 0; i < NPAGETYPES; i++) {
       pages_swept[i] = 0;
+      pages_skipped[i] = 0;
     }
     size_t oldruntime = runtime;
     level = 0;
     sweep(pml4);
-    LOG("SWEEP took %.3fs. swept %zu BASE, %zu HUGE, %zu GIGA\n",
+    LOG("SWEEP took %.3fs. swept %zu BASE, %zu HUGE, %zu GIGA. skipped %zu HUGE, %zu GIGA.\n",
 	(float)(runtime - oldruntime) / 1000000000.0,
-	pages_swept[BASE], pages_swept[HUGE], pages_swept[GIGA]);
+	pages_swept[BASE], pages_swept[HUGE], pages_swept[GIGA],
+	pages_skipped[HUGE], pages_skipped[GIGA]);
 
     // Can comment out for less overhead & accuracy
     tlb_shootdown(0);	// Sync active bit changes in TLB
