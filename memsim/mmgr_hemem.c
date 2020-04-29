@@ -49,8 +49,10 @@ static bool __thread in_background = false;
 static _Atomic bool background_wait = false;
 static _Atomic uint64_t fastmem_freebytes = FASTMEM_SIZE;
 static _Atomic uint64_t slowmem_freebytes = SLOWMEM_SIZE;
-//static size_t hotset_size = 0;
+/* static size_t hotset_size = 0; */
 static int recstats_level;
+static pthread_t hemem_threadid;
+static bool hemem_thread_running = true;
 
 static void rec_stats(struct pte *ptable, uint64_t vaddr)
 {
@@ -65,13 +67,13 @@ static void rec_stats(struct pte *ptable, uint64_t vaddr)
     assert(recstats_level >= 1 && recstats_level <= 4);
     if(ptable[i].ups > 1 || ptable[i].downs > 1) {
       LOG("vaddr = 0x%" PRIx64 ", level = %u, ups = %zu, downs = %zu\n",
-	  vaddr + i * ((uint64_t)1 << ((5ULL - recstats_level) * 9 + 3)),
+	  vaddr + i * ((uint64_t)1 << ((5 - recstats_level) * 9 + 3)),
 	  recstats_level, ptable[i].ups, ptable[i].downs);
     }
     
     if(!ptable[i].pagemap) {
       assert(ptable[i].next != NULL);
-      rec_stats(ptable[i].next, vaddr + i * (1 << ((5 - recstats_level) * 9 + 3)));
+      rec_stats(ptable[i].next, vaddr + i * ((uint64_t)1 << ((5 - recstats_level) * 9 + 3)));
     }
   }
 
@@ -81,6 +83,11 @@ static void rec_stats(struct pte *ptable, uint64_t vaddr)
 int listnum(struct pte *pte)
 {
   LOG("--- rec_stats ---\n");
+
+  // Wait for hemem_thread to exit
+  hemem_thread_running = false;
+  int r = pthread_join(hemem_threadid, NULL);
+  assert(r == 0);
 
   recstats_level = 0;
   rec_stats(pml4, 0);
@@ -485,7 +492,7 @@ static void *hemem_thread(void *arg)
   in_background = true;
   memsim_timebound_thread = true;
 
-  for(;;) {
+  while(hemem_thread_running) {
     ssize_t sleep_time = HEMEM_INTERVAL - (runtime - last_time);
     assert(sleep_time <= HEMEM_INTERVAL);
     memsim_nanosleep(sleep_time < 0 ? 0 : sleep_time);
@@ -645,7 +652,6 @@ void mmgr_init(void)
     enqueue_fifo(&mem_free[SLOWMEM][BASE], p);
   }
   
-  pthread_t thread;
-  int r = pthread_create(&thread, NULL, hemem_thread, NULL);
+  int r = pthread_create(&hemem_threadid, NULL, hemem_thread, NULL);
   assert(r == 0);
 }
