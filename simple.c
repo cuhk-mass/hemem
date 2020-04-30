@@ -32,10 +32,13 @@ uint64_t fastmem = 0;
 uint64_t slowmem = 0;
 bool slowmem_switch = false;
 
-struct hemem_page* simple_pagefault()
+void simple_pagefault(struct hemem_page *page)
 {
-  struct hemem_page* page = hemem_get_free_page();
   struct timeval start, end;
+
+  ignore_this_mmap = true;
+  assert(page != NULL);
+  ignore_this_mmap = false;
 
   gettimeofday(&start, NULL);
   if (fastmem < DRAMSIZE) {
@@ -66,8 +69,6 @@ struct hemem_page* simple_pagefault()
 
   gettimeofday(&end, NULL);
   LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
-  
-  return page;
 }
 
 void simple_init(void)

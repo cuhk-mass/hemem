@@ -43,7 +43,7 @@ int devmemfd = -1;
 struct page_list list;
 pthread_t copy_threads[MAX_COPY_THREADS];
 
-static struct page_list freepages;
+struct page_list freepages;
 
 void *dram_devdax_mmap;
 void *nvm_devdax_mmap;
@@ -368,13 +368,11 @@ static void hemem_mmap_populate(void* addr, size_t length)
   ignore_this_mmap = false;
 
   for (page_boundry = (uint64_t)addr; page_boundry < (uint64_t)addr + length;) {
-    page = pagefault();
-    if (page == NULL) {
-      perror("mmap populate pagefault");
-      ignore_this_mmap = true;
-      assert(0);
-      ignore_this_mmap = false;
-    }
+    page = hemem_get_free_page();
+    ignore_this_mmap = true;
+    assert(page != NULL);
+    ignore_this_mmap = false;
+    pagefault(page);
 
     // let policy algorithm do most of the heavy lifting of finding a free page
     page->prev = page->next = NULL; 
@@ -820,17 +818,19 @@ void handle_missing_fault(uint64_t page_boundry)
 
   // let policy algorithm do most of the heavy lifting of finding a free page
   gettimeofday(&start, NULL);
-  page = pagefault(); 
+  
+  page = hemem_get_free_page();
+  ignore_this_mmap = true;
+  assert(page != NULL);
+  ignore_this_mmap = false;
+
+  pagefault(page); 
   gettimeofday(&end, NULL);
   page->prev = page->next = NULL;
   LOG_TIME("page_fault: %f s\n", elapsed(&start, &end));
   offset = page->devdax_offset;
   in_dram = page->in_dram;
-  switch (page->pt) {
-    case BASEP: pagesize = BASEPAGE_SIZE; break;
-    case HUGEP: pagesize = HUGEPAGE_SIZE; break;
-    default: ignore_this_mmap = true; assert(!"handle_missing_fault: unsupported page size"); ignore_this_mmap = false;
-  }
+  pagesize = pt_to_pagesize(page->pt);
 
   tmp_offset = (in_dram) ? dram_devdax_mmap + offset : nvm_devdax_mmap + offset;
 
@@ -904,6 +904,7 @@ void handle_missing_fault(uint64_t page_boundry)
   gettimeofday(&missing_end, NULL);
   LOG_TIME("hemem_missing_fault: %f s\n", elapsed(&missing_start, &missing_end));
 }
+
 
 
 void *handle_fault()
@@ -990,7 +991,7 @@ void *handle_fault()
 
         // allign faulting address to page boundry
         // huge page boundry in this case due to dax allignment
-        page_boundry = fault_addr & ~(HUGEPAGE_SIZE - 1);
+        page_boundry = fault_addr & ~(PAGE_SIZE - 1);
 
         if (fault_flags & UFFD_PAGEFAULT_FLAG_WP) {
           handle_wp_fault(page_boundry);
@@ -1001,7 +1002,7 @@ void *handle_fault()
 
         // wake the faulting thread
         range.start = (uint64_t)page_boundry;
-        range.len = HUGEPAGE_SIZE;
+        range.len = PAGE_SIZE;
 
         ret = ioctl(uffd, UFFDIO_WAKE, &range);
 
@@ -1034,173 +1035,17 @@ void *handle_fault()
   }
 }
 
-// coalesce 512 base pages starting at addr into a huge page
-// addr is the addr of the first base page to promote (must be hugepage aligned)
-void hemem_promote_pages(uint64_t addr)
-{
-  void * ret;
-  struct hemem_page *hugepage;
-  struct hemem_page *basepage;
-  uint64_t hugepage_offset;
-  bool in_dram;
-  bool migrating;
-  uint64_t hugepage_fd;
-
-  ignore_this_mmap = true;
-  assert(addr != 0);
-  ignore_this_mmap = false;
-
-  // ensure addr is hugepage aligned
-  ignore_this_mmap = true;
-  assert(addr % HUGEPAGE_SIZE == 0);
-  ignore_this_mmap = false;
-
-  basepage = find_page(&list, addr);
-  ignore_this_mmap = true;
-  assert(basepage != NULL);
-  assert(basepage->pt == BASEP);
-  ignore_this_mmap = false;
-
-  // take some page properties from first base page
-  hugepage_offset = basepage->devdax_offset;
-  in_dram = basepage->in_dram;
-  migrating = basepage->migrating;
-  hugepage_fd = (in_dram) ? dramfd : nvmfd;
-  remove_page(&list, basepage);
-  
-  // remove base pages from hemem tracking (already moved first page)
-  uint64_t basepage_addr = addr + BASEPAGE_SIZE;
-  for (uint64_t i = 0; i < 511; i++) {
-    struct hemem_page *page;
-    page = find_page(&list, basepage_addr);
-    ignore_this_mmap = true;
-    assert(page != NULL);
-    assert(page->pt == BASEP);
-    ignore_this_mmap = false;
-    remove_page(&list, page);
-    basepage_addr += BASEPAGE_SIZE;
-  }
-
-  hugepage = dequeue_page(&freepages);
-
-  ret = libc_mmap((void*)addr, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, hugepage_fd, hugepage_offset);
-  if (ret == MAP_FAILED) {
-    perror("coalesce page mmap");
-    ignore_this_mmap = true;
-    assert(0);
-    ignore_this_mmap = false;
-  }
-  if (ret != (void*)addr) {
-    fprintf(stderr, "promote pages: not mapped where expected: %p != %p\n", ret, (void*)addr);
-  }
-
-  struct uffdio_register uffdio_register;
-  uffdio_register.range.start = addr;
-  uffdio_register.range.len = HUGEPAGE_SIZE;
-  uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
-  uffdio_register.ioctls = 0;
-  if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
-    perror("promote pages ioctl uffdio_register");
-    ignore_this_mmap = true;
-    assert(0);
-    ignore_this_mmap = false;
-  }
-
-  hugepage->va = addr;
-  hugepage->devdax_offset = hugepage_offset;
-  hugepage->in_dram = in_dram;
-  hugepage->pt = HUGEP;
-  hugepage->migrating = migrating;
-  pthread_mutex_init(&(hugepage->page_lock), NULL);
-  hugepage->migrations_up = hugepage->migrations_down = 0;
-
-  enqueue_page(&list, hugepage);
-}
-
-// demote huge page starting at addr into 512 base pages
-// addr is the addr of the hugepage to demote (must be hugepage aligned)
-void hemem_demote_pages(uint64_t addr)
-{
-  void* ret;
-  struct hemem_page *hugepage;
-
-  ignore_this_mmap = true;
-  assert(addr != 0);
-  ignore_this_mmap = false;
-
-  // ensure addr is start of a huge page
-  ignore_this_mmap = true;
-  assert(addr % HUGEPAGE_SIZE == 0);
-  ignore_this_mmap = false;
-
-  // find the hemem huge page
-  hugepage = find_page(&list, addr);
-  ignore_this_mmap = true;
-  assert(hugepage != NULL);
-  assert(hugepage->va != 0);
-  assert(hugepage->pt == HUGEP);
-  ignore_this_mmap = false;
-
-  // remove it from hemem tracking list
-  remove_page(&list, hugepage);
-
-  // for each base page
-  for (uint64_t i = 0; i < 512; i++) {
-    // grab a new page
-    //TODO: Probably need lists for page sizes rather than fixed size array
-    struct hemem_page *page = dequeue_page(&freepages);
-
-    uint64_t basepage_addr = hugepage->va + (i * BASEPAGE_SIZE);
-    uint64_t basepage_offset = hugepage->devdax_offset + (i * BASEPAGE_SIZE);
-    uint32_t basepage_fd = (hugepage->in_dram) ? dramfd : nvmfd;
-
-    ret = libc_mmap((void*)basepage_addr, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, basepage_fd, basepage_offset);
-    if (ret == MAP_FAILED) {
-      perror("demote pages mmap");
-      ignore_this_mmap = true;
-      assert(0);
-      ignore_this_mmap = false;
-    }
-    if (ret != (void*)basepage_addr) {
-      fprintf(stderr, "demote pages: not mapped where expected: %p != %p\n", ret, (void*)basepage_addr);
-    }
-
-    // re-register wiht userfault
-    struct uffdio_register uffdio_register;
-    uffdio_register.range.start = basepage_addr;
-    uffdio_register.range.len = BASEPAGE_SIZE;
-    uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
-    uffdio_register.ioctls = 0;
-    if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
-      perror("demote pages ioctl uffdio_register");
-      ignore_this_mmap = true;
-      assert(0);
-      ignore_this_mmap = false;
-    }
-
-    page->va = basepage_addr;
-    page->devdax_offset = basepage_offset;
-    page->in_dram = hugepage->in_dram;
-    page->pt = BASEP;
-    page->migrating = hugepage->migrating;
-    pthread_mutex_init(&(page->page_lock), NULL);
-    page->migrations_up = page->migrations_down = 0;
-
-    // add base page to hemem tracking list
-    enqueue_page(&list, page);
-  }
-}
 
 uint64_t hemem_va_to_pa(uint64_t va)
 {
-  uint64_t page_boundry = va;
+  uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
   return va_to_pa(page_boundry);
 }
 
 
 void hemem_tlb_shootdown(uint64_t va)
 {
-  uint64_t page_boundry = va;
+  uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
   struct uffdio_range range;
   int ret;
 
@@ -1217,7 +1062,7 @@ void hemem_tlb_shootdown(uint64_t va)
 
 void hemem_clear_accessed_bit(uint64_t va)
 {
-  uint64_t page_boundry = va;
+  uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
   struct uffdio_range range;
   int ret;
 
@@ -1236,7 +1081,7 @@ void hemem_clear_accessed_bit(uint64_t va)
 
 int hemem_get_accessed_bit(uint64_t va)
 {
-  uint64_t page_boundry = va;
+  uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
 
   return get_accessed_bit(page_boundry);
 }
