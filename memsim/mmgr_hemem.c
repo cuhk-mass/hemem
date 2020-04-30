@@ -10,7 +10,7 @@
 #include "shared.h"
 #include "uthash.h"
 
-#define HEMEM_INTERVAL		1000000000ULL	// In ns
+#define HEMEM_INTERVAL		500000000ULL	// In ns
 #define HEMEM_SWEEP_RATE       	GB(10)	// Bytes per HEMEM_INTERVAL
 
 // Keep at least 10% of fastmem free
@@ -49,7 +49,7 @@ static bool __thread in_background = false;
 static _Atomic bool background_wait = false;
 static _Atomic uint64_t fastmem_freebytes = FASTMEM_SIZE;
 static _Atomic uint64_t slowmem_freebytes = SLOWMEM_SIZE;
-/* static size_t hotset_size = 0; */
+static _Atomic size_t hotset_size = 0;
 static int recstats_level;
 static pthread_t hemem_threadid;
 static bool hemem_thread_running = true;
@@ -335,6 +335,7 @@ static void move_cold(void)
       // If low on memory and all is hot, we pick random pages to move down
       HASH_ITER(hh, mem_active[FASTMEM], p, tmp) {
 	del_hash(&mem_active[FASTMEM], p);
+	hotset_size -= page_size(p->type);
 	enqueue_fifo(&transition, p);
 
 	p->pte->readonly = true;
@@ -398,6 +399,7 @@ static void move_cold(void)
 
 static size_t pages_swept[NPAGETYPES], pages_skipped[NPAGETYPES];
 static int level;
+static size_t sweep_hotset;
 
 // Returns whether all pages are in slowmem at the level sweeped
 static bool sweep(struct pte *ptable)
@@ -425,18 +427,17 @@ static bool sweep(struct pte *ptable)
 	// Page not accessed - mark inactive if active
 	struct page *p = find_hash(&mem_active[mt], ptable[i].addr);
 	if(p != NULL) {
-	  if(mt == SLOWMEM) {
-	    LOG("slowmem active -> inactive\n");
-	  }
-	  
 	  del_hash(&mem_active[mt], p);
 	  add_hash(&mem_inactive[mt], p);
+	  hotset_size -= page_size(p->type);
 	}
       } else {
 	struct page *p = find_hash(&mem_inactive[mt], ptable[i].addr);
 
 	ptable[i].accessed = false;
 
+	sweep_hotset += page_size(level - 2);
+	
 	if(p == NULL) {
 	  continue;
 	}
@@ -449,6 +450,7 @@ static bool sweep(struct pte *ptable)
 	  p->accesses = 0;
 	  del_hash(&mem_inactive[mt], p);
 	  add_hash(&mem_active[mt], p);
+	  hotset_size += page_size(p->type);
 	} else {
 	  p->accesses++;
 	}
@@ -510,11 +512,13 @@ static void *hemem_thread(void *arg)
     }
     size_t oldruntime = runtime;
     level = 0;
+    sweep_hotset = 0;
     sweep(pml4);
-    LOG("SWEEP took %.3fs. swept %zu BASE, %zu HUGE, %zu GIGA. skipped %zu HUGE, %zu GIGA.\n",
+    LOG("SWEEP took %.3fs. swept %zu BASE, %zu HUGE, %zu GIGA. skipped %zu HUGE, %zu GIGA. hotset_size = %.2f GB, sweep_hotset = %.2f GB.\n",
 	(float)(runtime - oldruntime) / 1000000000.0,
 	pages_swept[BASE], pages_swept[HUGE], pages_swept[GIGA],
-	pages_skipped[HUGE], pages_skipped[GIGA]);
+	pages_skipped[HUGE], pages_skipped[GIGA],
+	hotset_size / (float)GB(1), sweep_hotset / (float)GB(1));
 
     // Can comment out for less overhead & accuracy
     tlb_shootdown(0);	// Sync active bit changes in TLB
@@ -572,6 +576,7 @@ static struct page *getmem(uint64_t addr)
     p = dequeue_fifo(&mem_free[FASTMEM][pt]);
     if(p != NULL) {
       add_hash(&mem_active[FASTMEM], p);
+      hotset_size += page_size(p->type);
       fastmem_freebytes -= page_size(p->type);
       break;
     }

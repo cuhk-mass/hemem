@@ -1,7 +1,17 @@
 --- Now ---
 
+* How about the following strategy?
+  * Map giga pages in NVM, have slow and fast DRAM. Slow DRAM is
+   mapped with 4K. Fast DRAM is mapped with GIGA pages.
+    * Giga pages in NVM mean fast sweep, but is low fidelity. Slow DRAM gives us a chance
+   to determine the real hot set at high fidelity.
+   * We use slow DRAM only when under DRAM pressure, to determine
+   smaller hotset.
+
 * If data is read-only, then migrate up only if it's at least a huge
-  page worth of data or if it's scattered 4K pages.
+  page worth of data or if it's scattered 4K pages (small amounts of data). If it's
+   consecutive 4K pages (but less than a huge page), leave in NVM.
+
 * If data is written, then always migrate anything that's touched up.
 * When moving 4K pages up, space them out to allow the rest to move up if needed
 

@@ -3,6 +3,10 @@
  *
  * Caveats:
  * L123 caches are not emulated.
+ *
+ * Ideas:
+ * Get memory traces from Onur's group at ETH? membench? Replay them?
+ * Use PIN?
  */
 
 #include <stdlib.h>
@@ -341,7 +345,7 @@ static void gups(size_t iters, uint64_t hotset_start, uint64_t hotset_size,
 {
   assert(hotset_start + hotset_size <= workset_size);
 
-  LOG("gups(%zu, 0x%" PRIx64 ", 0x%" PRIx64 ", %.2f, 0x%" PRIx64 "\n",
+  LOG("gups(iters = %zu, hotset_start = 0x%" PRIx64 ", hotset_size = 0x%" PRIx64 ", hotset_prob = %.2f, workset_size = 0x%" PRIx64 ")\n",
       iters, hotset_start, hotset_size, hotset_prob, workset_size);
 
   // GUPS with hotset
@@ -414,7 +418,8 @@ int main(int argc, char *argv[])
   
   mmgr_init();
 
-  // Get memory traces from Onur's group at ETH? membench? Replay them here?
+  LOG("[START] FASTMEM_SIZE = %.2f GB, SLOWMEM_SIZE = %.2f GB\n",
+      FASTMEM_SIZE / (float)GB(1), SLOWMEM_SIZE / (float)GB(1));
 
   // Fault all pages in
   LOG("Faulting %" PRIu64 " base pages in\n", WORKSET_SIZE / BASE_PAGE_SIZE);
@@ -432,6 +437,6 @@ int main(int argc, char *argv[])
   /* gups(10000000, WORKSET_SIZE - hotset_size, hotset_size, 0.9, WORKSET_SIZE); */
 
   /* print_stats(); */
-  listnum(NULL);
+  //  listnum(NULL);
   return 0;
 }
