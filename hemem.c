@@ -816,14 +816,13 @@ void handle_missing_fault(uint64_t page_boundry)
 
   gettimeofday(&missing_start, NULL);
 
-  // let policy algorithm do most of the heavy lifting of finding a free page
-  gettimeofday(&start, NULL);
-  
   page = hemem_get_free_page();
   ignore_this_mmap = true;
   assert(page != NULL);
   ignore_this_mmap = false;
-
+  
+  gettimeofday(&start, NULL);
+  // let policy algorithm do most of the heavy lifting of finding a free page
   pagefault(page); 
   gettimeofday(&end, NULL);
   page->prev = page->next = NULL;

@@ -36,7 +36,7 @@ uint64_t va_to_pa(uint64_t va)
   uint64_t pte_entry;
   uint64_t offset;
 
-  pgd = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pt_base);
+  pgd = (uint64_t*)libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pt_base);
   if (pgd == MAP_FAILED) {
     perror("hemem_va_to_pa pgd mmap:");
     ignore_this_mmap = true;
@@ -45,7 +45,7 @@ uint64_t va_to_pa(uint64_t va)
   }
   offset = (((va) >> HEMEM_PGDIR_SHIFT) & (HEMEM_PTRS_PER_PGD - 1));
   ignore_this_mmap = true;
-  assert(offset < BASEPAGE_SIZE);
+  assert(offset < PAGE_SIZE);
   ignore_this_mmap = false;
   pgd_entry = *(pgd + offset) ;
   if (!((pgd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
@@ -55,7 +55,7 @@ uint64_t va_to_pa(uint64_t va)
     ignore_this_mmap = false;
   }
 
-  pud = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pgd_entry & ADDRESS_MASK);
+  pud = (uint64_t*)libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pgd_entry & ADDRESS_MASK);
   if (pud == MAP_FAILED) {
     perror("hemem_va_to_pa pud mmap:");
     ignore_this_mmap = true;
@@ -64,7 +64,7 @@ uint64_t va_to_pa(uint64_t va)
   }
   offset =  (((va) >> HEMEM_PUD_SHIFT) & (HEMEM_PTRS_PER_PUD - 1));
   ignore_this_mmap = true;
-  assert(offset < BASEPAGE_SIZE);
+  assert(offset < PAGE_SIZE);
   ignore_this_mmap = false;
   pud_entry = *(pud + offset);
   if (!((pud_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
@@ -74,7 +74,7 @@ uint64_t va_to_pa(uint64_t va)
     ignore_this_mmap = false;
   }
 
-  pmd = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pud_entry & ADDRESS_MASK);
+  pmd = (uint64_t*)libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pud_entry & ADDRESS_MASK);
   if (pmd == MAP_FAILED) {
     perror("hemem_va_to_pa pmd mmap:");
     ignore_this_mmap = true;
@@ -83,7 +83,7 @@ uint64_t va_to_pa(uint64_t va)
   }
   offset = (((va) >> HEMEM_PMD_SHIFT) & (HEMEM_PTRS_PER_PMD - 1));
   ignore_this_mmap = true;
-  assert(offset < BASEPAGE_SIZE);
+  assert(offset < PAGE_SIZE);
   ignore_this_mmap = false;
   pmd_entry = *(pmd + offset);
   if (!((pmd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
@@ -94,13 +94,13 @@ uint64_t va_to_pa(uint64_t va)
   }
 
   if ((pmd_entry & HEMEM_HUGEPAGE_FLAG) == HEMEM_HUGEPAGE_FLAG) {
-    munmap(pmd, BASEPAGE_SIZE);
-    munmap(pud, BASEPAGE_SIZE);
-    munmap(pgd, BASEPAGE_SIZE);
+    munmap(pmd, PAGE_SIZE);
+    munmap(pud, PAGE_SIZE);
+    munmap(pgd, PAGE_SIZE);
     return pmd_entry;
   }
 
-  pte = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pmd_entry & ADDRESS_MASK);
+  pte = (uint64_t*)libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pmd_entry & ADDRESS_MASK);
   if (pte == MAP_FAILED) {
     perror("hemem_va_to_pa pte mmap:");
     ignore_this_mmap = true;
@@ -109,7 +109,7 @@ uint64_t va_to_pa(uint64_t va)
   }
   offset = (((va) >> HEMEM_PAGE_SHIFT) & (HEMEM_PTRS_PER_PTE - 1));
   ignore_this_mmap = true;
-  assert(offset < BASEPAGE_SIZE);
+  assert(offset < PAGE_SIZE);
   ignore_this_mmap = false;
   pte_entry = *(pte + offset);
   if (!((pte_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
@@ -119,10 +119,10 @@ uint64_t va_to_pa(uint64_t va)
     ignore_this_mmap = false;
   }
 
-  munmap(pte, BASEPAGE_SIZE);
-  munmap(pmd, BASEPAGE_SIZE);
-  munmap(pud, BASEPAGE_SIZE);
-  munmap(pgd, BASEPAGE_SIZE);
+  munmap(pte, PAGE_SIZE);
+  munmap(pmd, PAGE_SIZE);
+  munmap(pud, PAGE_SIZE);
+  munmap(pgd, PAGE_SIZE);
   return pte_entry;
 }
 
@@ -139,7 +139,7 @@ void clear_bit(uint64_t va, uint64_t bit)
   uint64_t *pte_entry;
   uint64_t offset;
 
-  pgd = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pt_base);
+  pgd = (uint64_t*)libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pt_base);
   if (pgd == MAP_FAILED) {
     perror("clear_accessed_bit: pgd mmap:");
     ignore_this_mmap = true;
@@ -148,7 +148,7 @@ void clear_bit(uint64_t va, uint64_t bit)
   }
   offset = (((va) >> HEMEM_PGDIR_SHIFT) & (HEMEM_PTRS_PER_PGD - 1));
   ignore_this_mmap = true;
-  assert(offset < BASEPAGE_SIZE);
+  assert(offset < PAGE_SIZE);
   ignore_this_mmap = false;
   pgd_entry = (pgd + offset);
   if (!((*pgd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
@@ -157,7 +157,7 @@ void clear_bit(uint64_t va, uint64_t bit)
     return;
   }
   
-  pud = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pgd_entry & ADDRESS_MASK);
+  pud = (uint64_t*)libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pgd_entry & ADDRESS_MASK);
   if (pud == MAP_FAILED) {
     perror("clear_accessed_bit: pud mmap:");
     ignore_this_mmap = true;
@@ -166,7 +166,7 @@ void clear_bit(uint64_t va, uint64_t bit)
   }
   offset = (((va) >> HEMEM_PUD_SHIFT) & (HEMEM_PTRS_PER_PUD - 1));
   ignore_this_mmap = true;
-  assert(offset < BASEPAGE_SIZE);
+  assert(offset < PAGE_SIZE);
   ignore_this_mmap = false;
   pud_entry = (pud + offset);
   if (!((*pud_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
@@ -175,7 +175,7 @@ void clear_bit(uint64_t va, uint64_t bit)
     return;
   }
 
-  pmd = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pud_entry & ADDRESS_MASK);
+  pmd = (uint64_t*)libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pud_entry & ADDRESS_MASK);
   if (pmd == MAP_FAILED) {
     perror("clear_accessed_bit: pmd mmap:");
     ignore_this_mmap = true;
@@ -184,7 +184,7 @@ void clear_bit(uint64_t va, uint64_t bit)
   }
   offset = (((va) >> HEMEM_PMD_SHIFT) & (HEMEM_PTRS_PER_PMD - 1));
   ignore_this_mmap = true;
-  assert(offset < BASEPAGE_SIZE);
+  assert(offset < PAGE_SIZE);
   ignore_this_mmap = false;
   pmd_entry = (pmd + offset);
   if (!((*pmd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
@@ -195,13 +195,13 @@ void clear_bit(uint64_t va, uint64_t bit)
 
   if ((*pmd_entry & HEMEM_HUGEPAGE_FLAG) == HEMEM_HUGEPAGE_FLAG) {
     *pmd_entry = *pmd_entry & ~bit;
-    munmap(pmd, BASEPAGE_SIZE);
-    munmap(pud, BASEPAGE_SIZE);
-    munmap(pgd, BASEPAGE_SIZE);
+    munmap(pmd, PAGE_SIZE);
+    munmap(pud, PAGE_SIZE);
+    munmap(pgd, PAGE_SIZE);
     return;
   }
 
-  pte = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pmd_entry & ADDRESS_MASK);
+  pte = (uint64_t*)libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pmd_entry & ADDRESS_MASK);
   if (pte == MAP_FAILED) {
     perror("clear_accessed_bit pte mmap:");
     ignore_this_mmap = true;
@@ -210,7 +210,7 @@ void clear_bit(uint64_t va, uint64_t bit)
   }
   offset = (((va) >> HEMEM_PAGE_SHIFT) & (HEMEM_PTRS_PER_PTE - 1));
   ignore_this_mmap = true;
-  assert(offset < BASEPAGE_SIZE);
+  assert(offset < PAGE_SIZE);
   ignore_this_mmap = false;
   pte_entry = (pte + offset);
   if (!((*pte_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
@@ -221,10 +221,10 @@ void clear_bit(uint64_t va, uint64_t bit)
   
   *pte_entry = *pte_entry & ~bit;
 
-  munmap(pte, BASEPAGE_SIZE);
-  munmap(pmd, BASEPAGE_SIZE);
-  munmap(pud, BASEPAGE_SIZE);
-  munmap(pgd, BASEPAGE_SIZE);
+  munmap(pte, PAGE_SIZE);
+  munmap(pmd, PAGE_SIZE);
+  munmap(pud, PAGE_SIZE);
+  munmap(pgd, PAGE_SIZE);
 }
 
 uint64_t get_bit(uint64_t va, uint64_t bit)
@@ -240,7 +240,7 @@ uint64_t get_bit(uint64_t va, uint64_t bit)
   uint64_t *pte_entry;
   uint64_t offset;
 
-  pgd = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pt_base);
+  pgd = (uint64_t*)libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pt_base);
   if (pgd == MAP_FAILED) {
     perror("get_accessed_bit: pgd mmap:");
     ignore_this_mmap = true;
@@ -249,7 +249,7 @@ uint64_t get_bit(uint64_t va, uint64_t bit)
   }
   offset = (((va) >> HEMEM_PGDIR_SHIFT) & (HEMEM_PTRS_PER_PGD - 1));
   ignore_this_mmap = true;
-  assert(offset < BASEPAGE_SIZE);
+  assert(offset < PAGE_SIZE);
   ignore_this_mmap = false;
   pgd_entry = (pgd + offset);
   if (!((*pgd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
@@ -258,7 +258,7 @@ uint64_t get_bit(uint64_t va, uint64_t bit)
     return 0;
   }
 
-  pud = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pgd_entry & ADDRESS_MASK);
+  pud = (uint64_t*)libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pgd_entry & ADDRESS_MASK);
   if (pud == MAP_FAILED) {
     perror("get_accessed_bit: pud mmap:");
     ignore_this_mmap = true;
@@ -267,7 +267,7 @@ uint64_t get_bit(uint64_t va, uint64_t bit)
   }
   offset = (((va) >> HEMEM_PUD_SHIFT) & (HEMEM_PTRS_PER_PUD - 1));
   ignore_this_mmap = true;
-  assert(offset < BASEPAGE_SIZE);
+  assert(offset < PAGE_SIZE);
   ignore_this_mmap = false;
   pud_entry = (pud + offset);
   if (!((*pud_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
@@ -276,7 +276,7 @@ uint64_t get_bit(uint64_t va, uint64_t bit)
     return 0;
   }
 
-  pmd = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pud_entry & ADDRESS_MASK);
+  pmd = (uint64_t*)libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pud_entry & ADDRESS_MASK);
   if (pmd == MAP_FAILED) {
     perror("get_accessed_bit: pmd mmap:");
     ignore_this_mmap = true;
@@ -285,7 +285,7 @@ uint64_t get_bit(uint64_t va, uint64_t bit)
   }
   offset = (((va) >> HEMEM_PMD_SHIFT) & (HEMEM_PTRS_PER_PMD - 1));
   ignore_this_mmap = true;
-  assert(offset < BASEPAGE_SIZE);
+  assert(offset < PAGE_SIZE);
   ignore_this_mmap = false;
   pmd_entry = (pmd + offset);
   if (!((*pmd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
@@ -296,13 +296,13 @@ uint64_t get_bit(uint64_t va, uint64_t bit)
 
   if ((*pmd_entry & HEMEM_HUGEPAGE_FLAG) == HEMEM_HUGEPAGE_FLAG) {
     int ret = *pmd_entry & bit;
-    munmap(pmd, BASEPAGE_SIZE);
-    munmap(pud, BASEPAGE_SIZE);
-    munmap(pgd, BASEPAGE_SIZE);
+    munmap(pmd, PAGE_SIZE);
+    munmap(pud, PAGE_SIZE);
+    munmap(pgd, PAGE_SIZE);
     return ret;
   }
 
-  pte = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pmd_entry & ADDRESS_MASK);
+  pte = (uint64_t*)libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, *pmd_entry & ADDRESS_MASK);
   if (pte == MAP_FAILED) {
     perror("get_accessed_bit pte mmap:");
     ignore_this_mmap = true;
@@ -311,7 +311,7 @@ uint64_t get_bit(uint64_t va, uint64_t bit)
   }
   offset = (((va) >> HEMEM_PAGE_SHIFT) & (HEMEM_PTRS_PER_PTE - 1));
   ignore_this_mmap = true;
-  assert(offset < BASEPAGE_SIZE);
+  assert(offset < PAGE_SIZE);
   ignore_this_mmap = false;
   pte_entry = (pte + offset);
   if (!((*pte_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
@@ -322,10 +322,10 @@ uint64_t get_bit(uint64_t va, uint64_t bit)
   
   int ret = *pte_entry & bit;
 
-  munmap(pte, BASEPAGE_SIZE);
-  munmap(pmd, BASEPAGE_SIZE);
-  munmap(pud, BASEPAGE_SIZE);
-  munmap(pgd, BASEPAGE_SIZE);
+  munmap(pte, PAGE_SIZE);
+  munmap(pmd, PAGE_SIZE);
+  munmap(pud, PAGE_SIZE);
+  munmap(pgd, PAGE_SIZE);
 
   return ret;
 
@@ -365,7 +365,7 @@ void scan_fourth_level(uint64_t pde, bool clear_flag, uint64_t flag)
   uint64_t *pte_ptr;
   uint64_t pte;
 
-  ptable4_ptr = libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pde & ADDRESS_MASK);
+  ptable4_ptr = libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pde & ADDRESS_MASK);
   if (ptable4_ptr == MAP_FAILED) {
     perror("third level page table mmap");
     ignore_this_mmap = true;
@@ -391,7 +391,7 @@ void scan_fourth_level(uint64_t pde, bool clear_flag, uint64_t flag)
     pte_ptr++;
   }
 
-  munmap(ptable4_ptr, BASEPAGE_SIZE);
+  munmap(ptable4_ptr, PAGE_SIZE);
 }
 
 
@@ -401,7 +401,7 @@ void scan_third_level(uint64_t pdtpe, bool clear_flag, uint64_t flag)
   uint64_t *pde_ptr;
   uint64_t pde;
 
-  ptable3_ptr = libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pdtpe & ADDRESS_MASK);
+  ptable3_ptr = libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pdtpe & ADDRESS_MASK);
   if (ptable3_ptr == MAP_FAILED) {
     perror("third level page table mmap");
     ignore_this_mmap = true;
@@ -424,7 +424,7 @@ void scan_third_level(uint64_t pdtpe, bool clear_flag, uint64_t flag)
     pde_ptr++;
   }
 
-  munmap(ptable3_ptr, BASEPAGE_SIZE);
+  munmap(ptable3_ptr, PAGE_SIZE);
 }
 
 
@@ -434,7 +434,7 @@ void scan_second_level(uint64_t pml4e, bool clear_flag, uint64_t flag)
   uint64_t *pdtpe_ptr;
   uint64_t pdtpe;
 
-  ptable2_ptr = libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pml4e & ADDRESS_MASK);
+  ptable2_ptr = libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pml4e & ADDRESS_MASK);
   if (ptable2_ptr == MAP_FAILED) {
     perror("second level page table mmap");
     ignore_this_mmap = true;
@@ -457,7 +457,7 @@ void scan_second_level(uint64_t pml4e, bool clear_flag, uint64_t flag)
     pdtpe_ptr++;
   }
 
-  munmap(ptable2_ptr, BASEPAGE_SIZE);
+  munmap(ptable2_ptr, PAGE_SIZE);
 }
 
 
@@ -507,7 +507,7 @@ void _scan_pagetable(bool clear_flag, uint64_t flag)
     ignore_this_mmap = false;
   }
 
-  rootptr = libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, cr3 & ADDRESS_MASK);
+  rootptr = libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, cr3 & ADDRESS_MASK);
   if (rootptr == MAP_FAILED) {
     perror("/dev/mem mmap");
     ignore_this_mmap = true;
@@ -529,7 +529,7 @@ void _scan_pagetable(bool clear_flag, uint64_t flag)
     pml4e_ptr++;
   }
 
-  munmap(rootptr, BASEPAGE_SIZE);
+  munmap(rootptr, PAGE_SIZE);
 }
 
 void scan_pagetable()
