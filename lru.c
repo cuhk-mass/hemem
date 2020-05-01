@@ -28,7 +28,7 @@ static void lru_migrate_down(struct lru_node *n, uint64_t i)
   LOG("hemem: lru_migrate_down: migrating %lx to NVM frame %lu\n", n->page->va, i);
   n->page->migrating = true;
   hemem_wp_page(n->page, true);
-  hemem_migrate_down(n->page, i * pt_to_pagesize(n->page->pt));
+  hemem_migrate_down(n->page, i * PAGE_SIZE);
   n->page->migrating = false; 
   LOG("hemem: lru_migrate_down: done migrating to NVM\n");
   pthread_mutex_unlock(&(n->page->page_lock));
@@ -40,7 +40,7 @@ static void lru_migrate_up(struct lru_node *n, uint64_t i)
   LOG("hemem: lru_migrate_up: migrating %lx to DRAM frame %lu\n", n->page->va, i);
   n->page->migrating = true;
   hemem_wp_page(n->page, true);
-  hemem_migrate_up(n->page, i * pt_to_pagesize(n->page->pt));
+  hemem_migrate_up(n->page, i * PAGE_SIZE);
   n->page->migrating = false;
   LOG("hemem: lru_migrate_up: done migrating to DRAM\n");
   pthread_mutex_unlock(&(n->page->page_lock));

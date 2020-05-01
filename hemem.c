@@ -38,6 +38,7 @@ _Atomic uint64_t migrations_up = 0;
 _Atomic uint64_t migrations_down = 0;
 _Atomic uint64_t pmemcpys = 0;
 _Atomic uint64_t memsets = 0;
+static bool cr3_set = true;
 uint64_t cr3 = 0;
 int devmemfd = -1;
 struct page_list list;
@@ -221,7 +222,6 @@ struct hemem_page* find_page(struct page_list *list, uint64_t va)
 void hemem_init()
 {
   struct uffdio_api uffdio_api;
-  struct uffdio_cr3 uffdio_cr3;
 /*
   {
     // This call is dangerous. Ideally, all printf's should be
@@ -335,14 +335,6 @@ void hemem_init()
     ignore_this_mmap = false;
   }
 
-  if (ioctl(uffd, UFFDIO_CR3, &uffdio_cr3) < 0) {
-    perror("ioctl uffdio_cr3");
-    ignore_this_mmap = true;
-    assert(0);
-    ignore_this_mmap = false;
-  }
-  cr3 = uffdio_cr3.cr3;
-
   paging_init();
   
   is_init = true;
@@ -434,7 +426,8 @@ static void hemem_mmap_populate(void* addr, size_t length)
 void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 {
   void *p;
- 
+  struct uffdio_cr3 uffdio_cr3;
+
   ignore_this_mmap = true;
   assert(is_init);
   ignore_this_mmap = false;
@@ -477,7 +470,19 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
     assert(0);
     ignore_this_mmap = false;
   }
-  
+
+  if (!cr3_set) {
+    if (ioctl(uffd, UFFDIO_CR3, &uffdio_cr3) < 0) {
+      perror("ioctl uffdio_cr3");
+      ignore_this_mmap = true;
+      assert(0);
+      ignore_this_mmap = false;
+    }
+    cr3 = uffdio_cr3.cr3;
+    cr3_set = true;
+  }
+
+   
   //if ((flags & MAP_POPULATE) == MAP_POPULATE) {
     hemem_mmap_populate(p, length);
   //}
