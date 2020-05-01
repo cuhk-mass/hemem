@@ -1,12 +1,15 @@
 CFLAGS = -g3 -Wall -pthread
 CFLAGS += -DLOG_DEBUG
-#CFLAGS += -O2
+CFLAGS += -O2
 LDFLAGS = -pthread
 
 # 1MB hotset
 HOTSET_SIZE = 1048576
 
-all: mmgr_simple mmgr_linux mmgr_simple_mmm mmgr_hemem
+all: mmgr_simple mmgr_linux mmgr_simple_mmm mmgr_hemem pgsweep
+
+pgsweep: pgsweep.o
+pgsweep.o: pgsweep.c
 
 mmgr_simple.o: mmgr_simple.c shared.h
 mmgr_linux.o: mmgr_linux.c shared.h
@@ -37,4 +40,4 @@ bench: results.txt
 	expand -t20 results.txt
 
 clean:
-	rm -f *.o mmgr_simple mmgr_simple_mmm mmgr_linux mmgr_hemem
+	rm -f *.o mmgr_simple mmgr_simple_mmm mmgr_linux mmgr_hemem pgsweep
