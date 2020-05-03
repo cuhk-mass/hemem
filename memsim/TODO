@@ -19,12 +19,12 @@
   * If hot dataset is smaller than fastmem, we should always promote
   * If hot dataset is larger than fastmem, we should reduce bloating
    
-* Implement page frequency tracking, instead of LRU tracking
-
 * Could do inclusive caching for read-only data
   * Detect if written through dirty bit
    
 --- Done ---
+
+x Implement page frequency tracking, instead of LRU tracking
 
 x Implement paper description of memory management
 

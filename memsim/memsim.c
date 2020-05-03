@@ -21,6 +21,12 @@
 
 #include "shared.h"
 
+#define LISTNUM_STATS
+
+#define WORKSET_SIZE	SLOWMEM_SIZE
+
+#define RAND_WITHIN(x)	(((double)rand() / RAND_MAX) * (x))
+
 struct pte		*cr3 = NULL;
 _Atomic size_t		runtime = 0;	   // Elapsed simulation time (ns)
 static size_t		last_time = 0;
@@ -38,14 +44,18 @@ static struct tlbe l1tlb_1g[4], l1tlb_2m[32], l1tlb_4k[64];
 static struct tlbe l2tlb_1g[16], l2tlb_2m4k[1536];
 static pthread_mutex_t tlb_lock = PTHREAD_MUTEX_INITIALIZER;
 
+// Performance counters
+static size_t perf_accesses = 0, perf_limit = 0;
+static PerfCallback perf_callback = NULL;
+
 // Statistics
 static size_t accesses[NMEMTYPES], tlbmisses = 0, tlbhits = 0, pagefaults = 0,
   tlbshootdowns = 0;
 
 #ifdef MMM
-#	define	MMM_TAGS_SIZE	(FASTMEM_SIZE / CACHELINE_SIZE)
+#	define	MMM_TAGS_SIZE	(FASTMEM_SIZE / MMM_LINE_SIZE)
 
-static uint64_t	mmm_tags[MMM_TAGS_SIZE];
+static uint64_t	*mmm_tags;
 static size_t mmm_misses = 0;
 #endif
 
@@ -65,6 +75,13 @@ void memsim_nanosleep(size_t sleeptime)
   sem_wait(&wakeup_sem);
 }
 
+void perf_register(PerfCallback callback, size_t limit)
+{
+  perf_callback = callback;
+  perf_limit = limit;
+}
+
+// delta is in ns
 void add_runtime(size_t delta)
 {
 #ifndef LOG_DEBUG
@@ -304,7 +321,7 @@ static void memaccess(uint64_t addr, enum access_type type)
 #ifdef MMM
   assert(MMM_TAGS_SIZE <= UINT32_MAX);
 
-  uint64_t cline = paddr / CACHELINE_SIZE;
+  uint64_t cline = paddr / MMM_LINE_SIZE;
   unsigned int mmm_idx = tlb_hash(cline) % MMM_TAGS_SIZE;
   bool in_fastmem = mmm_tags[mmm_idx] == cline ? true : false;
 
@@ -334,11 +351,16 @@ static void memaccess(uint64_t addr, enum access_type type)
 
   accesses[(paddr & SLOWMEM_BIT) ? SLOWMEM : FASTMEM]++;
 #endif
+
+  // Performance counters
+  if(perf_callback != NULL) {
+    perf_accesses++;
+    if(perf_accesses >= perf_limit) {
+      perf_accesses = 0;
+      perf_callback(addr);
+    }
+  }
 }
-
-#define WORKSET_SIZE	SLOWMEM_SIZE
-
-#define RAND_WITHIN(x)	(((double)rand() / RAND_MAX) * (x))
 
 static void gups(size_t iters, uint64_t hotset_start, uint64_t hotset_size,
 		 double hotset_prob, uint64_t workset_size)
@@ -376,6 +398,9 @@ static void reset_stats(void)
   accesses[FASTMEM] = accesses[SLOWMEM] = 0;
   tlbmisses = tlbhits = tlbshootdowns = 0;
   pagefaults = 0;
+#ifdef LISTNUM_STATS
+  listnum((void *)1);
+#endif
 #ifdef MMM
   mmm_misses = 0;
 #endif
@@ -405,6 +430,10 @@ int main(int argc, char *argv[])
   size_t hotset_size = atoi(argv[1]);
 
 #ifdef MMM
+  LOG("Allocating %.2f GB for MMM tags\n",
+	  (float)MMM_TAGS_SIZE / GIGA_PAGE_SIZE);
+  mmm_tags = calloc(MMM_TAGS_SIZE, sizeof(uint64_t));
+  assert(mmm_tags != NULL);
   // Clear MMM tags
   for(size_t i = 0; i < MMM_TAGS_SIZE; i++) {
     mmm_tags[i] = (uint64_t)-1;
@@ -431,12 +460,14 @@ int main(int argc, char *argv[])
   // GUPS!
   gups(10000000, 0, hotset_size, 0.9, WORKSET_SIZE);
   print_stats();
-  /* reset_stats(); */
+  reset_stats();
 
   // Move hotset up
-  /* gups(10000000, WORKSET_SIZE - hotset_size, hotset_size, 0.9, WORKSET_SIZE); */
+  gups(10000000, WORKSET_SIZE - hotset_size, hotset_size, 0.9, WORKSET_SIZE);
 
-  /* print_stats(); */
-  //  listnum(NULL);
+  print_stats();
+#ifdef LISTNUM_STATS
+  listnum(NULL);
+#endif
   return 0;
 }

@@ -10,8 +10,10 @@
 #include "shared.h"
 #include "uthash.h"
 
-#define HEMEM_INTERVAL		500000000ULL	// In ns
-#define HEMEM_SWEEP_RATE       	GB(10)	// Bytes per HEMEM_INTERVAL
+/* #define PERF_METHOD */
+#define PERF_LIMIT		10000
+
+#define HEMEM_INTERVAL		MS(10)
 
 // Keep at least 10% of fastmem free
 #define HEMEM_FASTFREE		(FASTMEM_SIZE / 10)
@@ -30,7 +32,7 @@ struct page {
   uint64_t		paddr, vaddr;
   struct pte		*pte;
   enum pagetypes	type;
-  size_t		accesses;
+  size_t		accesses, tot_accesses;
   UT_hash_handle	hh;
 
   // Statistics
@@ -53,48 +55,11 @@ static _Atomic size_t hotset_size = 0;
 static int recstats_level;
 static pthread_t hemem_threadid;
 static bool hemem_thread_running = true;
+static size_t tot_sweeps = 0;
 
-static void rec_stats(struct pte *ptable, uint64_t vaddr)
-{
-  recstats_level++;
-  
-  for(int i = 0; i < 512; i++) {
-    if(!ptable[i].present) {
-      assert(ptable[i].ups == 0 && ptable[i].downs == 0);
-      continue;
-    }
-
-    assert(recstats_level >= 1 && recstats_level <= 4);
-    if(ptable[i].ups > 1 || ptable[i].downs > 1) {
-      LOG("vaddr = 0x%" PRIx64 ", level = %u, ups = %zu, downs = %zu\n",
-	  vaddr + i * ((uint64_t)1 << ((5 - recstats_level) * 9 + 3)),
-	  recstats_level, ptable[i].ups, ptable[i].downs);
-    }
-    
-    if(!ptable[i].pagemap) {
-      assert(ptable[i].next != NULL);
-      rec_stats(ptable[i].next, vaddr + i * ((uint64_t)1 << ((5 - recstats_level) * 9 + 3)));
-    }
-  }
-
-  recstats_level--;
-}
-
-int listnum(struct pte *pte)
-{
-  LOG("--- rec_stats ---\n");
-
-  // Wait for hemem_thread to exit
-  hemem_thread_running = false;
-  int r = pthread_join(hemem_threadid, NULL);
-  assert(r == 0);
-
-  recstats_level = 0;
-  rec_stats(pml4, 0);
-  
-  // Unused debug function
-  return -1;
-}
+#ifdef PERF_METHOD
+static size_t perf_buckets[SLOWMEM_SIZE / GIGA_PAGE_SIZE];
+#endif
 
 static void enqueue_fifo(struct fifo_queue *queue, struct page *entry)
 {
@@ -231,6 +196,13 @@ static void move_memory(enum memtypes dst, enum memtypes src, size_t size)
   }
 }
 
+static void copy_page(struct page *new, struct page *old)
+{
+  new->vaddr = old->vaddr;
+  new->accesses = old->accesses;
+  new->tot_accesses = old->tot_accesses;
+}
+
 static void move_hot(void)
 {
   struct fifo_queue transition;
@@ -268,6 +240,7 @@ static void move_hot(void)
   again:
     np = dequeue_fifo(&mem_free[FASTMEM][p->type]);
 
+    assert(np != NULL);
     if(np == NULL) {
       // Break up a GIGA page
       struct page *gp = dequeue_fifo(&mem_free[FASTMEM][GIGA]);
@@ -290,11 +263,11 @@ static void move_hot(void)
 	  p->vaddr, BASE, p->paddr, np->paddr, fastmem_freebytes, slowmem_freebytes);
     }
 
-    move_memory(FASTMEM, SLOWMEM, page_size(BASE));
-    fastmem_freebytes -= page_size(BASE);
-    slowmem_freebytes += page_size(BASE);
-    np->vaddr = p->vaddr;
-    np->pte = alloc_ptables(np->vaddr, BASE, np->paddr);
+    move_memory(FASTMEM, SLOWMEM, page_size(p->type));
+    fastmem_freebytes -= page_size(p->type);
+    slowmem_freebytes += page_size(p->type);
+    copy_page(np, p);
+    np->pte = alloc_ptables(np->vaddr, p->type, np->paddr);
     assert(np->pte != NULL && np->pte == p->pte);
     np->pte->ups++;
     add_hash(&mem_active[FASTMEM], np);
@@ -357,36 +330,37 @@ static void move_cold(void)
   
   // Move cold pages down (and split them to base pages)
   while((p = dequeue_fifo(&transition)) != NULL) {
-    size_t times = 1;
+    /* size_t times = 1; */
 
-    /* p->pte->downs++; */
+    /* /\* p->pte->downs++; *\/ */
     
-    switch(p->type) {
-    case BASE: times = 1; break;
-    case HUGE: times = 512; break;
-    case GIGA: times = 262144; break;
-    default: assert(!"Unknown page type"); break;
-    }
+    /* switch(p->type) { */
+    /* case BASE: times = 1; break; */
+    /* case HUGE: times = 512; break; */
+    /* case GIGA: times = 262144; break; */
+    /* default: assert(!"Unknown page type"); break; */
+    /* } */
 
-    for(size_t i = 0; i < times; i++) {
-      struct page *np = dequeue_fifo(&mem_free[SLOWMEM][BASE]);
+    /* for(size_t i = 0; i < times; i++) { */
+      struct page *np = dequeue_fifo(&mem_free[SLOWMEM][GIGA]);
       assert(np != NULL);
 
-      if(i == 0 && p->vaddr < 1048576) {
+      if(/* i == 0 && */ p->vaddr < 1048576) {
 	LOG("[COLD vaddr 0x%" PRIx64 ", pt = %u] paddr 0x%" PRIx64 " -> 0x%" PRIx64
 	    ", fastmem_free = %" PRIu64 ", slowmem_free = %" PRIu64 "\n",
 	    p->vaddr, p->type, p->paddr, np->paddr, fastmem_freebytes, slowmem_freebytes);
       }
 	
-      move_memory(SLOWMEM, FASTMEM, page_size(BASE));
-      slowmem_freebytes -= page_size(BASE);
-      fastmem_freebytes += page_size(BASE);
-      np->vaddr = p->vaddr + (i * BASE_PAGE_SIZE);
-      np->pte = alloc_ptables(np->vaddr, BASE, np->paddr);
+      move_memory(SLOWMEM, FASTMEM, page_size(GIGA));
+      slowmem_freebytes -= page_size(GIGA);
+      fastmem_freebytes += page_size(GIGA);
+      /* np->vaddr = p->vaddr + (i * BASE_PAGE_SIZE); */
+      copy_page(np, p);
+      np->pte = alloc_ptables(np->vaddr, GIGA, np->paddr);
       assert(np->pte != NULL);
       np->pte->downs++;
       add_hash(&mem_inactive[SLOWMEM], np);
-    }
+    /* } */
 
     // Release read-only lock, reset migration hint, set all_slow hint
     p->pte->all_slow = true;
@@ -397,7 +371,7 @@ static void move_cold(void)
   }
 }
 
-static size_t pages_swept[NPAGETYPES], pages_skipped[NPAGETYPES];
+static size_t pages_swept[NPAGETYPES], pages_skipped[4];
 static int level;
 static size_t sweep_hotset;
 
@@ -405,7 +379,7 @@ static size_t sweep_hotset;
 static bool sweep(struct pte *ptable)
 {
   bool all_slow = true;
-
+  
   level++;
   
   for(int i = 0; i < 512; i++) {
@@ -427,9 +401,25 @@ static bool sweep(struct pte *ptable)
 	// Page not accessed - mark inactive if active
 	struct page *p = find_hash(&mem_active[mt], ptable[i].addr);
 	if(p != NULL) {
+	  p->accesses = 0;
 	  del_hash(&mem_active[mt], p);
 	  add_hash(&mem_inactive[mt], p);
 	  hotset_size -= page_size(p->type);
+
+	  if(p->vaddr < 1048576) {
+	    LOG("[NOW COLD vaddr 0x%" PRIx64 "] accesses = %zu\n",
+		p->vaddr, p->accesses);
+	  }
+	} else {
+	  struct page *p = find_hash(&mem_inactive[mt], ptable[i].addr);
+	  if(p != NULL) {
+	    p->accesses = 0;
+	    
+	    if(p->vaddr < 1048576) {
+	      LOG("[STILL COLD vaddr 0x%" PRIx64 "] accesses = %zu\n",
+		  p->vaddr, p->accesses);
+	    }
+	  }
 	}
       } else {
 	struct page *p = find_hash(&mem_inactive[mt], ptable[i].addr);
@@ -439,15 +429,24 @@ static bool sweep(struct pte *ptable)
 	sweep_hotset += page_size(level - 2);
 	
 	if(p == NULL) {
+	  p = find_hash(&mem_active[mt], ptable[i].addr);
+	  if(p != NULL) {
+	    p->accesses++;
+	    p->tot_accesses++;
+	  }
+	  
 	  continue;
 	}
 	
-	if(p->accesses >= 1) {
+	p->tot_accesses++;
+	
+	if(p->accesses >= 5) {
 	  if(p->vaddr < 1048576) {
 	    LOG("[NOW HOT vaddr 0x%" PRIx64 "] accesses = %zu\n",
 		p->vaddr, p->accesses);
 	  }
-	  p->accesses = 0;
+	  /* p->accesses = 250; */
+	  p->accesses++;
 	  del_hash(&mem_inactive[mt], p);
 	  add_hash(&mem_active[mt], p);
 	  hotset_size += page_size(p->type);
@@ -465,7 +464,7 @@ static bool sweep(struct pte *ptable)
 
       // Skip if all pages are in slowmem and none were touched
       if(ptable[i].all_slow && !ptable[i].accessed) {
-	pages_skipped[level - 2]++;
+	pages_skipped[level - 1]++;
 	continue;
       }
       
@@ -496,7 +495,7 @@ static void *hemem_thread(void *arg)
 
   while(hemem_thread_running) {
     ssize_t sleep_time = HEMEM_INTERVAL - (runtime - last_time);
-    assert(sleep_time <= HEMEM_INTERVAL);
+    assert(sleep_time <= (ssize_t)HEMEM_INTERVAL);
     memsim_nanosleep(sleep_time < 0 ? 0 : sleep_time);
     last_time = runtime;
     memsim_timebound = runtime + HEMEM_INTERVAL / 2;
@@ -508,16 +507,23 @@ static void *hemem_thread(void *arg)
     // Track hot/cold memory
     for(enum pagetypes i = 0; i < NPAGETYPES; i++) {
       pages_swept[i] = 0;
+    }
+    for(int i = 0; i < 4; i++) {
       pages_skipped[i] = 0;
     }
+#ifdef LOG_DEBUG
     size_t oldruntime = runtime;
+#endif
     level = 0;
     sweep_hotset = 0;
+    tot_sweeps++;
     sweep(pml4);
-    LOG("SWEEP took %.3fs. swept %zu BASE, %zu HUGE, %zu GIGA. skipped %zu HUGE, %zu GIGA. hotset_size = %.2f GB, sweep_hotset = %.2f GB.\n",
+    LOG("SWEEP took %.3fs. swept %zu BASE, %zu HUGE, %zu GIGA. "
+	"skipped %zu HUGE, %zu GIGA, %zu PML4. "
+	"hotset_size = %.2f GB, sweep_hotset = %.2f GB.\n",
 	(float)(runtime - oldruntime) / 1000000000.0,
 	pages_swept[BASE], pages_swept[HUGE], pages_swept[GIGA],
-	pages_skipped[HUGE], pages_skipped[GIGA],
+	pages_skipped[2], pages_skipped[1], pages_skipped[0],
 	hotset_size / (float)GB(1), sweep_hotset / (float)GB(1));
 
     // Can comment out for less overhead & accuracy
@@ -583,7 +589,7 @@ static struct page *getmem(uint64_t addr)
   }
   if(p == NULL) {
     // If out of fastmem, look for slowmem
-    pt = BASE;
+    pt = GIGA;
     p = dequeue_fifo(&mem_free[SLOWMEM][pt]);
     // If NULL, we're totally out of mem
     assert(p != NULL);
@@ -637,6 +643,13 @@ void pagefault(uint64_t addr, bool readonly)
   getmem(addr);
 }
 
+#ifdef PERF_METHOD
+static void perf_callback(uint64_t addr)
+{
+  perf_buckets[addr / GIGA_PAGE_SIZE]++;
+}
+#endif
+
 void mmgr_init(void)
 {
   cr3 = pml4;
@@ -648,15 +661,85 @@ void mmgr_init(void)
     p->paddr = i * GIGA_PAGE_SIZE;
     enqueue_fifo(&mem_free[FASTMEM][GIGA], p);
   }
-  // Slowmem: Try with base pages (lots of memory use and likely slow,
-  // but hey, it's slowmem!)
-  for(int i = 0; i < SLOWMEM_BASE_PAGES; i++) {
+  // Slowmem: all giga pages
+  for(int i = 0; i < SLOWMEM_GIGA_PAGES; i++) {
     struct page *p = calloc(1, sizeof(struct page));
-    p->type = BASE;
-    p->paddr = (i * BASE_PAGE_SIZE) | SLOWMEM_BIT;
-    enqueue_fifo(&mem_free[SLOWMEM][BASE], p);
+    p->type = GIGA;
+    p->paddr = (i * GIGA_PAGE_SIZE) | SLOWMEM_BIT;
+    enqueue_fifo(&mem_free[SLOWMEM][GIGA], p);
   }
   
   int r = pthread_create(&hemem_threadid, NULL, hemem_thread, NULL);
   assert(r == 0);
+
+#ifdef PERF_METHOD
+  perf_register(&perf_callback, PERF_LIMIT);
+#endif
+}
+
+static size_t last_sweeps = 0;
+
+static void rec_stats(struct pte *ptable, uint64_t vaddr)
+{
+  recstats_level++;
+  
+  for(int i = 0; i < 512; i++) {
+    if(!ptable[i].present) {
+      assert(ptable[i].ups == 0 && ptable[i].downs == 0);
+      continue;
+    }
+
+    assert(recstats_level >= 1 && recstats_level <= 4);
+    /* if(ptable[i].ups > 1 || ptable[i].downs > 1) { */
+    /*   LOG("vaddr = 0x%" PRIx64 ", level = %u, ups = %zu, downs = %zu\n", */
+    /* 	  vaddr + i * ((uint64_t)1 << ((5 - recstats_level) * 9 + 3)), */
+    /* 	  recstats_level, ptable[i].ups, ptable[i].downs); */
+    /* } */
+    
+    if(!ptable[i].pagemap) {
+      assert(ptable[i].next != NULL);
+      rec_stats(ptable[i].next, vaddr + i * ((uint64_t)1 << ((5 - recstats_level) * 9 + 3)));
+    } else {
+      enum memtypes mt = ptable[i].addr & SLOWMEM_BIT ? SLOWMEM : FASTMEM;
+      struct page *p = find_hash(&mem_active[mt], ptable[i].addr);
+      if(p == NULL) {
+	p = find_hash(&mem_inactive[mt], ptable[i].addr);
+      }
+
+      assert(p != NULL);
+      LOG("vaddr = 0x%" PRIx64 ", level = %u, accesses = %zu, tot_accesses = %zu / %zu\n",
+	  vaddr + i * ((uint64_t)1 << ((5 - recstats_level) * 9 + 3)),
+	  recstats_level, p->accesses, p->tot_accesses, tot_sweeps - last_sweeps);
+    }
+  }
+
+  recstats_level--;
+}
+
+int listnum(struct pte *pte)
+{
+  if(pte == (void *)1) {
+    last_sweeps = tot_sweeps;
+    return -1;
+  }
+  
+  LOG("--- rec_stats ---\n");
+
+  // Wait for hemem_thread to exit
+  hemem_thread_running = false;
+  add_runtime(HEMEM_INTERVAL);
+  int r = pthread_join(hemem_threadid, NULL);
+  assert(r == 0);
+
+  recstats_level = 0;
+  rec_stats(pml4, 0);
+
+#ifdef PERF_METHOD
+  for(size_t i = 0; i < SLOWMEM_SIZE / GIGA_PAGE_SIZE; i++) {
+    LOG("vaddr 0x%zx: %zu\n", i * GIGA_PAGE_SIZE, perf_buckets[i]);
+  }
+#endif
+  
+  // Unused debug function
+  return -1;
 }

@@ -10,6 +10,12 @@
 #define KB(x)		(((uint64_t)x) * 1024)
 #define MB(x)		(KB(x) * 1024)
 #define GB(x)		(MB(x) * 1024)
+#define TB(x)		(GB(x) * 1024)
+
+// Handy time macros
+#define US(x)		(((uint64_t)x) * 1000)
+#define MS(x)		(US(x) * 1000)
+#define S(x)		(MS(x) * 1000)
 
 // Page sizes
 #define BASE_PAGE_SIZE	KB(4)
@@ -27,9 +33,10 @@
 #define GIGA_PFN_MASK	(GIGA_PAGE_MASK ^ UINT64_MAX)
 
 // Physical memory sizes in bytes
-#define FASTMEM_SIZE	GB(10)
-#define SLOWMEM_SIZE	GB(100)
+#define FASTMEM_SIZE	GB(42)
+#define SLOWMEM_SIZE	GB(512)
 #define CACHELINE_SIZE	64
+#define MMM_LINE_SIZE	256
 
 // Simulated execution times in ns
 #define TIME_PAGEFAULT		2000		// pagefault interrupt
@@ -80,9 +87,9 @@ struct pte {
   uint64_t addr;			// Page physical address, if pagemap
   struct pte *next;			// Next page table pointer, if !pagemap
   _Atomic bool present;
-  bool readonly;
-  bool accessed;
-  bool modified;
+  _Atomic bool readonly;
+  _Atomic bool accessed;
+  _Atomic bool modified;
   _Atomic bool pagemap;			// This PTE maps a page
 
   // OS bits (16 bits available)
@@ -93,6 +100,8 @@ struct pte {
   size_t ups, downs;
 };
 
+typedef void (*PerfCallback)(uint64_t addr);
+
 // readonly is set if the page was a write to a read-only
 // page. Otherwise, it was any access to a non-present page.
 void pagefault(uint64_t addr, bool readonly);
@@ -100,6 +109,7 @@ void tlb_shootdown(uint64_t addr);
 void mmgr_init(void);
 void add_runtime(size_t delta);
 void memsim_nanosleep(size_t sleeptime);
+void perf_register(PerfCallback callback, size_t limit);
 
 // XXX: Debug
 int listnum(struct pte *pte);
@@ -125,6 +135,16 @@ static inline uint64_t pfn_mask(enum pagetypes pt)
   case GIGA: return GIGA_PFN_MASK;
   case HUGE: return HUGE_PFN_MASK;
   case BASE: return BASE_PFN_MASK;
+  default: assert(!"Unknown page type");
+  }
+}
+
+static inline uint64_t page_mask(enum pagetypes pt)
+{
+  switch(pt) {
+  case GIGA: return GIGA_PAGE_MASK;
+  case HUGE: return HUGE_PAGE_MASK;
+  case BASE: return BASE_PAGE_MASK;
   default: assert(!"Unknown page type");
   }
 }

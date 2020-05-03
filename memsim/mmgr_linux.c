@@ -9,7 +9,7 @@
 #include "shared.h"
 
 #define NR_PAGES		32
-#define KSWAPD_INTERVAL		1000000000	// In ns
+#define KSWAPD_INTERVAL		S(1)	// In ns
 
 #define FASTMEM_PAGES	(FASTMEM_SIZE / BASE_PAGE_SIZE)
 #define SLOWMEM_PAGES	(SLOWMEM_SIZE / BASE_PAGE_SIZE)
