@@ -48,6 +48,7 @@ struct page_list freepages;
 
 void *dram_devdax_mmap;
 void *nvm_devdax_mmap;
+void *devmem_mmap;
 
 __thread bool internal_malloc = false;
 
@@ -121,6 +122,8 @@ void *hemem_parallel_memcpy_thread(void *arg)
 
 void enqueue_page(struct page_list *list, struct hemem_page *page)
 {
+  pthread_mutex_lock(&(list->list_lock));
+
   ignore_this_mmap = true;
   assert(page->prev == NULL);
   ignore_this_mmap = false;
@@ -140,16 +143,21 @@ void enqueue_page(struct page_list *list, struct hemem_page *page)
   }
   list->first = page;
   list->numentries++;
+
+  pthread_mutex_unlock(&(list->list_lock));
 }
 
 struct hemem_page* dequeue_page(struct page_list *list)
 {
+  pthread_mutex_lock(&(list->list_lock));
+
   struct hemem_page *ret = list->last;
 
   if (ret == NULL) {
     ignore_this_mmap = true;
     assert(list->numentries == 0);
     ignore_this_mmap = false;
+    pthread_mutex_unlock(&(list->list_lock));
     return ret;
   }
 
@@ -166,6 +174,7 @@ struct hemem_page* dequeue_page(struct page_list *list)
   assert(list->numentries > 0);
   ignore_this_mmap = false;
   list->numentries--;
+  pthread_mutex_unlock(&(list->list_lock));
   return ret;
 }
 
@@ -181,11 +190,13 @@ void hemem_put_free_page(struct hemem_page *page)
 
 void remove_page(struct page_list *list, struct hemem_page *page)
 {
+  pthread_mutex_lock(&(list->list_lock));
   if (list->first == NULL) {
     ignore_this_mmap = true;
     assert(list->last == NULL);
     assert(list->numentries == 0);
     ignore_this_mmap = false;
+    pthread_mutex_unlock(&(list->list_lock));
     return;
   }
 
@@ -202,19 +213,23 @@ void remove_page(struct page_list *list, struct hemem_page *page)
   }
 
   list->numentries--;
+  pthread_mutex_unlock(&(list->list_lock));
 }
 
 struct hemem_page* find_page(struct page_list *list, uint64_t va)
 {
+  pthread_mutex_lock(&(list->list_lock));
   struct hemem_page *cur = list->first;
 
   while (cur != NULL) {
     if (cur->va == va) {
+      pthread_mutex_unlock(&(list->list_lock));
       return cur;
     }
     cur = cur->next;
   }
 
+  pthread_mutex_unlock(&(list->list_lock));
   return NULL;
 }
 
@@ -241,6 +256,9 @@ void hemem_init()
   }
 
   LOG("hemem_init: started\n");
+
+  pthread_mutex_init(&(list.list_lock), NULL);
+  pthread_mutex_init(&(freepages.list_lock), NULL);
 
   // pre-allocate maximum amount of pages
   for (int i = 0; i < (DRAMSIZE + NVMSIZE) / BASEPAGE_SIZE; i++) {
@@ -317,6 +335,15 @@ void hemem_init()
   nvm_devdax_mmap =libc_mmap(NULL, NVMSIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
   if (nvm_devdax_mmap == MAP_FAILED) {
     perror("nvm devdax mmap");
+    ignore_this_mmap = true;
+    assert(0);
+    ignore_this_mmap = false;
+  }
+
+  //TODO: is the mmap length right?
+  devmem_mmap = libc_mmap(NULL, DRAMSIZE + NVMSIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, 0);
+  if (devmem_mmap == MAP_FAILED) {
+    perror("devmem mmap");
     ignore_this_mmap = true;
     assert(0);
     ignore_this_mmap = false;

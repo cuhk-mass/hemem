@@ -119,7 +119,7 @@ again:
       assert(hn != NULL);
       ignore_this_mmap = false;
 
-      hemem_demote_pages(hn->page->va);
+      //hemem_demote_pages(hn->page->va);
 
       nn = calloc(512, sizeof(struct hemem_node));
       for (size_t i = 0; i < 512; i++) {

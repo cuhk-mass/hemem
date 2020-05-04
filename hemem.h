@@ -47,9 +47,9 @@ extern "C" {
 #define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
 
 FILE *hememlogf;
-#define LOG(...) fprintf(stderr, __VA_ARGS__)
+//#define LOG(...) fprintf(stderr, __VA_ARGS__)
 //#define LOG(...)	fprintf(hememlogf, __VA_ARGS__)
-//#define LOG(str, ...) while(0) {}
+#define LOG(str, ...) while(0) {}
 
 
 FILE *timef;
@@ -82,8 +82,8 @@ extern _Atomic(uint64_t) missing_faults_handled;
 extern _Atomic(uint64_t) migrations_up;
 extern _Atomic(uint64_t) migrations_down;
 extern __thread bool internal_malloc;
-
 extern __thread bool ignore_this_mmap;
+extern void* devmem_mmap;
 
 enum memtypes {
   FASTMEM = 0,
@@ -112,6 +112,7 @@ struct hemem_page {
 struct page_list {
   struct hemem_page *first, *last;
   size_t numentries;
+  pthread_mutex_t list_lock;
 };
 
 static inline uint64_t pt_to_pagesize(enum pagetypes pt)
