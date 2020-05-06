@@ -1,5 +1,5 @@
 CFLAGS = -g3 -Wall -pthread
-CFLAGS += -DLOG_DEBUG
+#CFLAGS += -DLOG_DEBUG
 CFLAGS += -O2
 LDFLAGS = -pthread
 
