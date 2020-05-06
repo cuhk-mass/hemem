@@ -427,7 +427,7 @@ int main(int argc, char *argv[])
   }
 
   progname = argv[0];
-  size_t hotset_size = atoi(argv[1]);
+  uint64_t hotset_size = atoll(argv[1]);
 
 #ifdef MMM
   LOG("Allocating %.2f GB for MMM tags\n",
