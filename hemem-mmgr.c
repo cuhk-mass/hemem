@@ -420,6 +420,11 @@ struct hemem_page* hemem_pagefault()
   return page;
 }
 
+void hemem_mmgr_remove_page(struct hemem_page *page)
+{
+
+}
+
 void hemem_mmgr_init(void)
 {
   uint64_t i;

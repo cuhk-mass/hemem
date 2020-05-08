@@ -29,5 +29,6 @@ extern uint64_t slowmem;
 
 void simple_pagefault(struct hemem_page *page);
 void simple_init(void);
+void simple_remove_page(struct hemem_page *page);
 
 #endif // HEMEM_SIMPLE_H

@@ -99,6 +99,44 @@ static struct lru_node* lru_list_remove(struct lru_list *list)
   return ret;
 }
 
+static struct lru_node* lru_list_find(struct lru_list *list, struct hemem_page *page)
+{
+  struct lru_node *cur = list->first;
+  while (cur != NULL) {
+    if (cur->page == page) {
+      return cur;
+    }
+    cur = cur->next;
+  }
+
+  return NULL;
+}
+
+static void lru_list_remove_node(struct lru_list *list, struct lru_node *node)
+{
+  if (list->first == NULL) {
+    ignore_this_mmap = true;
+    assert(list->last == NULL);
+    assert(list->numentries == 0);
+    ignore_this_mmap = false;
+    return;
+  }
+
+  if (list->first == node) {
+    list->first = node->next;
+  }
+
+  if (node->next != NULL) {
+    node->next->prev = node->prev;
+  }
+
+  if (node->prev != NULL) {
+    node->prev->next = node->next;
+  }
+
+  list->numentries--;
+}
+
 
 static void shrink_caches(struct lru_list *active, struct lru_list *inactive)
 {
@@ -313,6 +351,44 @@ void lru_pagefault(struct hemem_page *page)
   page->pt = pagesize_to_pt(PAGE_SIZE);
 
   pthread_mutex_unlock(&(page->page_lock));
+}
+
+
+void lru_remove_page(struct hemem_page *page)
+{
+  struct lru_node *node;
+
+  pthread_mutex_lock(&global_lock);
+
+  if ((node = lru_list_find(&active_list, page)) !=  NULL) {
+    lru_list_remove_node(&active_list, node);
+    node->prev = node->next = NULL;
+    node->page = NULL;
+    lru_list_add(&dram_free_list, node);
+  }
+  else if ((node = lru_list_find(&inactive_list, page)) != NULL) {
+    lru_list_remove_node(&inactive_list, node);
+    node->prev = node->next = NULL;
+    node->page = NULL;
+    lru_list_add(&dram_free_list, node);
+  }
+  else if ((node = lru_list_find(&nvm_active_list, page)) != NULL) {
+    lru_list_remove_node(&nvm_active_list, node);
+    node->prev = node->next = NULL;
+    node->page = NULL;
+    lru_list_add(&nvm_free_list, node);
+  }
+  else if ((node = lru_list_find(&nvm_inactive_list, page)) != NULL) {
+    lru_list_remove_node(&nvm_inactive_list, node);
+    node->prev = node->next = NULL;
+    node->page = NULL;
+    lru_list_add(&nvm_free_list, node);
+  }
+  else {
+    assert(!"page not in any lru list!\n");
+  }
+
+  pthread_mutex_unlock(&global_lock);
 }
 
 

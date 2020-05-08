@@ -49,7 +49,7 @@ static int mmap_filter(void *addr, size_t length, int prot, int flags, int fd, o
     return 1;
   }
 
-  if (length < 4096) {
+  if (length < BASEPAGE_SIZE) {
     //LOG("hemem interpose calling libc mmap due to small allocation size\n");
     return 1;
   }
@@ -72,16 +72,23 @@ static int mmap_filter(void *addr, size_t length, int prot, int flags, int fd, o
   return 0;
 }
 
-/* 
-static int munmap_filter(void *addr, size_t length)
+
+static int munmap_filter(void *addr, size_t length, uint64_t* result)
 {
   //ensure_init();
   
   //TODO: figure out which munmap calls should go to libc vs hemem
-  // for now, just call libc munmap because that's all hemem will do anyway
-  return libc_munmap(addr, length);
+  
+  if (internal_munmap) {
+    return 1;
+  }
+
+  if ((*result = hemem_munmap(addr, length)) == -1) {
+    LOG("hemem munmap failed\n\tmunmap(0x%lx, %ld)\n", (uint64_t)addr, length);
+  }
+  return 0;
 }
-*/
+
 
 static void* bind_symbol(const char *sym)
 {
@@ -97,7 +104,9 @@ static int hook(long syscall_number, long arg0, long arg1, long arg2, long arg3,
 {
 	if (syscall_number == SYS_mmap) {
 	  return mmap_filter((void*)arg0, (size_t)arg1, (int)arg2, (int)arg3, (int)arg4, (off_t)arg5, (uint64_t*)result);
-	} else {
+	} else if (syscall_number == SYS_munmap){
+    return munmap_filter((void*)arg0, (size_t)arg1, (uint64_t*)result);
+  } else {
     // ignore non-mmap system calls
 		return 1;
 	}
@@ -113,6 +122,7 @@ static __attribute__((constructor)) void init(void)
 
   hemem_init();
 }
+
 /* 
 void* malloc(size_t size)
 {

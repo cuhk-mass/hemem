@@ -36,5 +36,6 @@ struct hemem_list {
 void *hemem_kswapd(void);
 struct hemem_page* hemem_pagefault();
 void hemem_mmgr_init(void);
+void hemem_mmgr_remove_page(struct hemem_page *page);
 
 #endif

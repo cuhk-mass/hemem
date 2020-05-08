@@ -32,6 +32,11 @@ uint64_t fastmem = 0;
 uint64_t slowmem = 0;
 bool slowmem_switch = false;
 
+void simple_remove_page(struct hemem_page *page)
+{
+
+}
+
 void simple_pagefault(struct hemem_page *page)
 {
   struct timeval start, end;

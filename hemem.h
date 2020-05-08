@@ -27,12 +27,12 @@ extern "C" {
 #include "timer.h"
 #include "interpose.h"
 
-//#define HEMEM_DEBUG
+#define HEMEM_DEBUG
 
 #define MEM_BARRIER() __sync_synchronize()
 
 #define NVMSIZE   (2750L * (1024L * 1024L * 1024L))
-#define DRAMSIZE  (4L * (1024L * 1024L * 1024L))
+#define DRAMSIZE  (128L * (1024L * 1024L * 1024L))
 
 #define DRAMPATH  "/dev/dax0.0"
 #define NVMPATH   "/dev/dax1.0"
@@ -59,12 +59,15 @@ FILE *timef;
 #if defined (ALLOC_HEMEM)
   #define pagefault(...) hemem_pagefault(__VA_ARGS__)
   #define paging_init(...) hemem_mmgr_init(__VA_ARGS__)
+  #define mmgr_remove(...) hemem_mmgr_remove_page(__VA_ARGS__)
 #elif defined (ALLOC_LRU)
   #define pagefault(...) lru_pagefault(__VA_ARGS__)
   #define paging_init(...) lru_init(__VA_ARGS__)
+  #define mmgr_remove(...) lru_remove_page(__VA_ARGS__)
 #elif defined (ALLOC_SIMPLE)
   #define pagefault(...) simple_pagefault(__VA_ARGS__)
   #define paging_init(...) simple_init(__VA_ARGS__)
+  #define mmgr_remove(...) simple_remove_page(__VA_ARGS__)
 #endif
 
 
@@ -83,6 +86,7 @@ extern _Atomic(uint64_t) migrations_up;
 extern _Atomic(uint64_t) migrations_down;
 extern __thread bool internal_malloc;
 extern __thread bool ignore_this_mmap;
+extern __thread bool internal_munmap;
 extern void* devmem_mmap;
 
 enum memtypes {

@@ -24,5 +24,6 @@ struct lru_list {
 void *lru_kswapd();
 void lru_pagefault(struct hemem_page *page);
 void lru_init(void);
+void lru_remove_page(struct hemem_page *page);
 
 #endif /*  HEMEM_LRU_MODIFIED_H  */

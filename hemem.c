@@ -51,6 +51,7 @@ void *nvm_devdax_mmap;
 void *devmem_mmap;
 
 __thread bool internal_malloc = false;
+__thread bool internal_munmap = false;
 
 __thread bool ignore_this_mmap = false;
 
@@ -520,7 +521,41 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
 
 int hemem_munmap(void* addr, size_t length)
 {
-  return libc_munmap(addr, length);
+  uint64_t page_boundry;
+  struct hemem_page *page;
+  int ret;
+
+  // for each page in region specified...
+  for (page_boundry = (uint64_t)addr; page_boundry < (uint64_t)addr + length;) {\
+    // find the page in hemem's trackign list
+    page = find_page(&list, page_boundry);
+    if (page != NULL) {
+      // remove page form hemem's and policy's list
+      remove_page(&list, page);
+      mmgr_remove(page);
+
+      // move to next page
+      page_boundry += pt_to_pagesize(page->pt);
+
+      // clear out page
+      memset(page, 0, sizeof(struct hemem_page));
+
+      // put page in free list
+      hemem_put_free_page(page);
+    }
+    else {
+      // TODO: deal with holes?
+      LOG("hemem_mmunmap: no page to umnap\n");
+      //assert(0);
+      page_boundry += BASEPAGE_SIZE;
+    }
+  }
+
+  internal_munmap = true;
+  ret = libc_munmap(addr, length);
+  internal_munmap = false;
+
+  return ret;
 }
 
 static void hemem_parallel_memcpy(void *dst, void *src, size_t length)
