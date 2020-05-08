@@ -42,18 +42,26 @@ extern "C" {
 
 //#define PAGE_SIZE (1024 * 1024 * 1024)
 //#define PAGE_SIZE (2 * (1024 * 1024))
-#define BASEPAGE_SIZE	  (4UL * 1024UL)
-#define HUGEPAGE_SIZE 	(2UL * 1024UL * 1024UL)
+#define BASEPAGE_SIZE (4UL * 1024UL)
+#define HUGEPAGE_SIZE (2UL * 1024UL * 1024UL)
 #define HUGEPAGE_MASK (HUGEPAGE_SIZE - 1)
-#define PAGE_SIZE 	    BASEPAGE_SIZE
 
+#ifdef COALESCE
+#define PAGE_SIZE BASEPAGE_SIZE
+#else
+#define PAGE_SIZE HUGEPAGE_SIZE
+#endif
+
+#define NUM_SMPAGES 512
 #define FASTMEM_PAGES   ((DRAMSIZE) / (PAGE_SIZE))
 #define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
 
 FILE *hememlogf;
-#define LOG(...) fprintf(stderr, __VA_ARGS__)
+//#define LOG(...) fprintf(stderr, __VA_ARGS__)
 //#define LOG(...)	fprintf(hememlogf, __VA_ARGS__)
-//#define LOG(str, ...) while(0) {}
+#define LOG(str, ...) while(0) {}
+//#define LOG2(...) fprintf(stderr, __VA_ARGS__)
+#define LOG2(...) while(0) {}
 
 
 FILE *timef;
@@ -75,7 +83,7 @@ FILE *timef;
 #define MAX_UFFD_MSGS	    (8)
 #define MAX_COPY_THREADS  (4)
 
-#define KSWAPD_INTERVAL   (1000000)
+#define KSWAPD_INTERVAL   (10000)
 
 extern uint64_t cr3;
 extern int dramfd;
@@ -154,6 +162,9 @@ uint64_t hemem_va_to_pa(uint64_t va);
 void hemem_clear_accessed_bit(uint64_t va);
 int hemem_get_accessed_bit(uint64_t va);
 void hemem_tlb_shootdown(uint64_t va);
+void hemem_huge_tlb_shootdown(uint64_t va);
+
+void handle_missing_fault(uint64_t page_boundry);
 
 void hemem_print_stats();
 void hemem_clear_stats();

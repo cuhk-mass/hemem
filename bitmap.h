@@ -18,10 +18,20 @@
 
 #ifndef BITMAP
 
+#include <stdio.h>
+
 struct bitmap {
   uint8_t bytes[64];
 };
 
+static inline void print_bin(uint8_t n){
+  int i=0;
+  for(i = 0; i<8; i++){
+    if(n&1) printf("1");
+    else printf("0");
+    n >>= 1;
+  }  
+}
 static inline void bitmap_set(struct bitmap* map, uint32_t pos){
   uint8_t* byte = &(map->bytes[pos/8]);
   uint8_t sub_pos = pos % 8;
@@ -43,5 +53,12 @@ static inline int bitmap_get(struct bitmap* map, uint32_t pos){
   return ((*byte) & (1 << sub_pos)) >> sub_pos; 
 }
 
+static inline void bitmap_print(struct bitmap* map){
+  int i = 0;
+  for(i=0; i<64; i++){
+    print_bin(map->bytes[i]);
+  }
+  printf("\n");
+}
 #define BITMAP
 #endif

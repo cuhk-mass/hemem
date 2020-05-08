@@ -68,6 +68,60 @@ static uint64_t lfsr_fast(uint64_t lfsr)
   return lfsr;
 }
 
+static void *do_gups_init(void *arguments)
+{
+  //printf("do_gups entered\n");
+  struct gups_args *args = (struct gups_args*)arguments;
+  char *field = (char*)(args->field);
+  uint64_t i, j;
+  uint64_t index1, index2;
+  uint64_t elt_size = args->elt_size;
+  char data[elt_size];
+  uint64_t lfsr;
+  uint64_t hot_num;
+
+  srand(0);
+  lfsr = rand();
+
+  index1 = 0;
+  index2 = 0;
+
+#ifdef HOTSPOT
+  for(i = 0; i<hotsize; i++){
+    memcpy(data, &field[i * elt_size], elt_size);
+  }
+  sleep(5);
+#endif
+
+  for (i = 0; i < args->iters; i++) {
+#ifdef HOTSPOT
+    hot_num = lfsr % 4 + 8;
+    for (j = 0; j < hot_num; j++) {
+      lfsr = lfsr_fast(lfsr);
+      index1 = hot_start + (lfsr % hotsize);
+      memcpy(data, &field[index1 * elt_size], elt_size);
+      memset(data, data[0] + i, elt_size);
+      memcpy(&field[index1 * elt_size], data, elt_size);
+    }
+    i += hot_num;
+#endif
+    lfsr = lfsr_fast(lfsr);
+    index2 = lfsr % (args->size);
+    memcpy(data, &field[index2 * elt_size], elt_size);
+    memset(data, data[0] + i, elt_size);
+    memcpy(&field[index2 * elt_size], data, elt_size);
+  }
+/*
+  //printf("Thread [%d] starting: field: [%llx]\n", args->tid, field);
+  for (i = 0; i < args->iters; i++) {
+    index = args->indices[i];
+    memcpy(data, &field[index * elt_size], elt_size);
+    memset(data, data[0] + i, elt_size);
+    memcpy(&field[index * elt_size], data, elt_size);
+  }
+*/
+  return 0;
+}
 
 static void *do_gups(void *arguments)
 {
@@ -222,7 +276,7 @@ int main(int argc, char **argv)
     ga[i]->size = nelems;
     ga[i]->elt_size = elt_size;
     printf("  tid: [%d]  iters: [%llu]  size: [%llu]  elt size: [%llu]\n", ga[i]->tid, ga[i]->iters, ga[i]->size, ga[i]->elt_size);
-    int r = pthread_create(&t[i], NULL, do_gups, (void*)ga[i]);
+    int r = pthread_create(&t[i], NULL, do_gups_init, (void*)ga[i]);
     assert(r == 0);
   }
 

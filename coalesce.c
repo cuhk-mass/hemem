@@ -29,11 +29,13 @@
 #include "hash.h"
 #include "bitmap.h"
 
-#define NUM_SMPAGES 512
 #define HASHTABLE_SIZE 81920UL
 
 struct hash_table* dram_hp_ht;
 struct hash_table* nvm_hp_ht;
+
+const int BREAK_N = NUM_SMPAGES*BREAK_RATIO;
+const int COALESCE_N = NUM_SMPAGES*COALESCE_RATIO;
 
 void coalesce_pages(uint64_t addr, uint32_t fd, uint64_t offset){
   void* ret;
@@ -46,10 +48,12 @@ void coalesce_pages(uint64_t addr, uint32_t fd, uint64_t offset){
   LOG("coalescing pages at %p\n", addr);
   hemem_combine_base_pages(addr);
 
-  ret = libc_mmap((void*) addr, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, fd, offset & ~(HUGEPAGE_MASK));
-  if(ret < 0) perror("coalesce mmap");
+  //LOG2("mapping hugepage at %p with offset %p and length %x\n", addr, offset & ~(HUGEPAGE_MASK), HUGEPAGE_SIZE);
+  //ret = libc_mmap((void*) addr, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, fd, offset & ~(HUGEPAGE_MASK));
+  //if(ret == MAP_FAILED) perror("coalesce mmap");
 
-  //hemem_tlb_shootdown(addr);
+  //LOG2("shooting TLB\n");
+  //hemem_huge_tlb_shootdown(addr);
   //range.start = addr;
   //range.len = HUGEPAGE_SIZE;
   //ret2 = ioctl(uffd, UFFDIO_TLBFLUSH, &range);
@@ -60,7 +64,7 @@ void coalesce_pages(uint64_t addr, uint32_t fd, uint64_t offset){
 void coalesce_init() {
   dram_hp_ht = ht_alloc(HASHTABLE_SIZE);
   nvm_hp_ht = ht_alloc(HASHTABLE_SIZE);
-  LOG("coalesce init\n");
+  LOG2("N_SMPAGES = %d, COALESCE_N = %d, BREAK_N = %d, BASEPAGE=%u, HUGEPAGE=%u, PAGE=%u\n", NUM_SMPAGES, COALESCE_N, BREAK_N, BASEPAGE_SIZE, HUGEPAGE_SIZE, PAGE_SIZE);
   //uffd = syscall(__NR_userfaultfd, O_CLOEXEC | O_NONBLOCK);
 }
 
@@ -87,10 +91,11 @@ void incr_dram_huge_page (uint64_t addr, uint32_t fd, uint64_t offset){
 
   if(this_hp){
     this_hp->num_faulted++;
-    //printf("incrementing base page %p inside huge page %p\n", bp_addr, addr);
+    //LOG2("incrementing base page %p inside huge page %p with %d faulted at %d\n", bp_addr, addr, this_hp->num_faulted, page_offset/4096);
+    //bitmap_print(&(this_hp->map));
     bitmap_set(&(this_hp->map), page_offset/4096);
-    LOG("bitmap set at %u\n", page_offset/4096);
-    if(this_hp->num_faulted/NUM_SMPAGES > COALESCE_RATIO) coalesce_pages(addr, fd, offset); 
+    //bitmap_print(&(this_hp->map));
+    if(this_hp->num_faulted == COALESCE_N) coalesce_pages(addr, fd, offset); 
   } else {
     LOG("inserting to hash table %p, %p, %u\n", addr, offset & ~(HUGEPAGE_MASK), fd);
     ht_insert(dram_hp_ht, addr, offset & ~(HUGEPAGE_MASK), fd, 1);
@@ -160,14 +165,18 @@ void decr_dram_huge_page(uint64_t addr) {
   uint64_t page_offset = addr & HUGEPAGE_MASK;
   addr = bp_addr - page_offset;
 
-  LOG("decrementing dram page at %p\n", addr);
-
   struct huge_page* this_hp = (struct huge_page*) ht_search(dram_hp_ht, addr);
+  LOG2("decrementing dram page at %p with %d faulted out of %d, %d total\n", addr, this_hp->num_faulted, BREAK_N, NUM_SMPAGES);
 
   if(this_hp){
     this_hp->num_faulted--;
+    //bitmap_print(&(this_hp->map));
     bitmap_unset(&(this_hp->map), page_offset/4096);
-    if((this_hp->num_faulted)/NUM_SMPAGES < BREAK_RATIO) hemem_break_huge_page(addr, this_hp->fd, this_hp->offset, &(this_hp->map));
+    //bitmap_print(&(this_hp->map));
+    if(this_hp->num_faulted == BREAK_N){
+      LOG2("breaking huge page with %d faulted out of %d, n is %d\n", this_hp->num_faulted, NUM_SMPAGES, BREAK_N);
+      hemem_break_huge_page(addr, this_hp->fd, this_hp->offset, &(this_hp->map));
+    } 
     //if(this_hp->num_faulted == 0) ht_delete(dram_hp_ht, (struct bucket*) this_hp);
   } else {
     LOG("decrementing nonexistent huge page\n");

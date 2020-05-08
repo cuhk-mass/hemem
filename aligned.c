@@ -34,6 +34,7 @@ void aligned_allocate_page(struct hemem_page *page, struct huge_page* this_hp)
   page->devdax_offset = this_hp->offset + inpage_offset;
   page->next = NULL;
   page->prev = NULL;
+  page->pt = pagesize_to_pt(PAGE_SIZE);
 }
 
 void aligned_pagefault(struct hemem_page *page, void* huge_page)

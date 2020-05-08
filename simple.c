@@ -43,7 +43,11 @@ void simple_allocate_page(struct hemem_page *page)
     page->pt = pagesize_to_pt(PAGE_SIZE);
     page->next = NULL;
     page->prev = NULL;
+#ifdef COALESCE
+    fastmem += HUGEPAGE_SIZE;
+#else    
     fastmem += PAGE_SIZE;
+#endif
     assert(fastmem <= DRAMSIZE);
   }
   else {
@@ -53,7 +57,11 @@ void simple_allocate_page(struct hemem_page *page)
     page->pt = pagesize_to_pt(PAGE_SIZE);
     page->next = NULL;
     page->prev = NULL;
+#ifdef COALESCE    
+    slowmem += HUGEPAGE_SIZE;
+#else
     slowmem += PAGE_SIZE;
+#endif
     assert(slowmem <= NVMSIZE);
     if (!slowmem_switch) {
       LOG("Switched to allocating from slowmem\n");

@@ -26,8 +26,13 @@
 #include "interpose.h"
 #include "bitmap.h"
 
-#define COALESCE_RATIO 0.9
-#define BREAK_RATIO 0.5
+#define COALESCE_RATIO 0.7
+#define BREAK_RATIO 0.7
+
+#if 0
+#define BREAK_N (BREAK_RATIO * NUM_SMPAGES)
+#define COALESCE_N (COALESCE_RATIO * NUM_SMPAGES)
+#endif
 
 struct huge_page {
   uint64_t base_addr;

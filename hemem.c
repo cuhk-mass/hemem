@@ -48,7 +48,7 @@ struct page_list list;
 pthread_t copy_threads[MAX_COPY_THREADS];
 
 //#define MAXPAGES	262144
-#define MAXPAGES	2621440
+#define MAXPAGES	10000000
 static struct hemem_page freepages[MAXPAGES];
 static size_t nextfreepage = 0;
 
@@ -198,6 +198,7 @@ void remove_page(struct hemem_page *page)
     page->prev->next = page->next;
   }
 
+  mem_allocated -= page->size;
   list.numentries--;
 }
 
@@ -233,8 +234,17 @@ int delete_page(uint64_t va)
   struct hemem_page *cur = list.first;
   struct hemem_page *next;
 
+  if(list.numentries == 1){
+    mem_allocated -= cur->size;
+    list.first = NULL;
+    list.last = NULL;
+    list.numentries--;
+    return 1;
+  }
   if(cur->va == va){
+    mem_allocated -= cur->size;
     list.first = cur->next;
+    list.numentries--;
     //free(cur);
     return 1;
   }
@@ -242,7 +252,8 @@ int delete_page(uint64_t va)
     if (cur->next->va == va) {
       next = cur->next;
       cur->next = next->next;
-      mem_allocated-=next->size;
+      mem_allocated -= next->size;
+      list.numentries--;
       //free(next);
       return 1;
     }
@@ -463,6 +474,8 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
  
   assert(is_init);
 
+  LOG("trying mmap\n");
+
   if ((flags & MAP_PRIVATE) == MAP_PRIVATE) {
     flags &= ~MAP_PRIVATE;
     flags |= MAP_SHARED;
@@ -509,15 +522,33 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
 int hemem_madvise(void* addr, size_t length, int advice){
 
   uint64_t i;
+  uint64_t hp_bound = ((uint64_t) addr) & (~HUGEPAGE_MASK);
+  void* huge_page = check_aligned(hp_bound);
+  struct hemem_page check;
 
-  for(i = (uint64_t) addr; i < (uint64_t) (addr+length); i=+ PAGE_SIZE){
-    struct hemem_page* this_page = find_page(i);
-    if(this_page){
-      if(this_page->in_dram) decr_dram_huge_page(this_page->va);
-      else decr_nvm_huge_page(this_page->va);
-      delete_page(this_page->va);
+  LOG2("madvise dont need\n");
+  
+  if(huge_page) {
+    check_in_dram(&check, huge_page, dramfd, nvmfd);
+    //struct page* this_hp = find_page(hp_bound);
+
+    for(i = (uint64_t) addr; i < (uint64_t) (addr+length); i+= BASEPAGE_SIZE){
+      
+      if(check.in_dram) decr_dram_huge_page(i);
+      else decr_nvm_huge_page(i);
+      
+      struct hemem_page* this_page = find_page(i);
+      if(this_page && this_page->size == BASEPAGE_SIZE){ 
+        //LOG2("deleting base page %p from list\n", i);
+        remove_page(this_page);
+        //delete_page(i);
+      }
     }
+  } else {
+    LOG2("freeing page from nonexistant huge page, shouldn't happen\n");
+    exit(0);
   }
+  
   return 0;
 }
 
@@ -525,11 +556,11 @@ void hemem_combine_base_pages(uint64_t addr){
 
   uint64_t i = addr;
   struct hemem_page* page, *old_page;
-  
+  void* ret;
+  int fd, ret2;
+
   assert(nextfreepage < MAXPAGES);
   page = &freepages[nextfreepage++];
-  //printf("combining huge page\n");
-  //printf("getting page for huge page %p\n", addr);
 
   do{
     old_page = find_page(i);
@@ -545,43 +576,89 @@ void hemem_combine_base_pages(uint64_t addr){
     exit(0);
     return;
   }
+
+  if(old_page->in_dram) fd = dramfd;
+  else fd = nvmfd;
+
   page->va = addr;
   page->devdax_offset = old_page->devdax_offset & (~HUGEPAGE_MASK);
   page->in_dram = old_page->in_dram;
   page->migrating = old_page->migrating;
   page->migrations_up = page->migrations_down = 0;
   page->size = HUGEPAGE_SIZE;
+  page->pt = pagesize_to_pt(PAGE_SIZE);
   mem_allocated += HUGEPAGE_SIZE;
-  enqueue_page(page);
 
+  LOG("created huge page at %p with offset %p\n", page->va, page->devdax_offset);
   //printf("check 1, %p up to %p\n",addr,addr+HUGEPAGE_SIZE);
   for(i = (uint64_t) addr; i < (uint64_t) (addr+HUGEPAGE_SIZE); i+= BASEPAGE_SIZE){
     struct hemem_page* this_page = find_page(i);
     if(this_page){
       //if(this_page->in_dram) decr_dram_huge_page(this_page->va);
       //else decr_nvm_huge_page(this_page->va);
-      delete_page(this_page->va);
+      //delete_page(this_page->va);
+ 
+      //LOG2("unmapping base page at %p with offset %p\n", i, page->devdax_offset + (i-addr);
+      //ret2 = libc_munmap((void*) i, BASEPAGE_SIZE);
+      //if(ret2 < 0) perror("coalesce munmap\n");
+    
       //printf("page %p found\n", i);
+      //remove_page(i);
+    } else {      
+      LOG("filling base page at %p with offset %p\n", i, page->devdax_offset + (i-addr));
+      //ret = libc_mmap((void*) i, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, fd, page->devdax_offset + (i-addr));
+      //if(ret == MAP_FAILED) perror("coalesce mmap\n");
+      handle_missing_fault(i);
+      //delete_page(i);
     }
     //else printf("page %p not found\n", i);
+    delete_page(i);
   }
+    
+  enqueue_page(page);
+  LOG("mapping huge page at %p with offset %p\n", addr, page->devdax_offset);
+  ret = libc_mmap((void*) addr, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, fd, page->devdax_offset);
+  if(ret == MAP_FAILED) perror("coalesce mmap\n");
+
+  assert(ret == addr);
+
+  struct uffdio_register uffdio_register;
+  uffdio_register.range.start = (uint64_t)addr;
+  uffdio_register.range.len = HUGEPAGE_SIZE;
+  uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
+  uffdio_register.ioctls = 0;
+  if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
+    perror("ioctl uffdio_register");
+    assert(0);
+  }
+  
+  hemem_huge_tlb_shootdown(addr);
   //printf("huge page combined\n");
 }
 
 void hemem_break_huge_page(uint64_t addr, uint32_t fd, uint64_t offset, struct bitmap* map){
 
   int i;
+  LOG2("breaking huge page at %p\n", addr);
   struct hemem_page* old_page = find_page(addr);
   struct hemem_page* page;
-  delete_page(addr);
- 
-  LOG("breaking huge page at %p\n", addr);
+  
+  remove_page(old_page);
+  //delete_page(addr);
 
-  for(i = 0; i < HUGEPAGE_SIZE/BASEPAGE_SIZE; i++){
+  if(old_page == NULL){ 
+    LOG2("big problem\n"); 
+    print_pages();
+  }
+
+  //if(libc_munmap(addr, HUGEPAGE_SIZE) < 0) perror("munmap");
+  
+  for(i = 0; i < NUM_SMPAGES; i++){
     if(bitmap_get(map, i)){
+      //LOG2("found small page at %d\n", i);
       page = &freepages[nextfreepage++];
       ///printf("getting page for breakdown (shouldn't happen)\n");
-      page->va = addr;
+      page->va = addr + (i*BASEPAGE_SIZE);
       page->devdax_offset = old_page->devdax_offset + i*BASEPAGE_SIZE;
       page->in_dram = old_page->in_dram;
       page->migrating = old_page->migrating;
@@ -839,7 +916,7 @@ void hemem_wp_page(struct hemem_page *page, bool protect)
   int ret;
   struct timeval start, end;
 
-  //LOG("hemem_wp_page: wp addr %lx pte: %lx\n", addr, hemem_va_to_pa(addr));
+  LOG("hemem_wp_page: wp addr %lx pte: %lx\n", addr, hemem_va_to_pa(addr));
 
   gettimeofday(&start, NULL);
   wp.range.start = addr;
@@ -1032,6 +1109,7 @@ void *handle_fault()
     pollfd.fd = uffd;
     pollfd.events = POLLIN;
 
+
     pollres = poll(&pollfd, 1, -1);
 
     switch (pollres) {
@@ -1134,6 +1212,8 @@ void hemem_promote_pages(uint64_t addr)
   bool migrating;
   uint64_t hugepage_fd;
 
+  LOG("promote\n");
+  
   // ensure addr is hugepage aligned
   assert(addr % HUGEPAGE_SIZE == 0);
 
@@ -1203,6 +1283,7 @@ void hemem_demote_pages(uint64_t addr)
   uint64_t basepage_offset;
   uint32_t basepage_fd;
 
+  LOG("demote");
   // ensure addr is start of a huge page
   assert(addr % HUGEPAGE_SIZE == 0);
 
@@ -1281,6 +1362,23 @@ void hemem_tlb_shootdown(uint64_t va)
     assert(0);
   }
 }
+
+void hemem_huge_tlb_shootdown(uint64_t va)
+{
+  uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
+  struct uffdio_range range;
+  int ret;
+
+  range.start = page_boundry;
+  range.len = HUGEPAGE_SIZE;
+
+  ret = ioctl(uffd, UFFDIO_TLBFLUSH, &range);
+  if (ret < 0) {
+    perror("uffdio tlbflush");
+    assert(0);
+  }
+}
+
 
 
 void hemem_clear_accessed_bit(uint64_t va)
