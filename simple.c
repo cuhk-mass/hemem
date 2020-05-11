@@ -32,51 +32,79 @@ uint64_t fastmem = 0;
 uint64_t slowmem = 0;
 bool slowmem_switch = false;
 
+static struct fifo_list dram_free, nvm_free;
+
 void simple_remove_page(struct hemem_page *page)
 {
-
+  if (page->in_dram) {
+    page->present = false;
+    enqueue_fifo(&dram_free, page);
+    fastmem -= PAGE_SIZE;
+  }
+  else {
+    page->present = false;
+    enqueue_fifo(&nvm_free, page);
+    slowmem -= PAGE_SIZE;
+  }
 }
 
-void simple_pagefault(struct hemem_page *page)
+struct hemem_page* simple_pagefault(void)
 {
   struct timeval start, end;
-
-  ignore_this_mmap = true;
-  assert(page != NULL);
-  ignore_this_mmap = false;
+  struct hemem_page *page;
 
   gettimeofday(&start, NULL);
-  if (fastmem < DRAMSIZE) {
-    page->in_dram = true;
-    page->devdax_offset = fastmem;
-    page->pt = pagesize_to_pt(PAGE_SIZE);
-    fastmem += PAGE_SIZE;
+
+  page = dequeue_fifo(&dram_free);
+  if (page != NULL) {
     ignore_this_mmap = true;
-    assert(fastmem <= DRAMSIZE);
+    assert(!page->present);
     ignore_this_mmap = false;
+    page->present = true;
+    fastmem += PAGE_SIZE;  
   }
   else {
     ignore_this_mmap = true;
     assert(slowmem < NVMSIZE);
     ignore_this_mmap = false;
-    page->in_dram = false;
-    page->devdax_offset = slowmem;
-    page->pt = pagesize_to_pt(PAGE_SIZE);
-    slowmem += PAGE_SIZE;
+    page = dequeue_fifo(&nvm_free);
+    
     ignore_this_mmap = true;
-    assert(slowmem <= NVMSIZE);
+    assert(page != NULL);
+    assert(!page->present);
     ignore_this_mmap = false;
-    if (!slowmem_switch) {
-      LOG("Switched to allocating from slowmem\n");
-      slowmem_switch = true;
-    }
-  }
 
+    page->present = true;
+    slowmem += PAGE_SIZE;
+  }
   gettimeofday(&end, NULL);
   LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
+  
+  return page;
 }
 
 void simple_init(void)
 {
+  pthread_mutex_init(&(dram_free.list_lock), NULL);
+  for (int i = 0; i < DRAMSIZE / PAGE_SIZE; i++) {
+    struct hemem_page *p = calloc(1, sizeof(struct hemem_page));
+    p->devdax_offset = i * PAGE_SIZE;
+    p->present = false;
+    p->in_dram = true;
+    p->pt = pagesize_to_pt(PAGE_SIZE);
+    pthread_mutex_init(&(p->page_lock), NULL);
+    enqueue_fifo(&dram_free, p);
+  }
+
+  pthread_mutex_init(&(nvm_free.list_lock), NULL);
+  for (int i = 0; i < NVMSIZE / PAGE_SIZE; i++) {
+    struct hemem_page *p = calloc(1, sizeof(struct hemem_page));
+    p->devdax_offset = i * PAGE_SIZE;
+    p->present = false;
+    p->in_dram = false;
+    p->pt = pagesize_to_pt(PAGE_SIZE);
+    pthread_mutex_init(&(p->page_lock), NULL);
+    enqueue_fifo(&nvm_free, p);
+  }
   LOG("Memory management policy is simple\n");
 }

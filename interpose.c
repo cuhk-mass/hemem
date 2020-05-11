@@ -79,7 +79,7 @@ static int munmap_filter(void *addr, size_t length, uint64_t* result)
   
   //TODO: figure out which munmap calls should go to libc vs hemem
   
-  if (internal_munmap) {
+  if (internal_munmap || ignore_this_mmap) {
     return 1;
   }
 

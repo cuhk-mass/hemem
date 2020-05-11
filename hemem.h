@@ -26,6 +26,7 @@ extern "C" {
 #include "simple.h"
 #include "timer.h"
 #include "interpose.h"
+#include "uthash.h"
 
 #define HEMEM_DEBUG
 
@@ -107,16 +108,19 @@ struct hemem_page {
   bool in_dram;
   enum pagetypes pt;
   bool migrating;
+  bool present;
   pthread_mutex_t page_lock;
   uint64_t migrations_up, migrations_down;
+  UT_hash_handle hh;
+  void *management;
 
   struct hemem_page *next, *prev;
 };
 
-struct page_list {
+struct fifo_list {
   struct hemem_page *first, *last;
-  size_t numentries;
   pthread_mutex_t list_lock;
+  size_t numentries;
 };
 
 static inline uint64_t pt_to_pagesize(enum pagetypes pt)
@@ -144,8 +148,6 @@ void *handle_fault();
 void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset);
 void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset);
 void hemem_wp_page(struct hemem_page *page, bool protect);
-struct hemem_page* hemem_get_free_page();
-void hemem_put_free_page(struct hemem_page*);
 void hemem_promote_pages(uint64_t addr);
 void hemem_demote_pages(uint64_t addr);
 
@@ -156,6 +158,9 @@ void hemem_tlb_shootdown(uint64_t va);
 
 void hemem_print_stats();
 void hemem_clear_stats();
+
+void enqueue_fifo(struct fifo_list *list, struct hemem_page *page);
+struct hemem_page* dequeue_fifo(struct fifo_list *list);
 
 
 #ifdef __cplusplus

@@ -10,7 +10,7 @@ default: all
 
 all: hemem-libs
 
-hemem-libs: libhemem.so libhemem-lru.so libhemem-simple.so libhemem-lru-swap.so
+hemem-libs: libhemem-lru.so libhemem-simple.so libhemem-lru-swap.so #libhemem.so
 
 libhemem.so: hemem.o hemem-mmgr.o timer.o paging.o interpose.o
 	$(CC) $(LDFLAGS) -o libhemem.so hemem.o timer.o paging.o hemem-mmgr.o interpose.o $(HEMEM_LIBS)

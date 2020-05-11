@@ -22,13 +22,17 @@
 #include "hemem.h"
 #include "timer.h"
 #include "paging.h"
+#include "uthash.h"
 
 pthread_t fault_thread;
 
 int dramfd = -1;
 int nvmfd = -1;
+int devmemfd = -1;
 long uffd = -1;
+
 bool is_init = false;
+
 _Atomic uint64_t mem_allocated = 0;
 _Atomic uint64_t fastmem_allocated = 0;
 _Atomic uint64_t slowmem_allocated = 0;
@@ -38,13 +42,14 @@ _Atomic uint64_t migrations_up = 0;
 _Atomic uint64_t migrations_down = 0;
 _Atomic uint64_t pmemcpys = 0;
 _Atomic uint64_t memsets = 0;
-static bool cr3_set = true;
+
+static bool cr3_set = false;
 uint64_t cr3 = 0;
-int devmemfd = -1;
-struct page_list list;
+
 pthread_t copy_threads[MAX_COPY_THREADS];
 
-struct page_list freepages;
+struct hemem_page *pages = NULL;
+pthread_mutex_t pages_lock = PTHREAD_MUTEX_INITIALIZER;
 
 void *dram_devdax_mmap;
 void *nvm_devdax_mmap;
@@ -52,7 +57,6 @@ void *devmem_mmap;
 
 __thread bool internal_malloc = false;
 __thread bool internal_munmap = false;
-
 __thread bool ignore_this_mmap = false;
 
 struct pmemcpy {
@@ -121,119 +125,91 @@ void *hemem_parallel_memcpy_thread(void *arg)
   return NULL;
 }
 
-void enqueue_page(struct page_list *list, struct hemem_page *page)
+void enqueue_fifo(struct fifo_list *queue, struct hemem_page *entry)
 {
-  pthread_mutex_lock(&(list->list_lock));
-
+  pthread_mutex_lock(&(queue->list_lock));
   ignore_this_mmap = true;
-  assert(page->prev == NULL);
+  assert(entry->prev == NULL);
   ignore_this_mmap = false;
-  page->next = list->first;
-  if (list->first != NULL) {
+  entry->next = queue->first;
+  if(queue->first != NULL) {
     ignore_this_mmap = true;
-    assert(list->first->prev == NULL);
+    assert(queue->first->prev == NULL);
     ignore_this_mmap = false;
-    list->first->prev = page;
-  }
-  else {
+    queue->first->prev = entry;
+  } else {
     ignore_this_mmap = true;
-    assert(list->last == NULL);
-    assert(list->numentries == 0);
+    assert(queue->last == NULL);
+    assert(queue->numentries == 0);
     ignore_this_mmap = false;
-    list->last = page;
+    queue->last = entry;
   }
-  list->first = page;
-  list->numentries++;
 
-  pthread_mutex_unlock(&(list->list_lock));
+  queue->first = entry;
+  queue->numentries++;
+  pthread_mutex_unlock(&(queue->list_lock));
 }
 
-struct hemem_page* dequeue_page(struct page_list *list)
+struct hemem_page *dequeue_fifo(struct fifo_list *queue)
 {
-  pthread_mutex_lock(&(list->list_lock));
+  pthread_mutex_lock(&(queue->list_lock));
+  struct hemem_page *ret = queue->last;
 
-  struct hemem_page *ret = list->last;
-
-  if (ret == NULL) {
+  if(ret == NULL) {
     ignore_this_mmap = true;
-    assert(list->numentries == 0);
+    assert(queue->numentries == 0);
     ignore_this_mmap = false;
-    pthread_mutex_unlock(&(list->list_lock));
+    pthread_mutex_unlock(&(queue->list_lock));
     return ret;
   }
 
-  list->last = ret->prev;
-  if (list->last != NULL) {
-    list->last->next = NULL;
-  }
-  else {
-    list->first = NULL;
+  queue->last = ret->prev;
+  if(queue->last != NULL) {
+    queue->last->next = NULL;
+  } else {
+    queue->first = NULL;
   }
 
   ret->prev = ret->next = NULL;
   ignore_this_mmap = true;
-  assert(list->numentries > 0);
+  assert(queue->numentries > 0);
   ignore_this_mmap = false;
-  list->numentries--;
-  pthread_mutex_unlock(&(list->list_lock));
+  queue->numentries--;
+  pthread_mutex_unlock(&(queue->list_lock));
   return ret;
 }
 
-struct hemem_page* hemem_get_free_page()
+void add_page(struct hemem_page *page)
 {
-  return dequeue_page(&freepages);
+  struct hemem_page *p;
+  ignore_this_mmap = true;
+  pthread_mutex_lock(&pages_lock);
+  HASH_FIND(hh, pages, &(page->va), sizeof(uint64_t), p);
+  assert(p == NULL);
+  HASH_ADD(hh, pages, va, sizeof(uint64_t), page);
+  pthread_mutex_unlock(&pages_lock);
+  ignore_this_mmap = false;
 }
 
-void hemem_put_free_page(struct hemem_page *page)
+void remove_page(struct hemem_page *page)
 {
-  enqueue_page(&freepages, page);
+  ignore_this_mmap = true;
+  pthread_mutex_lock(&pages_lock);
+  HASH_DEL(pages, page);
+  pthread_mutex_unlock(&pages_lock);
+  ignore_this_mmap = false;
 }
 
-void remove_page(struct page_list *list, struct hemem_page *page)
+struct hemem_page* find_page(uint64_t va)
 {
-  pthread_mutex_lock(&(list->list_lock));
-  if (list->first == NULL) {
-    ignore_this_mmap = true;
-    assert(list->last == NULL);
-    assert(list->numentries == 0);
-    ignore_this_mmap = false;
-    pthread_mutex_unlock(&(list->list_lock));
-    return;
-  }
-
-  if (list->first == page) {
-    list->first = page->next;
-  }
-
-  if (page->next != NULL) {
-    page->next->prev = page->prev;
-  }
-
-  if (page->prev != NULL) {
-    page->prev->next = page->next;
-  }
-
-  list->numentries--;
-  pthread_mutex_unlock(&(list->list_lock));
+  struct hemem_page *page;
+  ignore_this_mmap = true;
+  pthread_mutex_lock(&pages_lock);
+  HASH_FIND(hh, pages, &va, sizeof(uint64_t), page);
+  pthread_mutex_unlock(&pages_lock);
+  ignore_this_mmap = false;
+  return page;
 }
-
-struct hemem_page* find_page(struct page_list *list, uint64_t va)
-{
-  pthread_mutex_lock(&(list->list_lock));
-  struct hemem_page *cur = list->first;
-
-  while (cur != NULL) {
-    if (cur->va == va) {
-      pthread_mutex_unlock(&(list->list_lock));
-      return cur;
-    }
-    cur = cur->next;
-  }
-
-  pthread_mutex_unlock(&(list->list_lock));
-  return NULL;
-}
-
 
 void hemem_init()
 {
@@ -257,15 +233,6 @@ void hemem_init()
   }
 
   LOG("hemem_init: started\n");
-
-  pthread_mutex_init(&(list.list_lock), NULL);
-  pthread_mutex_init(&(freepages.list_lock), NULL);
-
-  // pre-allocate maximum amount of pages
-  for (int i = 0; i < (DRAMSIZE + NVMSIZE) / BASEPAGE_SIZE; i++) {
-    struct hemem_page *p = calloc(1, sizeof(struct hemem_page));
-    enqueue_page(&freepages, p);
-  }
 
   dramfd = open(DRAMPATH, O_RDWR);
   if (dramfd < 0) {
@@ -388,14 +355,12 @@ static void hemem_mmap_populate(void* addr, size_t length)
   ignore_this_mmap = false;
 
   for (page_boundry = (uint64_t)addr; page_boundry < (uint64_t)addr + length;) {
-    page = hemem_get_free_page();
+    page = pagefault();
     ignore_this_mmap = true;
     assert(page != NULL);
     ignore_this_mmap = false;
-    pagefault(page);
 
     // let policy algorithm do most of the heavy lifting of finding a free page
-    page->prev = page->next = NULL; 
     offset = page->devdax_offset;
     in_dram = page->in_dram;
     pagesize = pt_to_pagesize(page->pt);
@@ -444,7 +409,7 @@ static void hemem_mmap_populate(void* addr, size_t length)
     mem_allocated += pagesize;
 
     // place in hemem's page tracking list
-    enqueue_page(&list, page);
+    add_page(page);
     page_boundry += pagesize;
   }
 }
@@ -511,9 +476,9 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
   }
 
    
-  //if ((flags & MAP_POPULATE) == MAP_POPULATE) {
+  if ((flags & MAP_POPULATE) == MAP_POPULATE) {
     hemem_mmap_populate(p, length);
-  //}
+  }
   
   return p;
 }
@@ -528,20 +493,14 @@ int hemem_munmap(void* addr, size_t length)
   // for each page in region specified...
   for (page_boundry = (uint64_t)addr; page_boundry < (uint64_t)addr + length;) {\
     // find the page in hemem's trackign list
-    page = find_page(&list, page_boundry);
+    page = find_page(page_boundry);
     if (page != NULL) {
       // remove page form hemem's and policy's list
-      remove_page(&list, page);
+      remove_page(page);
       mmgr_remove(page);
 
       // move to next page
       page_boundry += pt_to_pagesize(page->pt);
-
-      // clear out page
-      memset(page, 0, sizeof(struct hemem_page));
-
-      // put page in free list
-      hemem_put_free_page(page);
     }
     else {
       // TODO: deal with holes?
@@ -836,7 +795,7 @@ void handle_wp_fault(uint64_t page_boundry)
 {
   struct hemem_page *page;
 
-  page = find_page(&list, page_boundry);
+  page = find_page(page_boundry);
   ignore_this_mmap = true;
   assert(page != NULL);
   ignore_this_mmap = false;
@@ -872,28 +831,29 @@ void handle_missing_fault(uint64_t page_boundry)
   assert(page_boundry != 0);
   ignore_this_mmap = false;
 
+  /*
   // have we seen this page before?
-  page = find_page(&list, page_boundry);
+  page = find_page(page_boundry);
   if (page != NULL) {
     // if yes, must have unmapped it for migration, wait for migration to finish
     LOG("hemem: encountered a page in the middle of migration, waiting\n");
     handle_wp_fault(page_boundry);
     return;
   }
+*/
 
   gettimeofday(&missing_start, NULL);
 
-  page = hemem_get_free_page();
+  gettimeofday(&start, NULL);
+  // let policy algorithm do most of the heavy lifting of finding a free page
+  page = pagefault(); 
   ignore_this_mmap = true;
   assert(page != NULL);
   ignore_this_mmap = false;
   
-  gettimeofday(&start, NULL);
-  // let policy algorithm do most of the heavy lifting of finding a free page
-  pagefault(page); 
   gettimeofday(&end, NULL);
-  page->prev = page->next = NULL;
   LOG_TIME("page_fault: %f s\n", elapsed(&start, &end));
+  
   offset = page->devdax_offset;
   in_dram = page->in_dram;
   pagesize = pt_to_pagesize(page->pt);
@@ -953,7 +913,7 @@ void handle_missing_fault(uint64_t page_boundry)
   page->va = (uint64_t)newptr;
   ignore_this_mmap = true;
   assert(page->va != 0);
-  ignore_this_mmap= false;
+  ignore_this_mmap = false;
   page->migrating = false;
   page->migrations_up = page->migrations_down = 0;
  
@@ -964,7 +924,7 @@ void handle_missing_fault(uint64_t page_boundry)
   //LOG("hemem_missing_fault: va: %lx assigned to %s frame %lu  pte: %lx\n", page->va, (in_dram ? "DRAM" : "NVM"), page->devdax_offset / pagesize, hemem_va_to_pa(page->va));
 
   // place in hemem's page tracking list
-  enqueue_page(&list, page);
+  add_page(page);
 
   missing_faults_handled++;
   gettimeofday(&missing_end, NULL);
