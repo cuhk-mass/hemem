@@ -71,8 +71,6 @@ int main(int argc, char **argv)
   for (i = 0; i < nelems; i++) {
     region[i] = startval;
     if (region[i] != startval) {
-      printf("set %lu loop: va: %lx page: %lx : region[%lu]: %lu != %lu\n", startval, (uint64_t)&region[i], ((uint64_t)(&region[i]) & ~(PAGE_SIZE - 1)), i, region[i], startval);
-      printf("pte: %lx\n", hemem_va_to_pa(((uint64_t)(&region[i]) & ~(PAGE_SIZE - 1))));
       assert(region[i] == startval);
     }
   }
@@ -82,8 +80,6 @@ int main(int argc, char **argv)
 
   for (i = 0; i < nelems; i++) {
     if (region[i] != startval) {
-      printf("check %lu loop: va: %lx page: %lx : region[%lu]: %lu != %lu\n", startval, (uint64_t)&region[i], ((uint64_t)(&region[i]) & ~(PAGE_SIZE - 1)), i, region[i], startval);
-      printf("pte: %lx\n", hemem_va_to_pa(((uint64_t)(&region[i]) & ~(PAGE_SIZE - 1))));
       assert(region[i] == startval);
     }
   }
@@ -93,8 +89,6 @@ int main(int argc, char **argv)
   for (i = 0; i < nelems; i++) {
     region[i] = region[i] + 2;
     if (region[i] != startval + 2) {
-      printf("set %lu loop: va: %lx page: %lx : region[%lu]: %lu != %lu\n", startval + 2, (uint64_t)&region[i], ((uint64_t)(&region[i]) & ~(PAGE_SIZE - 1)), i, region[i], startval + 2);
-      printf("pte: %lx\n", hemem_va_to_pa(((uint64_t)(&region[i]) & ~(PAGE_SIZE - 1))));
       assert(region[i] == startval + 2);
     }
   }
@@ -104,8 +98,6 @@ int main(int argc, char **argv)
 
   for (i = 0; i < nelems; i++) {
     if (region[i] != startval + 2) {
-      printf("check %lu loop: va: %lx page: %lx : region[%lu]: %lu != %lu\n", startval + 2, (uint64_t)&region[i], ((uint64_t)(&region[i]) & ~(PAGE_SIZE - 1)), i, region[i], startval + 2);
-      printf("pte: %lx\n", hemem_va_to_pa(((uint64_t)(&region[i]) & ~(PAGE_SIZE - 1))));
       assert(region[i] == startval + 2);
     }
   }

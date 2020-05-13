@@ -383,12 +383,22 @@ void lru_remove_page(struct hemem_page *page)
   assert(node != NULL);
   ignore_this_mmap = false;
 
+  LOG("LRU: remove page: va: 0x%lx\n", page->va);
+
   list = node->list;
   ignore_this_mmap = true;
   assert(list != NULL);
   ignore_this_mmap = false;
 
   lru_list_remove_node(list, node);
+  page->present = false;
+
+  if (page->in_dram) {
+    lru_list_add(&dram_free_list, node);
+  }
+  else {
+    lru_list_add(&nvm_free_list, node);
+  }
 }
 
 

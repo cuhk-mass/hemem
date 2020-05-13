@@ -80,10 +80,10 @@ typedef unsigned char uint8_t;
 #endif
 
 #ifndef uthash_malloc
-#define uthash_malloc(sz) malloc(sz)      /* malloc fcn                      */
+#define uthash_malloc(sz) libc_malloc(sz)      /* malloc fcn                      */
 #endif
 #ifndef uthash_free
-#define uthash_free(ptr,sz) free(ptr)     /* free fcn                        */
+#define uthash_free(ptr,sz) libc_free(ptr)     /* free fcn                        */
 #endif
 #ifndef uthash_bzero
 #define uthash_bzero(a,n) memset(a,'\0',n)
@@ -137,8 +137,8 @@ typedef unsigned char uint8_t;
 #endif
 
 /* initial number of buckets */
-#define HASH_INITIAL_NUM_BUCKETS 32U     /* initial number of buckets        */
-#define HASH_INITIAL_NUM_BUCKETS_LOG2 5U /* lg2 of initial number of buckets */
+#define HASH_INITIAL_NUM_BUCKETS 262144U     /* initial number of buckets        */
+#define HASH_INITIAL_NUM_BUCKETS_LOG2 18U /* lg2 of initial number of buckets */
 #define HASH_BKT_CAPACITY_THRESH 10U     /* expand when bucket count reaches */
 
 /* calculate the element whose hash handle address is hhp */

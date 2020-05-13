@@ -28,7 +28,7 @@ extern "C" {
 #include "interpose.h"
 #include "uthash.h"
 
-#define HEMEM_DEBUG
+//#define HEMEM_DEBUG
 
 #define MEM_BARRIER() __sync_synchronize()
 
@@ -72,7 +72,7 @@ FILE *timef;
 #endif
 
 
-#define MAX_UFFD_MSGS	    (8)
+#define MAX_UFFD_MSGS	    (1)
 #define MAX_COPY_THREADS  (4)
 
 #define KSWAPD_INTERVAL   (1000000)
