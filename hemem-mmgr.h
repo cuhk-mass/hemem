@@ -20,22 +20,23 @@
 #define SLOWMEM_HUGE_PAGES  ((NVMSIZE) / (HUGEPAGE_SIZE))
 #define SLOWMEM_BASE_PAGES  ((NVMSIZE) / (BASEPAGE_SIZE))
 
-struct hemem_node {
+struct mmgr_node {
   struct hemem_page *page;
-  bool accessed2;
+  uint64_t accesses, tot_accesses;
   uint64_t offset;
   struct hemem_node *next, *prev;
 };
 
-struct hemem_list {
-  struct hemem_node *first;
-  struct hemem_node *last;
+struct mmgr_list {
+  struct mmgr_node *first;
+  struct mmgr_node *last;
   size_t numentries;
+  pthread_mutex_t list_lock;
 };
 
-void *hemem_kswapd(void);
-struct hemem_page* hemem_pagefault();
-void hemem_mmgr_init(void);
-void hemem_mmgr_remove_page(struct hemem_page *page);
+void *mmgr_kswapd(void);
+struct hemem_page* mmgr_pagefault();
+void mmgr_init(void);
+void mmgr_remove_page(struct hemem_page *page);
 
 #endif

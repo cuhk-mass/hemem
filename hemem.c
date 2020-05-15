@@ -28,12 +28,13 @@ pthread_t fault_thread;
 
 int dramfd = -1;
 int nvmfd = -1;
-int devmemfd = -1;
 long uffd = -1;
 
 bool is_init = false;
 
 _Atomic uint64_t mem_allocated = 0;
+_Atomic uint64_t pages_allocated = 0;
+_Atomic uint64_t pages_freed = 0;
 _Atomic uint64_t fastmem_allocated = 0;
 _Atomic uint64_t slowmem_allocated = 0;
 _Atomic uint64_t wp_faults_handled = 0;
@@ -289,17 +290,17 @@ void hemem_init()
     ignore_this_mmap = false;
   }
 
-  devmemfd = open("/dev/mem", O_RDWR | O_SYNC);
-  if (devmemfd < 0) {
-    perror("/dev/mem open");
+  timef = fopen("times.txt", "w+");
+  if (timef == NULL) {
+    perror("time file fopen\n");
     ignore_this_mmap = true;
     assert(0);
     ignore_this_mmap = false;
   }
 
-  timef = fopen("times.txt", "w+");
-  if (timef == NULL) {
-    perror("time file fopen\n");
+  statsf = fopen("stats.txt", "w+");
+  if (statsf == NULL) {
+    perror("stats file fopen\n");
     ignore_this_mmap = true;
     assert(0);
     ignore_this_mmap = false;
@@ -320,16 +321,7 @@ void hemem_init()
     assert(0);
     ignore_this_mmap = false;
   }
-
-  //TODO: is the mmap length right?
-  devmem_mmap = libc_mmap(NULL, 259064795136, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, 0);
-  if (devmem_mmap == MAP_FAILED) {
-    perror("devmem mmap");
-    ignore_this_mmap = true;
-    assert(0);
-    ignore_this_mmap = false;
-  }
-
+  
   uint64_t i;
   int r = pthread_barrier_init(&pmemcpy.barrier, NULL, MAX_COPY_THREADS + 1);
   ignore_this_mmap = true;
@@ -428,6 +420,7 @@ static void hemem_mmap_populate(void* addr, size_t length)
     pthread_mutex_init(&(page->page_lock), NULL);
 
     mem_allocated += pagesize;
+    pages_allocated++;
 
     // place in hemem's page tracking list
     add_page(page);
@@ -519,6 +512,9 @@ int hemem_munmap(void* addr, size_t length)
       // remove page form hemem's and policy's list
       remove_page(page);
       mmgr_remove(page);
+
+      mem_allocated -= pt_to_pagesize(page->pt);
+      pages_freed++;
 
       // move to next page
       page_boundry += pt_to_pagesize(page->pt);
@@ -948,6 +944,7 @@ void handle_missing_fault(uint64_t page_boundry)
   add_page(page);
 
   missing_faults_handled++;
+  pages_allocated++;
   gettimeofday(&missing_end, NULL);
   LOG_TIME("hemem_missing_fault: %f s\n", elapsed(&missing_start, &missing_end));
 }
@@ -1139,15 +1136,21 @@ int hemem_get_accessed_bit(uint64_t va)
 
 void hemem_print_stats()
 {
-  fprintf(stderr, "missing_faults_handled: [%lu]\tmigrations_up: [%lu]\tmigrations_down: [%lu]\tpmemcpys: [%lu]\tmemsets: [%lu]\n", missing_faults_handled, migrations_up, migrations_down, pmemcpys, memsets);
+  LOG_STATS("mem_allocated: [%lu]\tpages_allocated: [%lu]\tpages_freed: [%lu]\tmissing_faults_handled: [%lu]\tmigrations_up: [%lu]\tmigrations_down: [%lu]\n", 
+               mem_allocated, 
+               pages_allocated, 
+               pages_freed, 
+               missing_faults_handled, 
+               migrations_up, 
+               migrations_down); 
 }
 
 
 void hemem_clear_stats()
 {
+  pages_allocated = 0;
+  pages_freed = 0;
   missing_faults_handled = 0;
   migrations_up = 0;
   migrations_down = 0;
-  pmemcpys = 0;
-  memsets = 0;
 }

@@ -57,6 +57,11 @@ FILE *timef;
 //#define LOG_TIME(str, ...) fprintf(timef, str, __VA_ARGS__)
 #define LOG_TIME(str, ...) while(0) {}
 
+FILE *statsf;
+#define LOG_STATS(str, ...) fprintf(stderr, str,  __VA_ARGS__)
+//#define LOG_STATS(str, ...) fprintf(statsf, str, __VA_ARGS__)
+//#define LOG_STATS(str, ...) while (0) {}
+
 #if defined (ALLOC_HEMEM)
   #define pagefault(...) hemem_pagefault(__VA_ARGS__)
   #define paging_init(...) hemem_mmgr_init(__VA_ARGS__)
@@ -80,7 +85,6 @@ FILE *timef;
 extern uint64_t cr3;
 extern int dramfd;
 extern int nvmfd;
-extern int devmemfd;
 extern bool is_init;
 extern _Atomic(uint64_t) missing_faults_handled;
 extern _Atomic(uint64_t) migrations_up;
