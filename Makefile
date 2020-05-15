@@ -5,3 +5,6 @@ gups: gups.c zipf.c
 
 test: test.c
 	gcc -o test test.c -pthread
+
+pebs: CFLAGS += -g -O2 -pthread
+#pebs: CFLAGS += -g -pthread
