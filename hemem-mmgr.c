@@ -468,7 +468,7 @@ static struct hemem_page* mmgr_allocate_page()
   }
 }
 
-struct hemem_page* mmgr_pagefault()
+struct hemem_page* hemem_mmgr_pagefault()
 {
   struct hemem_page *page;
 
@@ -480,7 +480,7 @@ struct hemem_page* mmgr_pagefault()
   return page;
 }
 
-void mmgr_remove_page(struct hemem_page *page)
+void hemem_mmgr_remove_page(struct hemem_page *page)
 {
   struct mmgr_node *node;
   struct mmgr_list *list;
@@ -510,7 +510,7 @@ void mmgr_remove_page(struct hemem_page *page)
   }
 }
 
-void mmgr_init(void)
+void hemem_mmgr_init(void)
 {
   pthread_t thread;
  
@@ -556,4 +556,9 @@ void mmgr_init(void)
   ignore_this_mmap = false;
 
   LOG("Memory management policy is Hemem\n");
+}
+
+void hemem_mmgr_stats()
+{
+
 }

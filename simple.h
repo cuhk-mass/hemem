@@ -27,5 +27,6 @@
 struct hemem_page* simple_pagefault(void);
 void simple_init(void);
 void simple_remove_page(struct hemem_page *page);
+void simple_stats();
 
 #endif // HEMEM_SIMPLE_H

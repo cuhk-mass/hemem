@@ -28,6 +28,7 @@ pthread_t fault_thread;
 
 int dramfd = -1;
 int nvmfd = -1;
+int devmemfd = -1;
 long uffd = -1;
 
 bool is_init = false;
@@ -264,6 +265,14 @@ void hemem_init()
   assert(nvmfd >= 0);
   ignore_this_mmap = false;
 
+  devmemfd = open("/dev/mem", O_RDWR | O_SYNC);
+  if (devmemfd < 0) {
+    perror("devmem open");
+    ignore_this_mmap = true;
+    assert(0);
+    ignore_this_mmap = false;
+  }
+
   uffd = syscall(__NR_userfaultfd, O_CLOEXEC | O_NONBLOCK);
   if (uffd == -1) {
     perror("uffd");
@@ -321,7 +330,15 @@ void hemem_init()
     assert(0);
     ignore_this_mmap = false;
   }
-  
+
+  devmem_mmap = libc_mmap(NULL, 6216477352, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, 0);
+  if (devmem_mmap == MAP_FAILED) {
+    perror("devmem mmap");
+    ignore_this_mmap = true;
+    assert(0);
+    ignore_this_mmap = false;
+  }
+ 
   uint64_t i;
   int r = pthread_barrier_init(&pmemcpy.barrier, NULL, MAX_COPY_THREADS + 1);
   ignore_this_mmap = true;
@@ -802,8 +819,6 @@ void hemem_wp_page(struct hemem_page *page, bool protect)
   }
   gettimeofday(&end, NULL);
 
-  hemem_tlb_shootdown(page->va);
- 
   LOG_TIME("uffdio_writeprotect: %f s\n", elapsed(&start, &end));
 }
 
@@ -824,8 +839,6 @@ void handle_wp_fault(uint64_t page_boundry)
   ignore_this_mmap = true;
   assert(!page->migrating);
   ignore_this_mmap = false;
-
-  hemem_tlb_shootdown(page->va);
 
   pthread_mutex_unlock(&(page->page_lock));
 }
@@ -1080,6 +1093,13 @@ void *handle_fault()
 }
 
 
+uint64_t hemem_va_to_pa(uint64_t va)
+{
+  uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
+  return va_to_pa(page_boundry);
+}
+
+
 void hemem_tlb_shootdown(uint64_t va)
 {
   uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
@@ -1099,39 +1119,28 @@ void hemem_tlb_shootdown(uint64_t va)
 
 void hemem_clear_accessed_bit(uint64_t va)
 {
-  uint64_t ret;
-  struct uffdio_page_flags page_flags;
+  uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
+  struct uffdio_range range;
+  int ret;
 
-  page_flags.va = va;
-  page_flags.flag = HEMEM_ACCESSED_FLAG;
+  clear_accessed_bit(page_boundry);
+ 
+  range.start = page_boundry;
+  range.len = PAGE_SIZE;
 
-  if (ioctl(uffd, UFFDIO_CLEAR_FLAG, &page_flags) < 0) {
-    fprintf(stderr, "userfaultfd_clear_flag returned < 0\n");
+  ret = ioctl(uffd, UFFDIO_TLBFLUSH, &range);
+  if (ret < 0) {
+    perror("uffdio tlbflush");
     assert(0);
-  }
-
-  ret = page_flags.res;
-  if (ret == 0) {
-    LOG("hemem_clear_accessed_bit: accessed bit not cleared\n");
   }
 }
 
 
 int hemem_get_accessed_bit(uint64_t va)
 {
-  uint64_t ret;
-  struct uffdio_page_flags page_flags;
+  uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
 
-  page_flags.va = va;
-  page_flags.flag = HEMEM_ACCESSED_FLAG;
-
-  if (ioctl(uffd, UFFDIO_GET_FLAG, &page_flags) < 0) {
-    fprintf(stderr, "userfaultfd_get_flag returned < 0\n");
-    assert(0);
-  }
-
-  ret = page_flags.res;
-  return (ret & HEMEM_ACCESSED_FLAG) == HEMEM_ACCESSED_FLAG;
+  return get_accessed_bit(page_boundry);
 }
 
 void hemem_print_stats()
@@ -1142,7 +1151,8 @@ void hemem_print_stats()
                pages_freed, 
                missing_faults_handled, 
                migrations_up, 
-               migrations_down); 
+               migrations_down);
+   mmgr_stats(); 
 }
 
 

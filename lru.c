@@ -21,6 +21,7 @@ static struct lru_list dram_free_list;
 static struct lru_list nvm_free_list;
 static pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
 static bool __thread in_kswapd = false;
+uint64_t lru_runs = 0;
 
 static void lru_migrate_down(struct lru_node *n, uint64_t i)
 {
@@ -197,6 +198,7 @@ void *lru_kswapd()
 
   for (;;) {
     usleep(KSWAPD_INTERVAL);
+
     pthread_mutex_lock(&global_lock);
 
     // identify cold pages
@@ -218,8 +220,13 @@ void *lru_kswapd()
                 n->page->va, n->framenum, nn->framenum, nvm_active_list.numentries, nvm_inactive_list.numentries, active_list.numentries, inactive_list.numentries);
 
           lru_migrate_up(n, nn->framenum);
+          struct hemem_page *tmp;
+          tmp = nn->page;
           nn->page = n->page;
           nn->page->management = nn;
+
+          n->page = tmp;
+          n->page->management = n;
 
           lru_list_add(&active_list, nn);
 
@@ -243,8 +250,13 @@ void *lru_kswapd()
                 cn->page->va, cn->framenum, nn->framenum, nvm_active_list.numentries, nvm_inactive_list.numentries, active_list.numentries, inactive_list.numentries);
 
           lru_migrate_down(cn, nn->framenum);
+          struct hemem_page *tmp;
+          tmp = nn->page;
           nn->page = cn->page;
           nn->page->management = nn;
+
+          cn->page = tmp;
+          cn->page->management = cn;
 
           lru_list_add(&nvm_inactive_list, nn);
 
@@ -254,6 +266,7 @@ void *lru_kswapd()
     }
 
 out:
+    lru_runs++;
     pthread_mutex_unlock(&global_lock);
   }
 
@@ -272,7 +285,7 @@ static struct hemem_page* lru_allocate_page()
 #endif
 
   pthread_mutex_lock(&global_lock);
-  
+
   gettimeofday(&start, NULL);
 #ifdef LRU_SWAP
   for (tries = 0; tries < 2; tries++) {
@@ -333,10 +346,10 @@ static struct hemem_page* lru_allocate_page()
       LOG("Out of hot memory -> move hot frame %lu to cold frame %lu\n", cn->framenum, node->framenum);
       LOG("\tmoving va: 0x%lx\n", cn->page->va);
 
+      lru_migrate_down(cn, node->framenum);
+
       node->page = cn->page;
       node->page->management = node;
-
-      lru_migrate_down(cn, node->framenum);
 
       lru_list_add(&nvm_inactive_list, node);
 
@@ -457,3 +470,11 @@ void lru_init(void)
 
 }
 
+void lru_stats()
+{
+  LOG_STATS("\tactive_list.numentries: [%ld]\tinactive_list.numentries: [%ld]\tnvm_active_list.numentries: [%ld]\tnvm_inactive_list.numentries: [%ld]\n",
+          active_list.numentries,
+          inactive_list.numentries,
+          nvm_active_list.numentries,
+          nvm_inactive_list.numentries);
+}

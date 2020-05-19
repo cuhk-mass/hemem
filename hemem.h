@@ -66,25 +66,29 @@ FILE *statsf;
   #define pagefault(...) hemem_pagefault(__VA_ARGS__)
   #define paging_init(...) hemem_mmgr_init(__VA_ARGS__)
   #define mmgr_remove(...) hemem_mmgr_remove_page(__VA_ARGS__)
+  #define mmgr_stats(...) hemem_mmgr_stats(__VA_ARGS__)
 #elif defined (ALLOC_LRU)
   #define pagefault(...) lru_pagefault(__VA_ARGS__)
   #define paging_init(...) lru_init(__VA_ARGS__)
   #define mmgr_remove(...) lru_remove_page(__VA_ARGS__)
+  #define mmgr_stats(...) lru_stats(__VA_ARGS__)
 #elif defined (ALLOC_SIMPLE)
   #define pagefault(...) simple_pagefault(__VA_ARGS__)
   #define paging_init(...) simple_init(__VA_ARGS__)
   #define mmgr_remove(...) simple_remove_page(__VA_ARGS__)
+  #define mmgr_stats(...) simple_stats(__VA_ARGS__)
 #endif
 
 
 #define MAX_UFFD_MSGS	    (1)
 #define MAX_COPY_THREADS  (4)
 
-#define KSWAPD_INTERVAL   (1000000)
+#define KSWAPD_INTERVAL   (100000)
 
 extern uint64_t cr3;
 extern int dramfd;
 extern int nvmfd;
+extern int devmemfd;
 extern bool is_init;
 extern _Atomic(uint64_t) missing_faults_handled;
 extern _Atomic(uint64_t) migrations_up;

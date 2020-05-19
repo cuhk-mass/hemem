@@ -108,3 +108,6 @@ void simple_init(void)
   }
   LOG("Memory management policy is simple\n");
 }
+
+void simple_stats()
+{}
