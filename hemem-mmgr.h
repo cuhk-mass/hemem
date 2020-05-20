@@ -24,7 +24,8 @@ struct mmgr_node {
   struct hemem_page *page;
   uint64_t accesses, tot_accesses;
   uint64_t offset;
-  struct hemem_node *next, *prev;
+  struct mmgr_node *next, *prev;
+  struct mmgr_list *list;
 };
 
 struct mmgr_list {
@@ -36,7 +37,7 @@ struct mmgr_list {
 
 void *mmgr_kswapd(void);
 struct hemem_page* hemem_mmgr_pagefault();
-void hemme_mmgr_init(void);
+void hemem_mmgr_init(void);
 void hemem_mmgr_remove_page(struct hemem_page *page);
 void hemem_mmgr_stats();
 

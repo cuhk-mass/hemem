@@ -58,12 +58,12 @@ FILE *timef;
 #define LOG_TIME(str, ...) while(0) {}
 
 FILE *statsf;
-#define LOG_STATS(str, ...) fprintf(stderr, str,  __VA_ARGS__)
+//#define LOG_STATS(str, ...) fprintf(stderr, str,  __VA_ARGS__)
 //#define LOG_STATS(str, ...) fprintf(statsf, str, __VA_ARGS__)
-//#define LOG_STATS(str, ...) while (0) {}
+#define LOG_STATS(str, ...) while (0) {}
 
 #if defined (ALLOC_HEMEM)
-  #define pagefault(...) hemem_pagefault(__VA_ARGS__)
+  #define pagefault(...) hemem_mmgr_pagefault(__VA_ARGS__)
   #define paging_init(...) hemem_mmgr_init(__VA_ARGS__)
   #define mmgr_remove(...) hemem_mmgr_remove_page(__VA_ARGS__)
   #define mmgr_stats(...) hemem_mmgr_stats(__VA_ARGS__)
@@ -83,7 +83,7 @@ FILE *statsf;
 #define MAX_UFFD_MSGS	    (1)
 #define MAX_COPY_THREADS  (4)
 
-#define KSWAPD_INTERVAL   (100000)
+#define KSWAPD_INTERVAL   (1000000)
 
 extern uint64_t cr3;
 extern int dramfd;

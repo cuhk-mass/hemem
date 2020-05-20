@@ -1116,7 +1116,7 @@ void hemem_tlb_shootdown(uint64_t va)
   }
 }
 
-
+/*
 void hemem_clear_accessed_bit(uint64_t va)
 {
   uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
@@ -1142,6 +1142,46 @@ int hemem_get_accessed_bit(uint64_t va)
 
   return get_accessed_bit(page_boundry);
 }
+
+*/
+
+void hemem_clear_accessed_bit(uint64_t va)
+{
+  uint64_t ret;
+  struct uffdio_page_flags page_flags;
+
+  page_flags.va = va;
+  page_flags.flag = HEMEM_ACCESSED_FLAG;
+
+  if (ioctl(uffd, UFFDIO_CLEAR_FLAG, &page_flags) < 0) {
+    fprintf(stderr, "userfaultfd_clear_flag returned < 0\n");
+    assert(0);
+  }
+
+  ret = page_flags.res;
+  if (ret == 0) {
+    LOG("hemem_clear_accessed_bit: accessed bit not cleared\n");
+  }
+}
+
+
+int hemem_get_accessed_bit(uint64_t va)
+{
+  uint64_t ret;
+  struct uffdio_page_flags page_flags;
+
+  page_flags.va = va;
+  page_flags.flag = HEMEM_ACCESSED_FLAG;
+
+  if (ioctl(uffd, UFFDIO_GET_FLAG, &page_flags) < 0) {
+    fprintf(stderr, "userfaultfd_get_flag returned < 0\n");
+    assert(0);
+  }
+
+  ret = page_flags.res;
+  return (ret & HEMEM_ACCESSED_FLAG) == HEMEM_ACCESSED_FLAG;
+}
+
 
 void hemem_print_stats()
 {
