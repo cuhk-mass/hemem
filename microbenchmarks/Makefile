@@ -6,7 +6,7 @@ LIBS = -lm -lpthread
 
 default: all
 
-all: gups-simple gups-lru gups-lru-swap test-simple test-lru #gups test
+all: gups-simple gups-lru gups-lru-swap test-simple test-lru gups test
 
 gups: gups.o
 	$(CC) $(CFLAGS) $(INCLUDES) -o gups gups.o zipf.o $(LIBS) -L../ -lhemem

@@ -21,7 +21,6 @@ static pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
 static _Atomic uint64_t fastmem_freebytes = DRAMSIZE;
 static _Atomic uint64_t slowmem_freebytes = NVMSIZE;
 
-
 static void mmgr_list_add(struct mmgr_list *list, struct mmgr_node *node)
 {
   pthread_mutex_lock(&(list->list_lock));
@@ -184,7 +183,13 @@ static void move_hot(void)
     fastmem_freebytes -= pt_to_pagesize(HUGEP);
     slowmem_freebytes += pt_to_pagesize(HUGEP);
 
-    hemem_migrate_down(n->page, nn->offset);
+    hemem_migrate_up(n->page, nn->offset);
+
+    // add migrated node to active list
+    mmgr_list_add(&mem_active[FASTMEM][HUGEP], nn);
+
+    // old node is now free
+    mmgr_list_add(&mem_free[SLOWMEM][HUGEP], n);
 
     // swap page structures on nodes
     struct hemem_page *tmp;
@@ -194,14 +199,17 @@ static void move_hot(void)
 
     n->page = tmp;
     n->page->management = n;
+    
+    n->page->present = false;
+    n->page->in_dram = false;
+    n->page->devdax_offset = n->offset;
 
-    // update va
-    // update pages
-    mmgr_list_add(&mem_active[FASTMEM][HUGEP], nn);
+    ignore_this_mmap = true;
+    assert(n->page->devdax_offset == n->offset);
+    assert(nn->page->devdax_offset == nn->offset);
+    ignore_this_mmap = false;
 
-    hemem_wp_page(n->page, false);
-    n->page->migrating = false;
-    mmgr_list_add(&mem_free[SLOWMEM][HUGEP], n);
+    nn->page->migrating = false;
     pthread_mutex_unlock(&(nn->page->page_lock));
   }
 }
@@ -281,13 +289,20 @@ move:
         struct mmgr_node *nn = mmgr_list_remove(&mem_free[SLOWMEM][HUGEP]);
         ignore_this_mmap = true;
         assert(nn != NULL);
+        assert(!nn->page->present);
         ignore_this_mmap = false;
 
         // TODO: move memory
         slowmem_freebytes -= pt_to_pagesize(HUGEP);
         fastmem_freebytes += pt_to_pagesize(HUGEP);
 
-        hemem_migrate_up(n->page, nn->offset);
+        hemem_migrate_down(n->page, nn->offset);
+
+        // add migrated node to inactive list
+        mmgr_list_add(&mem_inactive[SLOWMEM][HUGEP], nn);
+
+        // old node is now free
+        mmgr_list_add(&mem_free[FASTMEM][HUGEP], n);
 
         // swap page structures on nodes
         struct hemem_page *tmp;
@@ -298,14 +313,19 @@ move:
         n->page = tmp;
         n->page->management = n;
         
-        mmgr_list_add(&mem_inactive[SLOWMEM][HUGEP], nn);
+        n->page->in_dram = true;
+        n->page->present = false;
+        n->page->devdax_offset = n->offset;
+        
+        ignore_this_mmap = true;
+        assert(n->page->devdax_offset == n->offset);
+        assert(nn->page->devdax_offset == nn->offset);
+        ignore_this_mmap = false;
+
+        nn->page->migrating = false;
+        pthread_mutex_unlock(&(nn->page->page_lock));
       //}
 
-      hemem_wp_page(n->page, false);
-      n->page->migrating = false;
-      // fastmem page is now free
-      mmgr_list_add(&mem_free[FASTMEM][pt], n);
-      pthread_mutex_unlock(&(nn->page->page_lock));
     }  
   //}
 }
@@ -386,17 +406,17 @@ static void thaw(void)
 
         if (hemem_get_accessed_bit(n->page->va) == HEMEM_ACCESSED_FLAG) {
           n->tot_accesses++;
-          if (n->accesses >= 2) {
-            n->accesses = 0;
-            hemem_clear_accessed_bit(n->page->va);
-            mmgr_list_add(&mem_active[mt][pt], n);
-          }
-          else {
+          //if (n->accesses >= 2) {
+            //n->accesses = 0;
+            //hemem_clear_accessed_bit(n->page->va);
+            //mmgr_list_add(&mem_active[mt][pt], n);
+          //}
+          //else {
             n->accesses++;
             hemem_clear_accessed_bit(n->page->va);
-            mmgr_list_add(&mem_inactive[mt][pt], n);
+            mmgr_list_add(&mem_active[mt][pt], n);
             recirculated = true;
-          }
+          //}
         }
         else {
           mmgr_list_add(&mem_inactive[mt][pt], n);

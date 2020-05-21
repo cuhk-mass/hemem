@@ -602,6 +602,10 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
   uint64_t old_addr_offset, new_addr_offset;
   uint64_t pagesize;
 
+  ignore_this_mmap = true;
+  assert(!page->in_dram);
+  ignore_this_mmap = false;
+
   //LOG("hemem_migrate_up: migrate down addr: %lx pte: %lx\n", page->va, hemem_va_to_pa(page->va));
   
   gettimeofday(&migrate_start, NULL);
@@ -703,6 +707,10 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
   struct timeval start, end;
   uint64_t old_addr_offset, new_addr_offset;
   uint64_t pagesize;
+
+  ignore_this_mmap = true;
+  assert(page->in_dram);
+  ignore_this_mmap = false;
 
   //LOG("hemem_migrate_down: migrate down addr: %lx pte: %lx\n", page->va, hemem_va_to_pa(page->va));
 
