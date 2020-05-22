@@ -8,7 +8,7 @@
 #include "hemem.h"
 #include "paging.h"
 
-#define HEMEM_INTERVAL 100000ULL // in us
+#define HEMEM_INTERVAL 10000ULL // in us
 
 #define HEMEM_FASTFREE    (DRAMSIZE / 10)
 #define HEMEM_COOL_RATE   (10ULL * 1024ULL * 1024ULL * 1024ULL)

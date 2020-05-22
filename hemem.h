@@ -83,7 +83,7 @@ FILE *statsf;
 #define MAX_UFFD_MSGS	    (1)
 #define MAX_COPY_THREADS  (4)
 
-#define KSWAPD_INTERVAL   (1000000)
+#define KSWAPD_INTERVAL   (10000)
 
 extern uint64_t cr3;
 extern int dramfd;

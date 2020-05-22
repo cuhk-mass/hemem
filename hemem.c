@@ -1123,8 +1123,7 @@ void hemem_tlb_shootdown(uint64_t va)
     assert(0);
   }
 }
-
-/*
+/* 
 void hemem_clear_accessed_bit(uint64_t va)
 {
   uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
@@ -1150,7 +1149,6 @@ int hemem_get_accessed_bit(uint64_t va)
 
   return get_accessed_bit(page_boundry);
 }
-
 */
 
 void hemem_clear_accessed_bit(uint64_t va)
@@ -1187,7 +1185,7 @@ int hemem_get_accessed_bit(uint64_t va)
   }
 
   ret = page_flags.res;
-  return (ret & HEMEM_ACCESSED_FLAG) == HEMEM_ACCESSED_FLAG;
+  return ret;;
 }
 
 

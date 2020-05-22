@@ -146,7 +146,7 @@ static void lru_list_remove_node(struct lru_list *list, struct lru_node *node)
 
 static void shrink_caches(struct lru_list *active, struct lru_list *inactive)
 {
-  size_t nr_pages = 32;
+  size_t nr_pages = 512;
 
   // find cold pages and move to inactive list
   while (nr_pages > 0 && active->numentries > 0) {
@@ -228,6 +228,9 @@ void *lru_kswapd()
           n->page = tmp;
           n->page->management = n;
 
+          n->page->devdax_offset = n->framenum * PAGE_SIZE;
+          n->page->in_dram = false;
+
           lru_list_add(&active_list, nn);
 
           lru_list_add(&nvm_free_list, n);
@@ -257,6 +260,8 @@ void *lru_kswapd()
 
           cn->page = tmp;
           cn->page->management = cn;
+          cn->page->devdax_offset = cn->framenum * PAGE_SIZE;
+          cn->page->in_dram = true;
 
           lru_list_add(&nvm_inactive_list, nn);
 
@@ -295,6 +300,7 @@ static struct hemem_page* lru_allocate_page()
       ignore_this_mmap = true;
       assert(node->page->in_dram);
       assert(!node->page->present);
+      assert(node->page->devdax_offset == node->framenum * PAGE_SIZE);
       ignore_this_mmap = false;
 
       node->page->present = true;
@@ -317,6 +323,7 @@ static struct hemem_page* lru_allocate_page()
       ignore_this_mmap = true;
       assert(!node->page->in_dram);
       assert(!node->page->present);
+      assert(node->page->devdax_offset == node->framenum * PAGE_SIZE);
       ignore_this_mmap = false;
 
       node->page->present = true;
@@ -478,3 +485,4 @@ void lru_stats()
           nvm_active_list.numentries,
           nvm_inactive_list.numentries);
 }
+

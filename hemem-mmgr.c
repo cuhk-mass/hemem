@@ -406,17 +406,17 @@ static void thaw(void)
 
         if (hemem_get_accessed_bit(n->page->va) == HEMEM_ACCESSED_FLAG) {
           n->tot_accesses++;
-          //if (n->accesses >= 2) {
-            //n->accesses = 0;
-            //hemem_clear_accessed_bit(n->page->va);
-            //mmgr_list_add(&mem_active[mt][pt], n);
-          //}
-          //else {
-            n->accesses++;
+          if (n->accesses >= 2) {
+            n->accesses = 0;
             hemem_clear_accessed_bit(n->page->va);
             mmgr_list_add(&mem_active[mt][pt], n);
+          }
+          else {
+            n->accesses++;
+            hemem_clear_accessed_bit(n->page->va);
+            mmgr_list_add(&mem_inactive[mt][pt], n);
             recirculated = true;
-          //}
+          }
         }
         else {
           mmgr_list_add(&mem_inactive[mt][pt], n);
@@ -622,5 +622,11 @@ void hemem_mmgr_init(void)
 
 void hemem_mmgr_stats()
 {
-
+//  LOG_STATS("\tfastmem_freebytes: [%ld]\tslowmem_freebytes: [%ld]\tactive_list.numentries: [%ld : %ld]\tinactive_list.numentries: [%ld : %ld]\n",
+//            fastmem_freebytes,
+//            slowmem_freebytes,
+//            mem_active[FASTMEM][HUGEP].numentries,
+//            mem_active[SLOWMEM][HUGEP].numentries,
+//            mem_inactive[FASTMEM][HUGEP].numentries,
+//            mem_inactive[SLOWMEM][HUGEP].numentries);
 }
