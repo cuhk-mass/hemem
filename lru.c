@@ -146,7 +146,7 @@ static void lru_list_remove_node(struct lru_list *list, struct lru_node *node)
 
 static void shrink_caches(struct lru_list *active, struct lru_list *inactive)
 {
-  size_t nr_pages = 512;
+  size_t nr_pages = 5120;
 
   // find cold pages and move to inactive list
   while (nr_pages > 0 && active->numentries > 0) {
@@ -191,6 +191,7 @@ void *lru_kswapd()
   struct lru_node *n;
   struct lru_node *cn;
   struct lru_node *nn;
+  struct timeval start, end, tick_start, tick_end;
 
   //free(malloc(65536));
   
@@ -201,6 +202,8 @@ void *lru_kswapd()
 
     pthread_mutex_lock(&global_lock);
 
+    gettimeofday(&tick_start, NULL);
+
     // identify cold pages
     shrink_caches(&active_list, &inactive_list);
     shrink_caches(&nvm_active_list, &nvm_inactive_list);
@@ -208,6 +211,11 @@ void *lru_kswapd()
     // identify hot pages
     expand_caches(&active_list, &inactive_list);
     expand_caches(&nvm_active_list, &nvm_inactive_list);
+    gettimeofday(&end, NULL);
+
+    LOG_TIME("scan: %f s\n", elapsed(&tick_start, &end));
+
+    gettimeofday(&start, NULL);
 
     // move each active NVM page to DRAM
     for (n = lru_list_remove(&nvm_active_list); n != NULL; n = lru_list_remove(&nvm_active_list)) {
@@ -273,6 +281,9 @@ void *lru_kswapd()
 out:
     lru_runs++;
     pthread_mutex_unlock(&global_lock);
+    gettimeofday(&tick_end, NULL);
+    LOG_TIME("migrate: %f s\n", elapsed(&start, &tick_end));
+    LOG_TIME("tick: %f s \n", elapsed(&tick_start, &tick_end));
   }
 
   return NULL;
@@ -288,8 +299,6 @@ static struct hemem_page* lru_allocate_page()
   struct lru_node *cn;
   int tries;
 #endif
-
-  pthread_mutex_lock(&global_lock);
 
   gettimeofday(&start, NULL);
 #ifdef LRU_SWAP
@@ -307,8 +316,6 @@ static struct hemem_page* lru_allocate_page()
       lru_list_add(&active_list, node);
 
       node->page->management = node;
-
-      pthread_mutex_unlock(&global_lock);
 
       gettimeofday(&end, NULL);
       LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
@@ -331,8 +338,6 @@ static struct hemem_page* lru_allocate_page()
 
       node->page->management = node;
 
-      pthread_mutex_unlock(&global_lock);
-      
       gettimeofday(&end, NULL);
       LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
 
@@ -369,7 +374,6 @@ static struct hemem_page* lru_allocate_page()
   }
 #endif
 
-  pthread_mutex_unlock(&global_lock);
   ignore_this_mmap = true;
   assert(!"Out of memory");
   ignore_this_mmap = false;
@@ -380,12 +384,26 @@ struct hemem_page* lru_pagefault(void)
 {
   struct hemem_page *page;
 
+  pthread_mutex_lock(&global_lock);
   // do the heavy lifting of finding the devdax file offset to place the page
   page = lru_allocate_page();
+  pthread_mutex_unlock(&global_lock);
   ignore_this_mmap = true;
   assert(page != NULL);
   ignore_this_mmap = false;
   
+  return page;
+}
+
+struct hemem_page* lru_pagefault_unlocked(void)
+{
+  struct hemem_page *page;
+
+  page = lru_allocate_page();
+  ignore_this_mmap = true;
+  assert(page != NULL);
+  ignore_this_mmap = false;
+
   return page;
 }
 
@@ -479,10 +497,21 @@ void lru_init(void)
 
 void lru_stats()
 {
-  LOG_STATS("\tactive_list.numentries: [%ld]\tinactive_list.numentries: [%ld]\tnvm_active_list.numentries: [%ld]\tnvm_inactive_list.numentries: [%ld]\n",
-          active_list.numentries,
-          inactive_list.numentries,
-          nvm_active_list.numentries,
-          nvm_inactive_list.numentries);
+//  LOG_STATS("\tactive_list.numentries: [%ld]\tinactive_list.numentries: [%ld]\tnvm_active_list.numentries: [%ld]\tnvm_inactive_list.numentries: [%ld]\n",
+//          active_list.numentries,
+//          inactive_list.numentries,
+//          nvm_active_list.numentries,
+//          nvm_inactive_list.numentries);
+}
+
+
+void lru_lock()
+{
+  pthread_mutex_lock(&global_lock);
+}
+
+void lru_unlock()
+{
+  pthread_mutex_unlock(&global_lock);
 }
 

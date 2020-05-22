@@ -37,8 +37,11 @@ struct mmgr_list {
 
 void *mmgr_kswapd(void);
 struct hemem_page* hemem_mmgr_pagefault();
+struct hemem_page* hemem_mmgr_pagefault_unlocked();
 void hemem_mmgr_init(void);
 void hemem_mmgr_remove_page(struct hemem_page *page);
 void hemem_mmgr_stats();
+void hemem_mmgr_lock();
+void hemem_mmgr_unlock();
 
 #endif

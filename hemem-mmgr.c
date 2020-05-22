@@ -440,16 +440,23 @@ static void thaw(void)
 
 static void *mmgr_thread(void *arg)
 {
+  struct timeval start, end, tick_start, tick_end;
+
   for (;;) {
     usleep(HEMEM_INTERVAL);
 
     pthread_mutex_lock(&global_lock);
 
+    gettimeofday(&tick_start, NULL);
     // track hot/cold mem
     cool();
     thaw();
+    gettimeofday(&end, NULL);
+    LOG_TIME("scan: %f s\n", elapsed(&tick_start, &end));
 
     hemem_tlb_shootdown(0);
+
+    gettimeofday(&start, NULL);
 
     // under memory pressure in fastmem?
     if (fastmem_freebytes < HEMEM_FASTFREE) {
@@ -463,6 +470,10 @@ static void *mmgr_thread(void *arg)
 
     hemem_tlb_shootdown(0);
 
+    gettimeofday(&tick_end, NULL);
+    LOG_TIME("migrate: %f s\n", elapsed(&start, &tick_end));
+    LOG_TIME("tick: %f s\n", elapsed(&tick_start, &tick_end));
+
     pthread_mutex_unlock(&global_lock);
   }
 
@@ -474,7 +485,6 @@ static struct hemem_page* mmgr_allocate_page()
   struct timeval start, end;
   struct mmgr_node *node;
 
-  pthread_mutex_lock(&global_lock);
 
   gettimeofday(&start, NULL);
 
@@ -493,8 +503,6 @@ static struct hemem_page* mmgr_allocate_page()
       fastmem_freebytes -= pt_to_pagesize(pt);
 
       node->page->management = node;
-
-      pthread_mutex_unlock(&global_lock);
 
       gettimeofday(&end, NULL);
       LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
@@ -519,8 +527,6 @@ static struct hemem_page* mmgr_allocate_page()
 
     node->page->management = node;
 
-    pthread_mutex_unlock(&global_lock);
-
     gettimeofday(&end, NULL);
     LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
 
@@ -533,7 +539,21 @@ static struct hemem_page* mmgr_allocate_page()
 struct hemem_page* hemem_mmgr_pagefault()
 {
   struct hemem_page *page;
+  
+  pthread_mutex_lock(&global_lock);
+  page = mmgr_allocate_page();
+  pthread_mutex_unlock(&global_lock);
+  ignore_this_mmap = true;
+  assert(page != NULL);
+  ignore_this_mmap = false;
 
+  return page;
+}
+
+struct hemem_page* hemem_mmgr_pagefault_unlocked()
+{
+  struct hemem_page *page;
+  
   page = mmgr_allocate_page();
   ignore_this_mmap = true;
   assert(page != NULL);
@@ -629,4 +649,15 @@ void hemem_mmgr_stats()
 //            mem_active[SLOWMEM][HUGEP].numentries,
 //            mem_inactive[FASTMEM][HUGEP].numentries,
 //            mem_inactive[SLOWMEM][HUGEP].numentries);
+}
+
+
+void hemem_mmgr_lock()
+{
+  pthread_mutex_lock(&global_lock);
+}
+
+void hemem_mmgr_unlock()
+{
+  pthread_mutex_unlock(&global_lock);
 }

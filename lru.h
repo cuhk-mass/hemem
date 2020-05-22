@@ -8,6 +8,9 @@
 #include "hemem.h"
 #include "paging.h"
 
+
+#define KSWAPD_INTERVAL   (10000) // in us
+
 struct lru_node {
   struct hemem_page *page;
   uint64_t framenum;
@@ -24,8 +27,12 @@ struct lru_list {
 
 void *lru_kswapd();
 struct hemem_page* lru_pagefault(void);
+struct hemem_page* lru_pagefault_unlocked(void);
 void lru_init(void);
 void lru_remove_page(struct hemem_page *page);
 void lru_stats();
+void lru_lock();
+void lru_unlock();
+
 
 #endif /*  HEMEM_LRU_MODIFIED_H  */
