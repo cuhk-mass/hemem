@@ -146,7 +146,7 @@ static void lru_list_remove_node(struct lru_list *list, struct lru_node *node)
 
 static void shrink_caches(struct lru_list *active, struct lru_list *inactive)
 {
-  size_t nr_pages = 5120;
+  size_t nr_pages = active->numentries;
 
   // find cold pages and move to inactive list
   while (nr_pages > 0 && active->numentries > 0) {
@@ -184,6 +184,30 @@ static void expand_caches(struct lru_list *active, struct lru_list *inactive)
   }
 }
 
+void *lru_kscand()
+{
+  struct timeval start, end;
+
+  for (;;) {
+    usleep(KSCAND_INTERVAL);
+    //pthread_mutex_lock(&global_lock);
+
+    gettimeofday(&start, NULL);
+
+    shrink_caches(&active_list, &inactive_list);
+    shrink_caches(&nvm_active_list, &nvm_inactive_list);
+
+    expand_caches(&active_list, &inactive_list);
+    expand_caches(&nvm_active_list, &nvm_inactive_list);
+
+    hemem_tlb_shootdown(0);
+
+    gettimeofday(&end, NULL);
+
+    LOG_TIME("scan: %f s\n", elapsed(&start, &end));
+    //pthread_mutex_unlock(&global_lock);
+  }
+}
 
 void *lru_kswapd()
 {
@@ -191,7 +215,8 @@ void *lru_kswapd()
   struct lru_node *n;
   struct lru_node *cn;
   struct lru_node *nn;
-  struct timeval start, end, tick_start, tick_end;
+  struct timeval start, end;
+  uint64_t migrated_bytes;
 
   //free(malloc(65536));
   
@@ -202,23 +227,15 @@ void *lru_kswapd()
 
     pthread_mutex_lock(&global_lock);
 
-    gettimeofday(&tick_start, NULL);
-
-    // identify cold pages
-    shrink_caches(&active_list, &inactive_list);
-    shrink_caches(&nvm_active_list, &nvm_inactive_list);
-
-    // identify hot pages
-    expand_caches(&active_list, &inactive_list);
-    expand_caches(&nvm_active_list, &nvm_inactive_list);
-    gettimeofday(&end, NULL);
-
-    LOG_TIME("scan: %f s\n", elapsed(&tick_start, &end));
-
     gettimeofday(&start, NULL);
 
     // move each active NVM page to DRAM
-    for (n = lru_list_remove(&nvm_active_list); n != NULL; n = lru_list_remove(&nvm_active_list)) {
+    for (migrated_bytes = 0; migrated_bytes < KSWAPD_MIGRATE_RATE;) {
+      n = lru_list_remove(&nvm_active_list);
+      if (n == NULL) {
+        break;
+      }
+
       for (tries = 0; tries < 2; tries++) {
         // find a free DRAM page
         nn = lru_list_remove(&dram_free_list);
@@ -242,6 +259,8 @@ void *lru_kswapd()
           lru_list_add(&active_list, nn);
 
           lru_list_add(&nvm_free_list, n);
+
+          migrated_bytes += pt_to_pagesize(nn->page->pt);
 
           break;
         }
@@ -281,9 +300,8 @@ void *lru_kswapd()
 out:
     lru_runs++;
     pthread_mutex_unlock(&global_lock);
-    gettimeofday(&tick_end, NULL);
-    LOG_TIME("migrate: %f s\n", elapsed(&start, &tick_end));
-    LOG_TIME("tick: %f s \n", elapsed(&tick_start, &tick_end));
+    gettimeofday(&end, NULL);
+    LOG_TIME("migrate: %f s\n", elapsed(&start, &end));
   }
 
   return NULL;
@@ -443,6 +461,7 @@ void lru_remove_page(struct hemem_page *page)
 void lru_init(void)
 {
   pthread_t kswapd_thread;
+  pthread_t scan_thread;
 
   LOG("lru_init: started\n");
 
@@ -479,8 +498,13 @@ void lru_init(void)
     p->management = n;
     lru_list_add(&nvm_free_list, n);
   }
+
+  int r = pthread_create(&scan_thread, NULL, lru_kscand, NULL);
+  ignore_this_mmap = true;
+  assert(r == 0);
+  ignore_this_mmap = false;
   
-  int r = pthread_create(&kswapd_thread, NULL, lru_kswapd, NULL);
+  r = pthread_create(&kswapd_thread, NULL, lru_kswapd, NULL);
   ignore_this_mmap = true;
   assert(r == 0);
   ignore_this_mmap = false;
