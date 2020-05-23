@@ -146,7 +146,7 @@ static void lru_list_remove_node(struct lru_list *list, struct lru_node *node)
 
 static void shrink_caches(struct lru_list *active, struct lru_list *inactive)
 {
-  size_t nr_pages = active->numentries;
+  size_t nr_pages = 5120;
 
   // find cold pages and move to inactive list
   while (nr_pages > 0 && active->numentries > 0) {
@@ -167,13 +167,17 @@ static void shrink_caches(struct lru_list *active, struct lru_list *inactive)
 
 static void expand_caches(struct lru_list *active, struct lru_list *inactive)
 {
-  size_t nr_pages = inactive->numentries;
+  size_t nr_pages = 5120;
   size_t i;
   struct lru_node *n;
 
   // examine each page in inactive list and move to active list if accessed
   for (i = 0; i < nr_pages; i++) {
     n = lru_list_remove(inactive);
+
+    if (n == NULL) {
+      break;
+    }
 
     if (hemem_get_accessed_bit(n->page->va) == HEMEM_ACCESSED_FLAG) {
       lru_list_add(active, n);
@@ -521,11 +525,11 @@ void lru_init(void)
 
 void lru_stats()
 {
-//  LOG_STATS("\tactive_list.numentries: [%ld]\tinactive_list.numentries: [%ld]\tnvm_active_list.numentries: [%ld]\tnvm_inactive_list.numentries: [%ld]\n",
-//          active_list.numentries,
-//          inactive_list.numentries,
-//          nvm_active_list.numentries,
-//          nvm_inactive_list.numentries);
+  LOG_STATS("\tactive_list.numentries: [%ld]\tinactive_list.numentries: [%ld]\tnvm_active_list.numentries: [%ld]\tnvm_inactive_list.numentries: [%ld]\n",
+          active_list.numentries,
+          inactive_list.numentries,
+          nvm_active_list.numentries,
+          nvm_inactive_list.numentries);
 }
 
 
