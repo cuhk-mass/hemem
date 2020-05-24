@@ -511,9 +511,9 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
   }
 
    
-  //if ((flags & MAP_POPULATE) == MAP_POPULATE) {
+//  if ((flags & MAP_POPULATE) == MAP_POPULATE) {
     hemem_mmap_populate(p, length);
-  //}
+//  }
   
   return p;
 }
@@ -1127,7 +1127,7 @@ void hemem_tlb_shootdown(uint64_t va)
     assert(0);
   }
 }
-/* 
+/*
 void hemem_clear_accessed_bit(uint64_t va)
 {
   uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
@@ -1135,15 +1135,16 @@ void hemem_clear_accessed_bit(uint64_t va)
   int ret;
 
   clear_accessed_bit(page_boundry);
- 
-  range.start = page_boundry;
-  range.len = PAGE_SIZE;
 
-  ret = ioctl(uffd, UFFDIO_TLBFLUSH, &range);
-  if (ret < 0) {
-    perror("uffdio tlbflush");
-    assert(0);
-  }
+//  range.start = page_boundry;
+//  range.len = PAGE_SIZE;
+//
+//  ret = ioctl(uffd, UFFDIO_TLBFLUSH, &range);
+//  if (ret < 0) {
+//    perror("uffdio tlbflush");
+//    assert(0);
+//  }
+
 }
 
 
@@ -1154,7 +1155,6 @@ int hemem_get_accessed_bit(uint64_t va)
   return get_accessed_bit(page_boundry);
 }
 */
-
 void hemem_clear_accessed_bit(uint64_t va)
 {
   uint64_t ret;
@@ -1191,7 +1191,6 @@ int hemem_get_accessed_bit(uint64_t va)
   ret = page_flags.res;
   return ret;;
 }
-
 
 void hemem_print_stats()
 {

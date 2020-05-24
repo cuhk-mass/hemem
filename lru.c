@@ -23,6 +23,8 @@ static pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
 static bool __thread in_kswapd = false;
 uint64_t lru_runs = 0;
 
+bool count_scans = false;
+
 static void lru_migrate_down(struct lru_node *n, uint64_t i)
 {
   pthread_mutex_lock(&(n->page->page_lock));
@@ -159,8 +161,8 @@ static void shrink_caches(struct lru_list *active, struct lru_list *inactive)
     else {
       // found a cold page, put it on inactive list
       lru_list_add(inactive, n);
-      nr_pages--;
     }
+    nr_pages--;
   }
 }
 
@@ -180,9 +182,19 @@ static void expand_caches(struct lru_list *active, struct lru_list *inactive)
     }
 
     if (hemem_get_accessed_bit(n->page->va) == HEMEM_ACCESSED_FLAG) {
-      lru_list_add(active, n);
+      n->tot_accesses++;
+      hemem_clear_accessed_bit(n->page->va);
+      if (n->accesses >= 2) {
+        n->accesses = 0;
+        lru_list_add(active, n);
+      }
+      else {
+        n->accesses++;
+        lru_list_add(inactive, n);
+      }
     }
     else {
+      n->accesses = 0;
       lru_list_add(inactive, n);
     }
   }
@@ -208,7 +220,9 @@ void *lru_kscand()
 
     gettimeofday(&end, NULL);
 
-    LOG_TIME("scan: %f s\n", elapsed(&start, &end));
+    if (count_scans) {
+      LOG_TIME("scan: %f s\n", elapsed(&start, &end));
+    }
     //pthread_mutex_unlock(&global_lock);
   }
 }
@@ -473,6 +487,7 @@ void lru_init(void)
   for (int i = 0; i < DRAMSIZE / PAGE_SIZE; i++) {
     struct lru_node *n = calloc(1, sizeof(struct lru_node));
     n->framenum = i;
+    n->accesses = n->tot_accesses = 0;
 
     struct hemem_page *p = calloc(1, sizeof(struct hemem_page));
     p->devdax_offset = i * PAGE_SIZE;
@@ -490,6 +505,7 @@ void lru_init(void)
   for (int i = 0; i < NVMSIZE / PAGE_SIZE; i++) {
     struct lru_node *n = calloc(1, sizeof(struct lru_node));
     n->framenum = i;
+    n->accesses = n->tot_accesses = 0;
 
     struct hemem_page *p = calloc(1, sizeof(struct hemem_page));
     p->devdax_offset = i * PAGE_SIZE;
@@ -536,10 +552,12 @@ void lru_stats()
 void lru_lock()
 {
   pthread_mutex_lock(&global_lock);
+  count_scans = false;
 }
 
 void lru_unlock()
 {
   pthread_mutex_unlock(&global_lock);
+  count_scans = true;
 }
 

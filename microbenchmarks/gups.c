@@ -97,7 +97,7 @@ static void *do_gups(void *arguments)
       memcpy(&field[index1 * elt_size], data, elt_size);
     }
     i += hot_num;
-
+    
     lfsr = lfsr_fast(lfsr);
     index2 = lfsr % (args->size);
     memcpy(data, &field[index2 * elt_size], elt_size);
@@ -207,7 +207,7 @@ int main(int argc, char **argv)
   printf("Initialization time: %.4f seconds.\n", secs);
 
   hot_start = 0;
-  hotsize = nelems / 10;
+  hotsize = (128UL * 1024UL * 1024UL * 1024UL) / (elt_size);
   printf("hot_start: %lu\thot_size: %lu\n", hot_start, hotsize);
   
   // run through gups once to touch all memory
@@ -258,7 +258,7 @@ int main(int argc, char **argv)
   gups = threads * ((double)updates) / (secs * 1.0e9);
   printf("GUPS = %.10f\n", gups);
 #ifdef HOTSPOT
-  hot_start = nelems - (uint64_t)(hotsize) - 1;
+  hot_start = (1024UL * 1024UL * 1024UL * 16UL) / elt_size;              // 16GB to the right;
   printf("hot_start: %lu\thot_size: %lu\n", hot_start, hotsize);
 
   printf("Timing.\n");
