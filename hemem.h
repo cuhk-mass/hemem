@@ -48,9 +48,9 @@ extern "C" {
 #define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
 
 FILE *hememlogf;
-//#define LOG(...) fprintf(stderr, __VA_ARGS__)
+#define LOG(...) fprintf(stderr, __VA_ARGS__)
 //#define LOG(...)	fprintf(hememlogf, __VA_ARGS__)
-#define LOG(str, ...) while(0) {}
+//#define LOG(str, ...) while(0) {}
 
 
 FILE *timef;
@@ -120,6 +120,8 @@ enum pagetypes {
 struct hemem_page {
   uint64_t va;
   uint64_t devdax_offset;
+  uint64_t *pgd, *pud, *pmd, *pte;
+  uint64_t *pa;
   bool in_dram;
   enum pagetypes pt;
   bool migrating;
@@ -166,9 +168,9 @@ void hemem_wp_page(struct hemem_page *page, bool protect);
 void hemem_promote_pages(uint64_t addr);
 void hemem_demote_pages(uint64_t addr);
 
-uint64_t hemem_va_to_pa(uint64_t va);
-void hemem_clear_accessed_bit(uint64_t va);
-int hemem_get_accessed_bit(uint64_t va);
+uint64_t* hemem_va_to_pa(struct hemem_page *page);
+void hemem_clear_accessed_bit(struct hemem_page *page);
+int hemem_get_accessed_bit(struct hemem_page *page);
 void hemem_tlb_shootdown(uint64_t va);
 
 void hemem_print_stats();

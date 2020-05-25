@@ -56,14 +56,16 @@ pthread_mutex_t pages_lock = PTHREAD_MUTEX_INITIALIZER;
 
 void *dram_devdax_mmap;
 void *nvm_devdax_mmap;
-void *devmem_mmap;
+//void *devmem_mmap;
 
 __thread bool internal_malloc = false;
 __thread bool internal_munmap = false;
 __thread bool ignore_this_mmap = false;
 
 struct pmemcpy {
+  pthread_mutex_t lock;
   pthread_barrier_t barrier;
+  _Atomic bool write_zeros;
   _Atomic void *dst;
   _Atomic void *src;
   _Atomic size_t length;
@@ -96,12 +98,19 @@ void *hemem_parallel_memcpy_thread(void *arg)
     // grab data out of shared struct
     length = pmemcpy.length;
     chunk_size = length / MAX_COPY_THREADS;
-    src = pmemcpy.src + (tid * chunk_size);
     dst = pmemcpy.dst + (tid * chunk_size);
+    if (!pmemcpy.write_zeros) {
+      src = pmemcpy.src + (tid * chunk_size);
+    }
 
-    LOG("thread %lu copying %lu bytes from %lx to %lx\n", tid, chunk_size, (uint64_t)dst, (uint64_t)src);
+    //LOG("thread %lu copying %lu bytes from %lx to %lx\n", tid, chunk_size, (uint64_t)dst, (uint64_t)src);
 
-    memcpy(dst, src, chunk_size);
+    if (pmemcpy.write_zeros) {
+      memset(dst, 0, chunk_size);
+    }
+    else {
+      memcpy(dst, src, chunk_size);
+    }
 
 #ifdef HEMEM_DEBUG
     uint64_t *tmp1, *tmp2, i;
@@ -117,7 +126,7 @@ void *hemem_parallel_memcpy_thread(void *arg)
     }
 #endif
 
-    LOG("thread %lu done copying\n", tid);
+    //LOG("thread %lu done copying\n", tid);
 
     r = pthread_barrier_wait(&pmemcpy.barrier);
     ignore_this_mmap = true;
@@ -331,16 +340,21 @@ void hemem_init()
     ignore_this_mmap = false;
   }
 
-  devmem_mmap = libc_mmap(NULL, 6216477352, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, 0);
-  if (devmem_mmap == MAP_FAILED) {
-    perror("devmem mmap");
-    ignore_this_mmap = true;
-    assert(0);
-    ignore_this_mmap = false;
-  }
+  //devmem_mmap = libc_mmap(NULL, 6762176548864, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, 0);
+  //if (devmem_mmap == MAP_FAILED) {
+  //  perror("devmem mmap");
+  //  ignore_this_mmap = true;
+  //  assert(0);
+  //  ignore_this_mmap = false;
+  //}
  
   uint64_t i;
   int r = pthread_barrier_init(&pmemcpy.barrier, NULL, MAX_COPY_THREADS + 1);
+  ignore_this_mmap = true;
+  assert(r == 0);
+  ignore_this_mmap = false;
+
+  r = pthread_mutex_init(&pmemcpy.lock, NULL);
   ignore_this_mmap = true;
   assert(r == 0);
   ignore_this_mmap = false;
@@ -365,6 +379,26 @@ void hemem_init()
   add_page(dummy_page);
 
   LOG("hemem_init: finished\n");
+}
+
+static void hemem_parallel_memset(void* addr, int c, size_t n)
+{
+  pthread_mutex_lock(&(pmemcpy.lock));
+  pmemcpy.dst = addr;
+  pmemcpy.length = n;
+  pmemcpy.write_zeros = true;
+
+  int r = pthread_barrier_wait(&pmemcpy.barrier);
+  ignore_this_mmap = true;
+  assert(r ==0 || r == PTHREAD_BARRIER_SERIAL_THREAD);
+  ignore_this_mmap = false;
+
+  r = pthread_barrier_wait(&pmemcpy.barrier);
+  ignore_this_mmap = true;
+  assert(r == 0 || r == PTHREAD_BARRIER_SERIAL_THREAD);
+  ignore_this_mmap = false;
+  
+  pthread_mutex_unlock(&(pmemcpy.lock));
 }
 
 static void hemem_mmap_populate(void* addr, size_t length)
@@ -398,7 +432,7 @@ static void hemem_mmap_populate(void* addr, size_t length)
     pagesize = pt_to_pagesize(page->pt);
 
     tmpaddr = (in_dram ? dram_devdax_mmap + offset : nvm_devdax_mmap + offset);
-    memset(tmpaddr, 0, pagesize);
+    hemem_parallel_memset(tmpaddr, 0, pagesize);
     memsets++;
   
     // now that we have an offset determined via the policy algorithm, actually map
@@ -435,6 +469,7 @@ static void hemem_mmap_populate(void* addr, size_t length)
     ignore_this_mmap = false;
     page->migrating = false;
     page->migrations_up = page->migrations_down = 0;
+    page->pa = hemem_va_to_pa(page);
  
     pthread_mutex_init(&(page->page_lock), NULL);
 
@@ -542,7 +577,7 @@ int hemem_munmap(void* addr, size_t length)
     }
     else {
       // TODO: deal with holes?
-      LOG("hemem_mmunmap: no page to umnap\n");
+      //LOG("hemem_mmunmap: no page to umnap\n");
       //assert(0);
       page_boundry += BASEPAGE_SIZE;
     }
@@ -559,17 +594,18 @@ static void hemem_parallel_memcpy(void *dst, void *src, size_t length)
 {
   /* uint64_t i; */
   /* bool all_threads_done; */
-
+  pthread_mutex_lock(&(pmemcpy.lock));
   pmemcpy.dst = dst;
   pmemcpy.src = src;
   pmemcpy.length = length;
+  pmemcpy.write_zeros = false;
 
   int r = pthread_barrier_wait(&pmemcpy.barrier);
   ignore_this_mmap = true;
   assert(r == 0 || r == PTHREAD_BARRIER_SERIAL_THREAD);
   ignore_this_mmap = false;
   
-  LOG("parallel migration started\n");
+  //LOG("parallel migration started\n");
   
   /* pmemcpy.activate = true; */
 
@@ -587,7 +623,8 @@ static void hemem_parallel_memcpy(void *dst, void *src, size_t length)
   ignore_this_mmap = true;
   assert(r == 0 || r == PTHREAD_BARRIER_SERIAL_THREAD);
   ignore_this_mmap = false;
-  LOG("parallel migration finished\n");
+  //LOG("parallel migration finished\n");
+  pthread_mutex_unlock(&(pmemcpy.lock));
 
   /* pmemcpy.activate = false; */
 
@@ -692,6 +729,7 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
 
   page->devdax_offset = dram_offset;
   page->in_dram = true;
+  page->pa = hemem_va_to_pa(page);
 
   hemem_tlb_shootdown(page->va);
   
@@ -794,6 +832,7 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
 
   page->devdax_offset = nvm_offset;
   page->in_dram = false;
+  page->pa = hemem_va_to_pa(page);
 
   hemem_tlb_shootdown(page->va);
 
@@ -902,7 +941,7 @@ void handle_missing_fault(uint64_t page_boundry)
 
   tmp_offset = (in_dram) ? dram_devdax_mmap + offset : nvm_devdax_mmap + offset;
 
-  memset(tmp_offset, 0, pagesize);
+  hemem_parallel_memset(tmp_offset, 0, pagesize);
   memsets++;
 
 #ifdef HEMEM_DEBUG
@@ -958,6 +997,7 @@ void handle_missing_fault(uint64_t page_boundry)
   ignore_this_mmap = false;
   page->migrating = false;
   page->migrations_up = page->migrations_down = 0;
+  page->pa = hemem_va_to_pa(page);
  
   pthread_mutex_init(&(page->page_lock), NULL);
 
@@ -1105,12 +1145,73 @@ void *handle_fault()
 }
 
 
-uint64_t hemem_va_to_pa(uint64_t va)
+uint64_t* hemem_va_to_pa(struct hemem_page *page)
 {
-  uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
-  return va_to_pa(page_boundry);
-}
+  uint64_t pt_base = ((uint64_t)(cr3 & ADDRESS_MASK));
+  uint64_t pgd_entry;
+  uint64_t pud_entry;
+  uint64_t pmd_entry;
+  uint64_t pte_entry;
+  uint64_t offset;
 
+  page->pgd = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pt_base);
+  if (page->pgd == MAP_FAILED) {
+    perror("hemem_va_to_pa pgd mmap:");
+    assert(0);
+  }
+  offset = (((page->va) >> HEMEM_PGDIR_SHIFT) & (HEMEM_PTRS_PER_PGD - 1));
+  assert(offset < BASEPAGE_SIZE);
+  pgd_entry = *(page->pgd + offset) ;
+  if (!((pgd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
+    LOG("hemem_va_to_pa: pgd not present: %016lx\n", pgd_entry);
+    assert(0);
+  }
+
+  page->pud = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pgd_entry & ADDRESS_MASK);
+  if (page->pud == MAP_FAILED) {
+    perror("hemem_va_to_pa pud mmap:");
+    assert(0);
+  }
+  offset =  (((page->va) >> HEMEM_PUD_SHIFT) & (HEMEM_PTRS_PER_PUD - 1));
+  assert(offset < BASEPAGE_SIZE);
+  pud_entry = *(page->pud + offset);
+  if (!((pud_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
+    LOG("hemem_va_to_pa: pud not present: %016lx\n", pud_entry);
+    assert(0);
+  }
+
+  page->pmd = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pud_entry & ADDRESS_MASK);
+  if (page->pmd == MAP_FAILED) {
+    perror("hemem_va_to_pa pmd mmap:");
+    assert(0);
+  }
+  offset = (((page->va) >> HEMEM_PMD_SHIFT) & (HEMEM_PTRS_PER_PMD - 1));
+  assert(offset < BASEPAGE_SIZE);
+  pmd_entry = *(page->pmd + offset);
+  if (!((pmd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
+    LOG("hemem_va_to_pa: pmd not present: %016lx\n", pmd_entry);
+    assert(0);
+  }
+
+  if ((pmd_entry & HEMEM_HUGEPAGE_FLAG) == HEMEM_HUGEPAGE_FLAG) {
+    return (page->pmd + offset);
+  }
+
+  page->pte = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pmd_entry & ADDRESS_MASK);
+  if (page->pte == MAP_FAILED) {
+    perror("hemem_va_to_pa pte mmap:");
+    assert(0);
+  }
+  offset = (((page->va) >> HEMEM_PAGE_SHIFT) & (HEMEM_PTRS_PER_PTE - 1));
+  assert(offset < BASEPAGE_SIZE);
+  pte_entry = *(page->pte + offset);
+  if (!((pte_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
+    LOG("hemem_va_to_pa: pte not present: %016lx\n", pte_entry);
+    assert(0);
+  }
+  
+  return (page->pte + offset);
+}
 
 void hemem_tlb_shootdown(uint64_t va)
 {
@@ -1127,40 +1228,28 @@ void hemem_tlb_shootdown(uint64_t va)
     assert(0);
   }
 }
-/*
-void hemem_clear_accessed_bit(uint64_t va)
+
+void hemem_clear_accessed_bit(struct hemem_page *page)
 {
-  uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
-  struct uffdio_range range;
-  int ret;
-
-  clear_accessed_bit(page_boundry);
-
-//  range.start = page_boundry;
-//  range.len = PAGE_SIZE;
-//
-//  ret = ioctl(uffd, UFFDIO_TLBFLUSH, &range);
-//  if (ret < 0) {
-//    perror("uffdio tlbflush");
-//    assert(0);
-//  }
-
+  //uint64_t page_boundry = page->va & ~(PAGE_SIZE - 1);
+  //clear_accessed_bit(page_boundry);
+  *(page->pa) = *(page->pa) & ~HEMEM_ACCESSED_FLAG;
 }
 
 
-int hemem_get_accessed_bit(uint64_t va)
+int hemem_get_accessed_bit(struct hemem_page *page)
 {
-  uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
-
-  return get_accessed_bit(page_boundry);
+  //uint64_t page_boundry = page->va & ~(PAGE_SIZE - 1);
+  //return get_accessed_bit(page_boundry);
+  return *(page->pa) & HEMEM_ACCESSED_FLAG;
 }
-*/
-void hemem_clear_accessed_bit(uint64_t va)
+/* 
+void hemem_clear_accessed_bit(struct hemem_page *page)
 {
   uint64_t ret;
   struct uffdio_page_flags page_flags;
 
-  page_flags.va = va;
+  page_flags.va = page->va;
   page_flags.flag = HEMEM_ACCESSED_FLAG;
 
   if (ioctl(uffd, UFFDIO_CLEAR_FLAG, &page_flags) < 0) {
@@ -1175,12 +1264,12 @@ void hemem_clear_accessed_bit(uint64_t va)
 }
 
 
-int hemem_get_accessed_bit(uint64_t va)
+int hemem_get_accessed_bit(struct hemem_page *page)
 {
   uint64_t ret;
   struct uffdio_page_flags page_flags;
 
-  page_flags.va = va;
+  page_flags.va = page->va;
   page_flags.flag = HEMEM_ACCESSED_FLAG;
 
   if (ioctl(uffd, UFFDIO_GET_FLAG, &page_flags) < 0) {
@@ -1191,7 +1280,7 @@ int hemem_get_accessed_bit(uint64_t va)
   ret = page_flags.res;
   return ret;;
 }
-
+*/
 void hemem_print_stats()
 {
   LOG_STATS("mem_allocated: [%lu]\tpages_allocated: [%lu]\tpages_freed: [%lu]\tmissing_faults_handled: [%lu]\tmigrations_up: [%lu]\tmigrations_down: [%lu]\n", 

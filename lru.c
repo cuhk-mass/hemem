@@ -153,9 +153,9 @@ static void shrink_caches(struct lru_list *active, struct lru_list *inactive)
   // find cold pages and move to inactive list
   while (nr_pages > 0 && active->numentries > 0) {
     struct lru_node *n = lru_list_remove(active);
-    if (hemem_get_accessed_bit(n->page->va) == HEMEM_ACCESSED_FLAG) {
+    if (hemem_get_accessed_bit(n->page) == HEMEM_ACCESSED_FLAG) {
       // give accessed pages another go-around in active list
-      hemem_clear_accessed_bit(n->page->va);
+      hemem_clear_accessed_bit(n->page);
       lru_list_add(active, n);
     }
     else {
@@ -181,9 +181,9 @@ static void expand_caches(struct lru_list *active, struct lru_list *inactive)
       break;
     }
 
-    if (hemem_get_accessed_bit(n->page->va) == HEMEM_ACCESSED_FLAG) {
+    if (hemem_get_accessed_bit(n->page) == HEMEM_ACCESSED_FLAG) {
       n->tot_accesses++;
-      hemem_clear_accessed_bit(n->page->va);
+      hemem_clear_accessed_bit(n->page);
       if (n->accesses >= 2) {
         n->accesses = 0;
         lru_list_add(active, n);

@@ -23,7 +23,9 @@
 #include "paging.h"
 #include "interpose.h"
 
-uint64_t va_to_pa(uint64_t va)
+#if 0
+
+uint64_t* va_to_pa(uint64_t va)
 {
   uint64_t pt_base = ((uint64_t)(cr3 & ADDRESS_MASK));
   uint64_t *pgd;
@@ -82,7 +84,7 @@ uint64_t va_to_pa(uint64_t va)
   }
 
   if ((pmd_entry & HEMEM_HUGEPAGE_FLAG) == HEMEM_HUGEPAGE_FLAG) {
-    return pmd_entry;
+    return pmd + pmd_offset;
   }
 
   pte = (uint64_t*)(pmd_entry & ADDRESS_MASK);
@@ -99,7 +101,7 @@ uint64_t va_to_pa(uint64_t va)
     ignore_this_mmap = false;
   }
 
-  return pte_entry;
+  return pte + pte_offset;
 }
 
 void clear_bit(uint64_t va, uint64_t bit)
@@ -293,7 +295,7 @@ uint64_t get_dirty_bit(uint64_t va)
   return get_bit(va, HEMEM_DIRTY_FLAG);
 }
 
-
+#endif
 FILE *ptes, *pdes, *pdtpes, *pml4es, *valid;
 
 
