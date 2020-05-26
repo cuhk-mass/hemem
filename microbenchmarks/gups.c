@@ -66,8 +66,7 @@ static void *print_instantaneous_gups()
   uint64_t last_second_gups = 0;
 
   for (;;) {
-    printf("GUPS: %lu\n", thread_gups[0]);;
-    //printf("GUPS: %.10f\n", (1.0 * (abs(thread_gups[0] - last_second_gups))) / (1.0e9));
+    printf("GUPS: %.10f\n", (1.0 * (abs(thread_gups[0] - last_second_gups))) / (1.0e9));
     last_second_gups = thread_gups[0];
     sleep(1);
   }
@@ -97,8 +96,6 @@ static void *do_gups(void *arguments)
   uint64_t lfsr;
   uint64_t hot_num;
 
-  fprintf(stderr, "thread %d starting gups\n", args->tid);
-
   srand(0);
   lfsr = rand();
 
@@ -113,9 +110,7 @@ static void *do_gups(void *arguments)
       memcpy(data, &field[index1 * elt_size], elt_size);
       memset(data, data[0] + i, elt_size);
       memcpy(&field[index1 * elt_size], data, elt_size);
-      fprintf(stderr, "thread gups before: %ld\n", thread_gups[args->tid]);
       thread_gups[args->tid]++;
-      fprintf(stderr, "thread gups after: %ld\n", thread_gups[args->tid]);
     }
     i += hot_num;
     
@@ -124,9 +119,7 @@ static void *do_gups(void *arguments)
     memcpy(data, &field[index2 * elt_size], elt_size);
     memset(data, data[0] + i, elt_size);
     memcpy(&field[index2 * elt_size], data, elt_size);
-    fprintf(stderr, "thread gups before: %lu\n", thread_gups[args->tid]);
     thread_gups[args->tid]++;
-    fprintf(stderr, "thread gups after: %lu\n", thread_gups[args->tid]);
   }
 /*
   //printf("Thread [%d] starting: field: [%llx]\n", args->tid, field);
