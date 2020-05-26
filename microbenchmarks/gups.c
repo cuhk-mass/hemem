@@ -231,12 +231,12 @@ int main(int argc, char **argv)
   secs = elapsed(&starttime, &stoptime);
   printf("Initialization time: %.4f seconds.\n", secs);
   
-  pthread_t print_thread;
-  int pt = pthread_create(&print_thread, NULL, print_instantaneous_gups, NULL);
-  assert(pt == 0);
+  //pthread_t print_thread;
+  //int pt = pthread_create(&print_thread, NULL, print_instantaneous_gups, NULL);
+  //assert(pt == 0);
 
   hot_start = 0;
-  hotsize = hot_size / (elt_size);
+  hotsize = (hot_size / threads) / elt_size;
   printf("hot_start: %lu\thot_size: %lu\n", hot_start, hotsize);
   
   // run through gups once to touch all memory
@@ -291,7 +291,7 @@ int main(int argc, char **argv)
   printf("GUPS = %.10f\n", gups);
 
   memset(thread_gups, 0, sizeof(thread_gups));
-
+#if 0
 #ifdef HOTSPOT
   hot_start = (1024UL * 1024UL * 1024UL * 16UL) / elt_size;              // 16GB to the right;
   printf("hot_start: %lu\thot_size: %lu\n", hot_start, hotsize);
@@ -323,6 +323,7 @@ int main(int argc, char **argv)
   printf("GUPS = %.10f\n", gups);
   
   hemem_print_stats();
+#endif
 #endif
   for (i = 0; i < threads; i++) {
     //free(ga[i]->indices);
