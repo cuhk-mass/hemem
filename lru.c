@@ -148,7 +148,7 @@ static void lru_list_remove_node(struct lru_list *list, struct lru_node *node)
 
 static void shrink_caches(struct lru_list *active, struct lru_list *inactive)
 {
-  size_t nr_pages = 5120;
+  size_t nr_pages = active->numentries;
 
   // find cold pages and move to inactive list
   while (nr_pages > 0 && active->numentries > 0) {
@@ -169,7 +169,7 @@ static void shrink_caches(struct lru_list *active, struct lru_list *inactive)
 
 static void expand_caches(struct lru_list *active, struct lru_list *inactive)
 {
-  size_t nr_pages = 5120;
+  size_t nr_pages = inactive->numentries;
   size_t i;
   struct lru_node *n;
 

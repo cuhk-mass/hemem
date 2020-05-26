@@ -46,7 +46,7 @@ extern double hotset_fraction;
 #endif
 
 uint64_t hot_start = 0;
-uint64_t hotsize;
+uint64_t hotsize = 0;
 
 struct gups_args {
   int tid;                      // thread id
@@ -57,7 +57,23 @@ struct gups_args {
   uint64_t elt_size;       // size of elements
 };
 
+_Atomic uint64_t thread_gups[MAX_THREADS];
+
 static unsigned long updates, nelems;
+
+static void *print_instantaneous_gups()
+{
+  uint64_t last_second_gups = 0;
+
+  for (;;) {
+    printf("GUPS: %lu\n", thread_gups[0]);;
+    //printf("GUPS: %.10f\n", (1.0 * (abs(thread_gups[0] - last_second_gups))) / (1.0e9));
+    last_second_gups = thread_gups[0];
+    sleep(1);
+  }
+
+  return NULL;
+}
 
 
 static uint64_t lfsr_fast(uint64_t lfsr)
@@ -81,6 +97,8 @@ static void *do_gups(void *arguments)
   uint64_t lfsr;
   uint64_t hot_num;
 
+  fprintf(stderr, "thread %d starting gups\n", args->tid);
+
   srand(0);
   lfsr = rand();
 
@@ -95,6 +113,9 @@ static void *do_gups(void *arguments)
       memcpy(data, &field[index1 * elt_size], elt_size);
       memset(data, data[0] + i, elt_size);
       memcpy(&field[index1 * elt_size], data, elt_size);
+      fprintf(stderr, "thread gups before: %ld\n", thread_gups[args->tid]);
+      thread_gups[args->tid]++;
+      fprintf(stderr, "thread gups after: %ld\n", thread_gups[args->tid]);
     }
     i += hot_num;
     
@@ -103,6 +124,9 @@ static void *do_gups(void *arguments)
     memcpy(data, &field[index2 * elt_size], elt_size);
     memset(data, data[0] + i, elt_size);
     memcpy(&field[index2 * elt_size], data, elt_size);
+    fprintf(stderr, "thread gups before: %lu\n", thread_gups[args->tid]);
+    thread_gups[args->tid]++;
+    fprintf(stderr, "thread gups after: %lu\n", thread_gups[args->tid]);
   }
 /*
   //printf("Thread [%d] starting: field: [%llx]\n", args->tid, field);
@@ -127,7 +151,7 @@ int main(int argc, char **argv)
 {
   int threads;
   unsigned long expt;
-  unsigned long size, elt_size;
+  unsigned long size, elt_size, hot_size;
   struct timeval starttime, stoptime;
   double secs, gups;
   int i;
@@ -135,16 +159,18 @@ int main(int argc, char **argv)
   struct gups_args** ga;
   pthread_t t[MAX_THREADS];
 
-  if (argc != 5) {
+  if (argc != 6) {
     printf("Usage: %s [threads] [updates per thread] [exponent] [data size (bytes)] [noremap/remap]\n", argv[0]);
     printf("  threads\t\t\tnumber of threads to launch\n");
     printf("  updates per thread\t\tnumber of updates per thread\n");
     printf("  exponent\t\t\tlog size of region\n");
     printf("  data size\t\t\tsize of data in array (in bytes)\n");
+    printf("  hot size\t\t\tsize of data that is hot (in bytes)\n");
     return 0;
   }
 
   gettimeofday(&starttime, NULL);
+
   
   threads = atoi(argv[1]);
   assert(threads <= MAX_THREADS);
@@ -160,10 +186,12 @@ int main(int argc, char **argv)
   size -= (size % 256);
   assert(size > 0 && (size % 256 == 0));
   elt_size = atoi(argv[4]);
+  hot_size = atol(argv[5]);
 
   printf("%lu updates per thread (%d threads)\n", updates, threads);
   printf("field of 2^%lu (%lu) bytes\n", expt, size);
   printf("%ld byte element size (%ld elements total)\n", elt_size, size / elt_size);
+  printf("hot size: %ld\n", hot_size);
 
   p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
   if (p == MAP_FAILED) {
@@ -179,9 +207,13 @@ int main(int argc, char **argv)
   nelems = (size / threads) / elt_size; // number of elements per thread
   printf("Elements per thread: %lu\n", nelems);
 
+  memset(thread_gups, 0, sizeof(thread_gups));
+
   printf("initializing thread data\n");
   for (i = 0; i < threads; ++i) {
     ga[i] = (struct gups_args*)malloc(sizeof(struct gups_args));
+    ga[i]->tid = i;
+    printf("gups args tid for thread %d: %d\n", i, ga[i]->tid);
     ga[i]->field = p + (i * nelems * elt_size);
     //printf("Thread [%d] starting address: %llx\n", i, ga[i]->field);
     //printf("thread %d start address: %llu\n", i, (unsigned long)td[i].field);
@@ -205,9 +237,13 @@ int main(int argc, char **argv)
   gettimeofday(&stoptime, NULL);
   secs = elapsed(&starttime, &stoptime);
   printf("Initialization time: %.4f seconds.\n", secs);
+  
+  pthread_t print_thread;
+  int pt = pthread_create(&print_thread, NULL, print_instantaneous_gups, NULL);
+  assert(pt == 0);
 
   hot_start = 0;
-  hotsize = (128UL * 1024UL * 1024UL * 1024UL) / (elt_size);
+  hotsize = hot_size / (elt_size);
   printf("hot_start: %lu\thot_size: %lu\n", hot_start, hotsize);
   
   // run through gups once to touch all memory
@@ -229,6 +265,9 @@ int main(int argc, char **argv)
     assert(r == 0);
   }
   hemem_print_stats();
+  
+  memset(thread_gups, 0, sizeof(thread_gups));
+
   printf("Timing.\n");
   gettimeofday(&starttime, NULL);
   hemem_clear_stats();
@@ -257,6 +296,9 @@ int main(int argc, char **argv)
   printf("Elapsed time: %.4f seconds.\n", secs);
   gups = threads * ((double)updates) / (secs * 1.0e9);
   printf("GUPS = %.10f\n", gups);
+
+  memset(thread_gups, 0, sizeof(thread_gups));
+
 #ifdef HOTSPOT
   hot_start = (1024UL * 1024UL * 1024UL * 16UL) / elt_size;              // 16GB to the right;
   printf("hot_start: %lu\thot_size: %lu\n", hot_start, hotsize);

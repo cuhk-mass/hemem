@@ -1228,7 +1228,7 @@ void hemem_tlb_shootdown(uint64_t va)
     assert(0);
   }
 }
-
+/*
 void hemem_clear_accessed_bit(struct hemem_page *page)
 {
   //uint64_t page_boundry = page->va & ~(PAGE_SIZE - 1);
@@ -1243,7 +1243,8 @@ int hemem_get_accessed_bit(struct hemem_page *page)
   //return get_accessed_bit(page_boundry);
   return *(page->pa) & HEMEM_ACCESSED_FLAG;
 }
-/* 
+*/
+ 
 void hemem_clear_accessed_bit(struct hemem_page *page)
 {
   uint64_t ret;
@@ -1280,7 +1281,7 @@ int hemem_get_accessed_bit(struct hemem_page *page)
   ret = page_flags.res;
   return ret;;
 }
-*/
+
 void hemem_print_stats()
 {
   LOG_STATS("mem_allocated: [%lu]\tpages_allocated: [%lu]\tpages_freed: [%lu]\tmissing_faults_handled: [%lu]\tmigrations_up: [%lu]\tmigrations_down: [%lu]\n", 
