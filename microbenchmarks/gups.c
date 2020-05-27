@@ -144,7 +144,9 @@ int main(int argc, char **argv)
 {
   int threads;
   unsigned long expt;
-  unsigned long size, elt_size, hot_size;
+  unsigned long size, elt_size;
+  unsigned long tot_hot_size;
+  int log_hot_size;
   struct timeval starttime, stoptime;
   double secs, gups;
   int i;
@@ -158,7 +160,7 @@ int main(int argc, char **argv)
     printf("  updates per thread\t\tnumber of updates per thread\n");
     printf("  exponent\t\t\tlog size of region\n");
     printf("  data size\t\t\tsize of data in array (in bytes)\n");
-    printf("  hot size\t\t\tsize of data that is hot (in bytes)\n");
+    printf("  hot size\t\t\tlog size of hot set\n");
     return 0;
   }
 
@@ -179,12 +181,12 @@ int main(int argc, char **argv)
   size -= (size % 256);
   assert(size > 0 && (size % 256 == 0));
   elt_size = atoi(argv[4]);
-  hot_size = atol(argv[5]);
+  log_hot_size = atof(argv[5]);
+  tot_hot_size = (unsigned long)(1) << log_hot_size;
 
   printf("%lu updates per thread (%d threads)\n", updates, threads);
   printf("field of 2^%lu (%lu) bytes\n", expt, size);
   printf("%ld byte element size (%ld elements total)\n", elt_size, size / elt_size);
-  printf("hot size: %ld\n", hot_size);
 
   p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
   if (p == MAP_FAILED) {
@@ -236,7 +238,7 @@ int main(int argc, char **argv)
   //assert(pt == 0);
 
   hot_start = 0;
-  hotsize = (hot_size / threads) / elt_size;
+  hotsize = (tot_hot_size / threads) / elt_size;
   printf("hot_start: %lu\thot_size: %lu\n", hot_start, hotsize);
   
   // run through gups once to touch all memory
