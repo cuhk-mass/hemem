@@ -16,7 +16,6 @@
 struct lru_node {
   struct hemem_page *page;
   uint64_t framenum;
-  uint64_t accesses, tot_accesses;
   struct lru_node *next, *prev;
   struct lru_list *list;
 };

@@ -101,15 +101,10 @@ void *hemem_parallel_memcpy_thread(void *arg)
     dst = pmemcpy.dst + (tid * chunk_size);
     if (!pmemcpy.write_zeros) {
       src = pmemcpy.src + (tid * chunk_size);
-    }
-
-    //LOG("thread %lu copying %lu bytes from %lx to %lx\n", tid, chunk_size, (uint64_t)dst, (uint64_t)src);
-
-    if (pmemcpy.write_zeros) {
-      memset(dst, 0, chunk_size);
+      memcpy(dst, src, chunk_size);
     }
     else {
-      memcpy(dst, src, chunk_size);
+      memset(dst, 0, chunk_size);
     }
 
 #ifdef HEMEM_DEBUG

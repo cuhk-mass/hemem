@@ -155,12 +155,12 @@ int main(int argc, char **argv)
   pthread_t t[MAX_THREADS];
 
   if (argc != 6) {
-    printf("Usage: %s [threads] [updates per thread] [exponent] [data size (bytes)] [noremap/remap]\n", argv[0]);
-    printf("  threads\t\t\tnumber of threads to launch\n");
-    printf("  updates per thread\t\tnumber of updates per thread\n");
-    printf("  exponent\t\t\tlog size of region\n");
-    printf("  data size\t\t\tsize of data in array (in bytes)\n");
-    printf("  hot size\t\t\tlog size of hot set\n");
+    fprintf(stderr, "Usage: %s [threads] [updates per thread] [exponent] [data size (bytes)] [noremap/remap]\n", argv[0]);
+    fprintf(stderr, "  threads\t\t\tnumber of threads to launch\n");
+    fprintf(stderr, "  updates per thread\t\tnumber of updates per thread\n");
+    fprintf(stderr, "  exponent\t\t\tlog size of region\n");
+    fprintf(stderr, "  data size\t\t\tsize of data in array (in bytes)\n");
+    fprintf(stderr, "  hot size\t\t\tlog size of hot set\n");
     return 0;
   }
 
@@ -170,7 +170,7 @@ int main(int argc, char **argv)
   threads = atoi(argv[1]);
   assert(threads <= MAX_THREADS);
   ga = (struct gups_args**)malloc(threads * sizeof(struct gups_args*));
-  printf("size of ga: %lu\n", sizeof(ga));
+  fprintf(stderr, "size of ga: %lu\n", sizeof(ga));
   
   updates = atol(argv[2]);
   updates -= updates % 256;
@@ -184,9 +184,9 @@ int main(int argc, char **argv)
   log_hot_size = atof(argv[5]);
   tot_hot_size = (unsigned long)(1) << log_hot_size;
 
-  printf("%lu updates per thread (%d threads)\n", updates, threads);
-  printf("field of 2^%lu (%lu) bytes\n", expt, size);
-  printf("%ld byte element size (%ld elements total)\n", elt_size, size / elt_size);
+  fprintf(stderr, "%lu updates per thread (%d threads)\n", updates, threads);
+  fprintf(stderr, "field of 2^%lu (%lu) bytes\n", expt, size);
+  fprintf(stderr, "%ld byte element size (%ld elements total)\n", elt_size, size / elt_size);
 
   p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
   if (p == MAP_FAILED) {
@@ -195,20 +195,18 @@ int main(int argc, char **argv)
   }
 
   gettimeofday(&stoptime, NULL);
-  printf("Init took %.4f seconds\n", elapsed(&starttime, &stoptime));
-  printf("Region address: %p\t size: %ld\n", p, size);
-  //printf("Field addr: 0x%x\n", p);
+  fprintf(stderr, "Init took %.4f seconds\n", elapsed(&starttime, &stoptime));
+  fprintf(stderr, "Region address: %p\t size: %ld\n", p, size);
 
   nelems = (size / threads) / elt_size; // number of elements per thread
-  printf("Elements per thread: %lu\n", nelems);
+  fprintf(stderr, "Elements per thread: %lu\n", nelems);
 
   memset(thread_gups, 0, sizeof(thread_gups));
 
-  printf("initializing thread data\n");
+  fprintf(stderr, "initializing thread data\n");
   for (i = 0; i < threads; ++i) {
     ga[i] = (struct gups_args*)malloc(sizeof(struct gups_args));
     ga[i]->tid = i;
-    printf("gups args tid for thread %d: %d\n", i, ga[i]->tid);
     ga[i]->field = p + (i * nelems * elt_size);
     //printf("Thread [%d] starting address: %llx\n", i, ga[i]->field);
     //printf("thread %d start address: %llu\n", i, (unsigned long)td[i].field);
@@ -231,7 +229,7 @@ int main(int argc, char **argv)
 
   gettimeofday(&stoptime, NULL);
   secs = elapsed(&starttime, &stoptime);
-  printf("Initialization time: %.4f seconds.\n", secs);
+  fprintf(stderr, "Initialization time: %.4f seconds.\n", secs);
   
   //pthread_t print_thread;
   //int pt = pthread_create(&print_thread, NULL, print_instantaneous_gups, NULL);
@@ -263,7 +261,7 @@ int main(int argc, char **argv)
   
   memset(thread_gups, 0, sizeof(thread_gups));
 
-  printf("Timing.\n");
+  fprintf(stderr, "Timing.\n");
   gettimeofday(&starttime, NULL);
   hemem_clear_stats();
   // spawn gups worker threads
