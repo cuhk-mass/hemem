@@ -49,7 +49,7 @@ static int mmap_filter(void *addr, size_t length, int prot, int flags, int fd, o
     return 1;
   }
 
-  if (length <= 16UL * 1024UL * 1024UL * 1024UL) {
+  if (length <= 100UL * 1024UL * 1024UL * 1024UL) {
     //LOG("hemem interpose calling libc mmap due to small allocation size\n");
     return 1;
   }
