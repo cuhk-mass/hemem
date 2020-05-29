@@ -393,6 +393,7 @@ static void hemem_mmap_populate(void* addr, size_t length)
 
   LOG("hemem_mmap_populate: addr: 0x%lx, npages: %lu\n", (uint64_t)addr, npages);
   for (i = 0; i < npages; i++) {
+    printf("populating page %lu out of %lu\n", i , npages);
     internal_malloc = true;
     page = (struct hemem_page*)calloc(1, sizeof(struct hemem_page));
     internal_malloc = false;
@@ -540,8 +541,8 @@ int hemem_madvise(void* addr, size_t length, int advice){
       struct hemem_page* this_page = find_page(i);
       if(this_page && this_page->size == BASEPAGE_SIZE){ 
         //LOG2("deleting base page %p from list\n", i);
-        remove_page(this_page);
-        //delete_page(i);
+        //remove_page(this_page);
+        delete_page(i);
       }
     }
   } else {
@@ -643,8 +644,8 @@ void hemem_break_huge_page(uint64_t addr, uint32_t fd, uint64_t offset, struct b
   struct hemem_page* old_page = find_page(addr);
   struct hemem_page* page;
   
-  remove_page(old_page);
-  //delete_page(addr);
+  //remove_page(old_page);
+  delete_page(addr);
 
   if(old_page == NULL){ 
     LOG2("big problem\n"); 
@@ -972,6 +973,7 @@ void handle_missing_fault(uint64_t page_boundry)
 
   LOG("missing page fault at %p\n", page_boundry);
   // have we seen this page before?
+#if 0
   page = find_page(page_boundry);
   if (page != NULL) {
     // if yes, must have unmapped it for migration, wait for migration to finish
@@ -979,7 +981,7 @@ void handle_missing_fault(uint64_t page_boundry)
     handle_wp_fault(page_boundry);
     return;
   }
-
+#endif
   gettimeofday(&missing_start, NULL);
   /* internal_malloc = true; */
   assert(nextfreepage < MAXPAGES);

@@ -83,7 +83,7 @@ FILE *timef;
 #define MAX_UFFD_MSGS	    (8)
 #define MAX_COPY_THREADS  (4)
 
-#define KSWAPD_INTERVAL   (10000)
+#define KSWAPD_INTERVAL   (1000000)
 
 extern uint64_t cr3;
 extern int dramfd;

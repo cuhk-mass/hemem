@@ -1,0 +1,48 @@
+size of ga: 8
+10000000000 updates per thread (16 threads)
+field of 2^26 (2199023299840) bytes
+8 byte element size (274877912480 elements total)
+Init took 0.0000 seconds
+Region address: 0x7af047e00000	 size: 2199023299840
+Elements per thread: 17179869530
+initializing thread data
+Initialization time: 0.0000 seconds.
+hot_start: 0	hot_size: 524288
+starting thread [0]
+  tid: [0]  iters: [10000000000]  size: [17179869530]  elt size: [8]
+starting thread [1]
+  tid: [1]  iters: [10000000000]  size: [17179869530]  elt size: [8]
+starting thread [2]
+  tid: [2]  iters: [10000000000]  size: [17179869530]  elt size: [8]
+starting thread [3]
+  tid: [3]  iters: [10000000000]  size: [17179869530]  elt size: [8]
+starting thread [4]
+  tid: [4]  iters: [10000000000]  size: [17179869530]  elt size: [8]
+starting thread [5]
+  tid: [5]  iters: [10000000000]  size: [17179869530]  elt size: [8]
+starting thread [6]
+  tid: [6]  iters: [10000000000]  size: [17179869530]  elt size: [8]
+starting thread [7]
+  tid: [7]  iters: [10000000000]  size: [17179869530]  elt size: [8]
+starting thread [8]
+  tid: [8]  iters: [10000000000]  size: [17179869530]  elt size: [8]
+starting thread [9]
+  tid: [9]  iters: [10000000000]  size: [17179869530]  elt size: [8]
+starting thread [10]
+  tid: [10]  iters: [10000000000]  size: [17179869530]  elt size: [8]
+starting thread [11]
+  tid: [11]  iters: [10000000000]  size: [17179869530]  elt size: [8]
+starting thread [12]
+  tid: [12]  iters: [10000000000]  size: [17179869530]  elt size: [8]
+starting thread [13]
+  tid: [13]  iters: [10000000000]  size: [17179869530]  elt size: [8]
+starting thread [14]
+  tid: [14]  iters: [10000000000]  size: [17179869530]  elt size: [8]
+starting thread [15]
+  tid: [15]  iters: [10000000000]  size: [17179869530]  elt size: [8]
+Timing.
+Elapsed time: 880.2841 seconds.
+GUPS = 0.1817594960
+hot_start: 17179345241	hot_size: 524288
+Elapsed time: 3836.9359 seconds.
+GUPS = 0.0416999413

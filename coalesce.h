@@ -26,8 +26,8 @@
 #include "interpose.h"
 #include "bitmap.h"
 
-#define COALESCE_RATIO 0.7
-#define BREAK_RATIO 0.7
+#define COALESCE_RATIO 0.5
+#define BREAK_RATIO 0.5
 
 #if 0
 #define BREAK_N (BREAK_RATIO * NUM_SMPAGES)

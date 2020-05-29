@@ -93,6 +93,9 @@ static void *do_gups_init(void *arguments)
   sleep(5);
 #endif
 
+  //for(i = hotsize; i<args->size; i+=(PAGE_SIZE/elt_size)){
+    //memcpy(data, &field[i * elt_size], elt_size);
+  //}
   for (i = 0; i < args->iters; i++) {
 #ifdef HOTSPOT
     hot_num = lfsr % 4 + 8;
@@ -211,7 +214,11 @@ int main(int argc, char **argv)
   expt = atoi(argv[3]);
   assert(expt > 8);
   assert(updates > 0 && (updates % 256 == 0));
-  size = (unsigned long)(1) << expt;
+  
+  hotsize = (unsigned long)(1) << expt;
+  size = 2199023300000;
+  //size = (unsigned long)(1) << expt;
+
   size -= (size % 256);
   assert(size > 0 && (size % 256 == 0));
   elt_size = atoi(argv[4]);
@@ -264,7 +271,8 @@ int main(int argc, char **argv)
   printf("Initialization time: %.4f seconds.\n", secs);
 
   hot_start = 0;
-  hotsize = nelems / 10;
+  //hotsize = nelems / 10;
+  hotsize = ((hotsize/threads) / elt_size); 
   printf("hot_start: %lu\thot_size: %lu\n", hot_start, hotsize);
   
   // run through gups once to touch all memory
@@ -277,6 +285,7 @@ int main(int argc, char **argv)
     ga[i]->elt_size = elt_size;
     printf("  tid: [%d]  iters: [%llu]  size: [%llu]  elt size: [%llu]\n", ga[i]->tid, ga[i]->iters, ga[i]->size, ga[i]->elt_size);
     int r = pthread_create(&t[i], NULL, do_gups_init, (void*)ga[i]);
+    //int r = pthread_create(&t[i], NULL, do_gups, (void*)ga[i]);
     assert(r == 0);
   }
 
@@ -318,6 +327,7 @@ int main(int argc, char **argv)
   printf("GUPS = %.10f\n", gups);
 
 #ifdef HOTSPOT
+#if 0  
   hot_start = nelems - (uint64_t)(hotsize) - 1;
   printf("hot_start: %lu\thot_size: %lu\n", hot_start, hotsize);
 
@@ -345,6 +355,7 @@ int main(int argc, char **argv)
   printf("GUPS = %.10f\n", gups);
   
   hemem_print_stats();
+#endif
 #endif
   for (i = 0; i < threads; i++) {
     //free(ga[i]->indices);

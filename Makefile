@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -g -Wall -O2 -fPIC
 #CFLAGS = -g3 -Wall -O0 -fPIC
-CFLAGS += -DCOALESCE
+#CFLAGS += -DCOALESCE
 LDFLAGS = -shared
 INCLUDES = -I/root/hmem/linux/usr/include
 LIBS = -lm -lpthread
