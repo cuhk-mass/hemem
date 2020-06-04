@@ -33,6 +33,7 @@ long uffd = -1;
 
 bool is_init = false;
 
+_Atomic uint64_t mem_mmaped = 0;
 _Atomic uint64_t mem_allocated = 0;
 _Atomic uint64_t pages_allocated = 0;
 _Atomic uint64_t pages_freed = 0;
@@ -42,6 +43,7 @@ _Atomic uint64_t wp_faults_handled = 0;
 _Atomic uint64_t missing_faults_handled = 0;
 _Atomic uint64_t migrations_up = 0;
 _Atomic uint64_t migrations_down = 0;
+_Atomic uint64_t bytes_migrated = 0;
 _Atomic uint64_t pmemcpys = 0;
 _Atomic uint64_t memsets = 0;
 
@@ -544,6 +546,8 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
 //  if ((flags & MAP_POPULATE) == MAP_POPULATE) {
     hemem_mmap_populate(p, length);
 //  }
+
+  mem_mmaped = length;
   
   return p;
 }
@@ -565,6 +569,7 @@ int hemem_munmap(void* addr, size_t length)
       mmgr_remove(page);
 
       mem_allocated -= pt_to_pagesize(page->pt);
+      mem_mmaped -= pt_to_pagesize(page->pt);
       pages_freed++;
 
       // move to next page
@@ -727,6 +732,8 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
   page->pa = hemem_va_to_pa(page);
 
   hemem_tlb_shootdown(page->va);
+
+  bytes_migrated += pagesize;
   
   //LOG("hemem_migrate_up: new pte: %lx\n", hemem_va_to_pa(page->va));
 
@@ -830,6 +837,8 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
   page->pa = hemem_va_to_pa(page);
 
   hemem_tlb_shootdown(page->va);
+
+  bytes_migrated += pagesize;
 
   //LOG("hemem_migrate_down: new pte: %lx\n", hemem_va_to_pa(page->va));
 
@@ -1279,11 +1288,13 @@ int hemem_get_accessed_bit(struct hemem_page *page)
 
 void hemem_print_stats()
 {
-  LOG_STATS("mem_allocated: [%lu]\tpages_allocated: [%lu]\tpages_freed: [%lu]\tmissing_faults_handled: [%lu]\tmigrations_up: [%lu]\tmigrations_down: [%lu]\n", 
+  LOG_STATS("mem_mmaped: [%lu]\tmem_allocated: [%lu]\tpages_allocated: [%lu]\tpages_freed: [%lu]\tmissing_faults_handled: [%lu]\tbytes_migrated: [%lu]\tmigrations_up: [%lu]\tmigrations_down: [%lu]\n", 
+               mem_mmaped,
                mem_allocated, 
                pages_allocated, 
                pages_freed, 
                missing_faults_handled, 
+               bytes_migrated,
                migrations_up, 
                migrations_down);
    mmgr_stats(); 
