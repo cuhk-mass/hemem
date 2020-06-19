@@ -25,6 +25,9 @@ uint64_t lru_runs = 0;
 
 static void lru_migrate_down(struct lru_node *n, uint64_t i)
 {
+  old_internal_call = internal_call;
+  internal_call = true;
+
   pthread_mutex_lock(&(n->page->page_lock));
   LOG("hemem: lru_migrate_down: migrating %lx to NVM frame %lu\n", n->page->va, i);
   n->page->migrating = true;
@@ -33,10 +36,15 @@ static void lru_migrate_down(struct lru_node *n, uint64_t i)
   n->page->migrating = false; 
   LOG("hemem: lru_migrate_down: done migrating to NVM\n");
   pthread_mutex_unlock(&(n->page->page_lock));
+
+  internal_call = old_internal_call;
 }
 
 static void lru_migrate_up(struct lru_node *n, uint64_t i)
 {
+  old_internal_call = internal_call;
+  internal_call = true;
+
   pthread_mutex_lock(&(n->page->page_lock));
   LOG("hemem: lru_migrate_up: migrating %lx to DRAM frame %lu\n", n->page->va, i);
   n->page->migrating = true;
@@ -45,26 +53,25 @@ static void lru_migrate_up(struct lru_node *n, uint64_t i)
   n->page->migrating = false;
   LOG("hemem: lru_migrate_up: done migrating to DRAM\n");
   pthread_mutex_unlock(&(n->page->page_lock));
+
+  internal_call = old_internal_call;
 }
 
 static void lru_list_add(struct lru_list *list, struct lru_node *node)
 {
+  old_internal_call = internal_call;
+  internal_call = true;
+
   pthread_mutex_lock(&(list->list_lock));
-  ignore_this_mmap = true;
   assert(node->prev == NULL);
-  ignore_this_mmap = false;
   node->next = list->first;
   if (list->first != NULL) {
-    ignore_this_mmap = true;
     assert(list->first->prev == NULL);
-    ignore_this_mmap = false;
     list->first->prev = node;
   }
   else {
-    ignore_this_mmap = true;
     assert(list->last == NULL);
     assert(list->numentries == 0);
-    ignore_this_mmap = false;
     list->last = node;
   }
 
@@ -72,18 +79,21 @@ static void lru_list_add(struct lru_list *list, struct lru_node *node)
   node->list = list;
   list->numentries++;
   pthread_mutex_unlock(&(list->list_lock));
+
+  internal_call = old_internal_call;
 }
 
 
 static struct lru_node* lru_list_remove(struct lru_list *list)
 {
+  old_internal_call = internal_call;
+  internal_call = true;
+
   pthread_mutex_lock(&(list->list_lock));
   struct lru_node *ret = list->last;
 
   if (ret == NULL) {
-    ignore_this_mmap = true;
     assert(list->numentries == 0);
-    ignore_this_mmap = false;
     pthread_mutex_unlock(&(list->list_lock));
     return ret;
   }
@@ -99,22 +109,23 @@ static struct lru_node* lru_list_remove(struct lru_list *list)
   ret->prev = NULL;
   ret->next = NULL;
   ret->list = NULL;
-  ignore_this_mmap = true;
   assert(list->numentries > 0);
-  ignore_this_mmap = false;
   list->numentries--;
   pthread_mutex_unlock(&(list->list_lock));
   return ret;
+
+  internal_call = old_internal_call;
 }
 
 static void lru_list_remove_node(struct lru_list *list, struct lru_node *node)
 {
+  old_internal_call = internal_call;
+  internal_call = true;
+
   pthread_mutex_lock(&(list->list_lock));
   if (list->first == NULL) {
-    ignore_this_mmap = true;
     assert(list->last == NULL);
     assert(list->numentries == 0);
-    ignore_this_mmap = false;
     pthread_mutex_unlock(&(list->list_lock));
     LOG("lru_list_remove_node: list was empty!\n");
     return;
@@ -141,12 +152,17 @@ static void lru_list_remove_node(struct lru_list *list, struct lru_node *node)
   node->prev = NULL;
   node->list = NULL;
   pthread_mutex_unlock(&(list->list_lock));
+
+  internal_call = old_internal_call;
 }
 
 
 static void shrink_caches(struct lru_list *active, struct lru_list *inactive)
 {
   size_t nr_pages = active->numentries;
+
+  old_internal_call = internal_call;
+  internal_call = true;
 
   // find cold pages and move to inactive list
   while (nr_pages > 0 && active->numentries > 0) {
@@ -162,6 +178,8 @@ static void shrink_caches(struct lru_list *active, struct lru_list *inactive)
     }
     nr_pages--;
   }
+
+  internal_call = old_internal_call;
 }
 
 
@@ -170,6 +188,9 @@ static void expand_caches(struct lru_list *active, struct lru_list *inactive)
   size_t nr_pages = inactive->numentries;
   size_t i;
   struct lru_node *n;
+
+  old_internal_call = internal_call;
+  internal_call = true;
 
   // examine each page in inactive list and move to active list if accessed
   for (i = 0; i < nr_pages; i++) {
@@ -186,6 +207,8 @@ static void expand_caches(struct lru_list *active, struct lru_list *inactive)
       lru_list_add(inactive, n);
     }
   }
+
+  internal_call = old_internal_call;
 }
 
 void *lru_kscand()
@@ -322,17 +345,18 @@ static struct hemem_page* lru_allocate_page()
   int tries;
 #endif
 
+  old_internal_call = internal_call;
+  internal_call = true;
+
   gettimeofday(&start, NULL);
 #ifdef LRU_SWAP
   for (tries = 0; tries < 2; tries++) {
 #endif
     node = lru_list_remove(&dram_free_list);
     if (node != NULL) {
-      ignore_this_mmap = true;
       assert(node->page->in_dram);
       assert(!node->page->present);
       assert(node->page->devdax_offset == node->framenum * PAGE_SIZE);
-      ignore_this_mmap = false;
 
       node->page->present = true;
       lru_list_add(&active_list, node);
@@ -342,6 +366,8 @@ static struct hemem_page* lru_allocate_page()
       gettimeofday(&end, NULL);
       LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
 
+      internal_call = old_internal_call;
+
       return node->page;
     }
     
@@ -349,11 +375,9 @@ static struct hemem_page* lru_allocate_page()
     // DRAM is full, fall back to NVM
     node = lru_list_remove(&nvm_free_list);
     if (node != NULL) {
-      ignore_this_mmap = true;
       assert(!node->page->in_dram);
       assert(!node->page->present);
       assert(node->page->devdax_offset == node->framenum * PAGE_SIZE);
-      ignore_this_mmap = false;
 
       node->page->present = true;
       lru_list_add(&nvm_active_list, node);
@@ -362,6 +386,8 @@ static struct hemem_page* lru_allocate_page()
 
       gettimeofday(&end, NULL);
       LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
+
+      internal_call = old_internal_call;
 
       return node->page;
     }
@@ -396,9 +422,7 @@ static struct hemem_page* lru_allocate_page()
   }
 #endif
 
-  ignore_this_mmap = true;
   assert(!"Out of memory");
-  ignore_this_mmap = false;
 }
 
 
@@ -406,13 +430,16 @@ struct hemem_page* lru_pagefault(void)
 {
   struct hemem_page *page;
 
+  old_internal_call = internal_call;
+  internal_call = true;
+
   pthread_mutex_lock(&global_lock);
   // do the heavy lifting of finding the devdax file offset to place the page
   page = lru_allocate_page();
   pthread_mutex_unlock(&global_lock);
-  ignore_this_mmap = true;
   assert(page != NULL);
-  ignore_this_mmap = false;
+
+  internal_call = old_internal_call;
   
   return page;
 }
@@ -421,10 +448,13 @@ struct hemem_page* lru_pagefault_unlocked(void)
 {
   struct hemem_page *page;
 
+  old_internal_call = internal_call;
+  internal_call = true;
+
   page = lru_allocate_page();
-  ignore_this_mmap = true;
   assert(page != NULL);
-  ignore_this_mmap = false;
+
+  internal_call = old_internal_call;
 
   return page;
 }
@@ -434,21 +464,18 @@ void lru_remove_page(struct hemem_page *page)
   struct lru_node *node;
   struct lru_list *list;
 
-  ignore_this_mmap = true;
+  old_internal_call = internal_call;
+  internal_call = true;
+
   assert(page != NULL);
-  ignore_this_mmap = false;
 
   node = page->management;
-  ignore_this_mmap = true;
   assert(node != NULL);
-  ignore_this_mmap = false;
 
   LOG("LRU: remove page: va: 0x%lx\n", page->va);
 
   list = node->list;
-  ignore_this_mmap = true;
   assert(list != NULL);
-  ignore_this_mmap = false;
 
   lru_list_remove_node(list, node);
   page->present = false;
@@ -459,6 +486,8 @@ void lru_remove_page(struct hemem_page *page)
   else {
     lru_list_add(&nvm_free_list, node);
   }
+
+  internal_call = old_internal_call;
 }
 
 
@@ -504,14 +533,10 @@ void lru_init(void)
   }
 
   int r = pthread_create(&scan_thread, NULL, lru_kscand, NULL);
-  ignore_this_mmap = true;
   assert(r == 0);
-  ignore_this_mmap = false;
   
   r = pthread_create(&kswapd_thread, NULL, lru_kswapd, NULL);
-  ignore_this_mmap = true;
   assert(r == 0);
-  ignore_this_mmap = false;
   
 #ifndef LRU_SWAP
   LOG("Memory management policy is LRU\n");
@@ -525,11 +550,16 @@ void lru_init(void)
 
 void lru_stats()
 {
+  old_internal_call = internal_call;
+  internal_call = true;
+
   LOG_STATS("\tactive_list.numentries: [%ld]\tinactive_list.numentries: [%ld]\tnvm_active_list.numentries: [%ld]\tnvm_inactive_list.numentries: [%ld]\n",
           active_list.numentries,
           inactive_list.numentries,
           nvm_active_list.numentries,
           nvm_inactive_list.numentries);
+    
+  internal_call = old_internal_call;
 }
 
 

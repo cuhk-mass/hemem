@@ -32,7 +32,7 @@ extern "C" {
 
 #define MEM_BARRIER() __sync_synchronize()
 
-#define NVMSIZE   (2750L * (1024L * 1024L * 1024L))
+#define NVMSIZE   (450L * (1024L * 1024L * 1024L))
 #define DRAMSIZE  (128L * (1024L * 1024L * 1024L))
 
 #define DRAMPATH  "/dev/dax0.0"
@@ -49,13 +49,13 @@ extern "C" {
 
 FILE *hememlogf;
 //#define LOG(...) fprintf(stderr, __VA_ARGS__)
-//#define LOG(...)	fprintf(hememlogf, __VA_ARGS__)
-#define LOG(str, ...) while(0) {}
+#define LOG(...)	fprintf(hememlogf, __VA_ARGS__)
+//#define LOG(str, ...) while(0) {}
 
 
 FILE *timef;
-#define LOG_TIME(str, ...) fprintf(timef, str, __VA_ARGS__)
-//#define LOG_TIME(str, ...) while(0) {}
+//#define LOG_TIME(str, ...) fprintf(timef, str, __VA_ARGS__)
+#define LOG_TIME(str, ...) while(0) {}
 
 FILE *statsf;
 //#define LOG_STATS(str, ...) fprintf(stderr, str,  __VA_ARGS__)
@@ -101,7 +101,8 @@ extern _Atomic(uint64_t) missing_faults_handled;
 extern _Atomic(uint64_t) migrations_up;
 extern _Atomic(uint64_t) migrations_down;
 extern __thread bool internal_malloc;
-extern __thread bool ignore_this_mmap;
+extern __thread bool old_internal_call;
+extern __thread bool internal_call;
 extern __thread bool internal_munmap;
 extern void* devmem_mmap;
 
@@ -145,7 +146,7 @@ static inline uint64_t pt_to_pagesize(enum pagetypes pt)
   switch(pt) {
   case HUGEP: return HUGEPAGE_SIZE;
   case BASEP: return BASEPAGE_SIZE;
-  default: ignore_this_mmap = true; assert(!"Unknown page type"); ignore_this_mmap = false;
+  default: assert(!"Unknown page type");
   }
 }
 
@@ -154,7 +155,7 @@ static inline enum pagetypes pagesize_to_pt(uint64_t pagesize)
   switch (pagesize) {
     case BASEPAGE_SIZE: return BASEP;
     case HUGEPAGE_SIZE: return HUGEP;
-    default: ignore_this_mmap = true;  assert(!"Unknown page ssize"); ignore_this_mmap = false;
+    default: assert(!"Unknown page ssize");
   }
 }
 

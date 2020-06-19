@@ -3,15 +3,15 @@
  *
  *       Filename:  gups.c
  *
- *    Description:  
+ *    Description:
  *
  *        Version:  1.0
  *        Created:  02/21/2018 02:36:27 PM
  *       Revision:  none
  *       Compiler:  gcc
  *
- *         Author:  YOUR NAME (), 
- *   Organization:  
+ *         Author:  YOUR NAME (),
+ *   Organization:
  *
  * =====================================================================================
  */
@@ -31,19 +31,22 @@
 #include <pthread.h>
 #include <sys/mman.h>
 #include <errno.h>
+#include <stdint.h>
 
 #include "../timer.h"
-#include "../hemem.h"
+//#include "../hemem.h"
 
 
 #include "gups.h"
 
-#define MAX_THREADS	64
+#define MAX_THREADS     64
 
 #ifdef HOTSPOT
 extern uint64_t hotset_start;
 extern double hotset_fraction;
 #endif
+
+int threads;
 
 uint64_t hot_start = 0;
 uint64_t hotsize = 0;
@@ -63,12 +66,30 @@ static unsigned long updates, nelems;
 
 static void *print_instantaneous_gups()
 {
-  uint64_t last_second_gups = 0;
+  uint64_t last_second_gups[threads];
+  FILE *f[threads];
+  char fname[20];
+
+  for (int i = 0; i < threads; i++) {
+    last_second_gups[i] = 0;
+    snprintf(fname, 20, "gups_%d.txt", i);
+    printf("file name: %s\n", fname);
+    f[i] = fopen(fname, "w");
+    if (f[i] == NULL) {
+      perror("fopen");
+      assert(0);
+    }
+  }
 
   for (;;) {
-    printf("GUPS: %.10f\n", (1.0 * (abs(thread_gups[0] - last_second_gups))) / (1.0e9));
-    last_second_gups = thread_gups[0];
+    for (int i = 0; i < threads; i++) {
+      fprintf(f[i], "%.10f\n", (1.0 * (abs(thread_gups[i] - last_second_gups[i]))) / (1.0e9));
+      last_second_gups[i] = thread_gups[i];
+    }
     sleep(1);
+    //printf("GUPS: %.10f\n", (1.0 * (abs(thread_gups[0]- last_second_gups))) / (1.0e9));
+    //last_second_gups = thread_gups[0];
+    //sleep(1);
   }
 
   return NULL;
@@ -83,6 +104,7 @@ static uint64_t lfsr_fast(uint64_t lfsr)
   return lfsr;
 }
 
+char *filename = "indices1.txt";
 
 static void *do_gups(void *arguments)
 {
@@ -95,6 +117,15 @@ static void *do_gups(void *arguments)
   char data[elt_size];
   uint64_t lfsr;
   uint64_t hot_num;
+  FILE *indexfile;
+
+  printf("thread %d starting GUPS\n", args->tid);
+
+  indexfile = fopen(filename, "w");
+  if (indexfile == NULL) {
+    perror("fopen");
+    assert(0);
+  }
 
   srand(0);
   lfsr = rand();
@@ -108,18 +139,20 @@ static void *do_gups(void *arguments)
       lfsr = lfsr_fast(lfsr);
       index1 = hot_start + (lfsr % hotsize);
       memcpy(data, &field[index1 * elt_size], elt_size);
-      memset(data, data[0] + i, elt_size);
+      memset(data, data[0] + j, elt_size);
       memcpy(&field[index1 * elt_size], data, elt_size);
       thread_gups[args->tid]++;
+      fprintf(indexfile, "%lu\n", index1);
     }
     i += hot_num;
-    
+
     lfsr = lfsr_fast(lfsr);
     index2 = lfsr % (args->size);
     memcpy(data, &field[index2 * elt_size], elt_size);
     memset(data, data[0] + i, elt_size);
     memcpy(&field[index2 * elt_size], data, elt_size);
     thread_gups[args->tid]++;
+    fprintf(indexfile, "%lu\n", index1);
   }
 /*
   //printf("Thread [%d] starting: field: [%llx]\n", args->tid, field);
@@ -142,7 +175,6 @@ static void *calc_indices_thread(void *arg)
 */
 int main(int argc, char **argv)
 {
-  int threads;
   unsigned long expt;
   unsigned long size, elt_size;
   unsigned long tot_hot_size;
@@ -166,12 +198,12 @@ int main(int argc, char **argv)
 
   gettimeofday(&starttime, NULL);
 
-  
+
   threads = atoi(argv[1]);
   assert(threads <= MAX_THREADS);
   ga = (struct gups_args**)malloc(threads * sizeof(struct gups_args*));
   fprintf(stderr, "size of ga: %lu\n", sizeof(ga));
-  
+
   updates = atol(argv[2]);
   updates -= updates % 256;
   expt = atoi(argv[3]);
@@ -188,7 +220,7 @@ int main(int argc, char **argv)
   fprintf(stderr, "field of 2^%lu (%lu) bytes\n", expt, size);
   fprintf(stderr, "%ld byte element size (%ld elements total)\n", elt_size, size / elt_size);
 
-  p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+  p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE, -1, 0);
   if (p == MAP_FAILED) {
     perror("mmap");
     assert(0);
@@ -217,10 +249,10 @@ int main(int argc, char **argv)
       exit(1);
     }
     int r = pthread_create(&t[i], NULL, calc_indices_thread, (void*)ga[i]);
-    assert(r == 0); 
+    assert(r == 0);
     */
   }
-  
+
   // wait for worker threads
   //for (i = 0; i < threads; i++) {
     //int r = pthread_join(t[i], NULL);
@@ -230,20 +262,22 @@ int main(int argc, char **argv)
   gettimeofday(&stoptime, NULL);
   secs = elapsed(&starttime, &stoptime);
   fprintf(stderr, "Initialization time: %.4f seconds.\n", secs);
-  
-  //pthread_t print_thread;
-  //int pt = pthread_create(&print_thread, NULL, print_instantaneous_gups, NULL);
-  //assert(pt == 0);
+
+  pthread_t print_thread;
+  int pt = pthread_create(&print_thread, NULL, print_instantaneous_gups, NULL);
+  assert(pt == 0);
 
   hot_start = 0;
   hotsize = (tot_hot_size / threads) / elt_size;
   printf("hot_start: %lu\thot_size: %lu\n", hot_start, hotsize);
-  
+
+  gettimeofday(&starttime, NULL);
+
   // run through gups once to touch all memory
   // spawn gups worker threads
   for (i = 0; i < threads; i++) {
     //printf("starting thread [%d]\n", i);
-    ga[i]->tid = i; 
+    ga[i]->tid = i;
     ga[i]->iters = updates;
     ga[i]->size = nelems;
     ga[i]->elt_size = elt_size;
@@ -257,17 +291,25 @@ int main(int argc, char **argv)
     int r = pthread_join(t[i], NULL);
     assert(r == 0);
   }
-  hemem_print_stats();
-  
+  //hemem_print_stats();
+
+  gettimeofday(&stoptime, NULL);
+
+  secs = elapsed(&starttime, &stoptime);
+  printf("Elapsed time: %.4f seconds.\n", secs);
+  gups = threads * ((double)updates) / (secs * 1.0e9);
+  printf("GUPS = %.10f\n", gups);
   memset(thread_gups, 0, sizeof(thread_gups));
+
+  filename = "indices2.txt";
 
   fprintf(stderr, "Timing.\n");
   gettimeofday(&starttime, NULL);
-  hemem_clear_stats();
+  //hemem_clear_stats();
   // spawn gups worker threads
   for (i = 0; i < threads; i++) {
     //printf("starting thread [%d]\n", i);
-    ga[i]->tid = i; 
+    ga[i]->tid = i;
     ga[i]->iters = updates;
     ga[i]->size = nelems;
     ga[i]->elt_size = elt_size;
@@ -282,8 +324,8 @@ int main(int argc, char **argv)
     assert(r == 0);
   }
   gettimeofday(&stoptime, NULL);
-  hemem_print_stats();
-  hemem_clear_stats();
+  //hemem_print_stats();
+  //hemem_clear_stats();
 
   secs = elapsed(&starttime, &stoptime);
   printf("Elapsed time: %.4f seconds.\n", secs);
@@ -291,17 +333,19 @@ int main(int argc, char **argv)
   printf("GUPS = %.10f\n", gups);
 
   memset(thread_gups, 0, sizeof(thread_gups));
-#if 0
+
 #ifdef HOTSPOT
-  hot_start = (1024UL * 1024UL * 1024UL * 16UL) / elt_size;              // 16GB to the right;
+  hot_start = (16UL * 1024UL * 1024UL * 1024UL) / elt_size;              // 16GB to the right;
   printf("hot_start: %lu\thot_size: %lu\n", hot_start, hotsize);
+
+  filename = "indices3.txt";
 
   printf("Timing.\n");
   gettimeofday(&starttime, NULL);
-  
+
   // spawn gups worker threads
   for (i = 0; i < threads; i++) {
-    ga[i]->tid = i; 
+    ga[i]->tid = i;
     ga[i]->iters = updates;
     ga[i]->size = nelems;
     ga[i]->elt_size = elt_size;
@@ -321,17 +365,18 @@ int main(int argc, char **argv)
   printf("Elapsed time: %.4f seconds.\n", secs);
   gups = threads * ((double)updates) / (secs * 1.0e9);
   printf("GUPS = %.10f\n", gups);
-  
-  hemem_print_stats();
+
+  //hemem_print_stats();
 #endif
-#endif
+
   for (i = 0; i < threads; i++) {
     //free(ga[i]->indices);
     free(ga[i]);
   }
   free(ga);
-  
+
   //munmap(p, size);
 
   return 0;
 }
+

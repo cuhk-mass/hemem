@@ -57,22 +57,16 @@ struct hemem_page* simple_pagefault(void)
 
   page = dequeue_fifo(&dram_free);
   if (page != NULL) {
-    ignore_this_mmap = true;
     assert(!page->present);
-    ignore_this_mmap = false;
     page->present = true;
     fastmem += PAGE_SIZE;  
   }
   else {
-    ignore_this_mmap = true;
     assert(slowmem < NVMSIZE);
-    ignore_this_mmap = false;
     page = dequeue_fifo(&nvm_free);
     
-    ignore_this_mmap = true;
     assert(page != NULL);
     assert(!page->present);
-    ignore_this_mmap = false;
 
     page->present = true;
     slowmem += PAGE_SIZE;

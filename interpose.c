@@ -24,20 +24,25 @@ static int mmap_filter(void *addr, size_t length, int prot, int flags, int fd, o
 
   //TODO: figure out which mmap calls should go to libc vs hemem
   // non-anonymous mappings should probably go to libc (e.g., file mappings)
-  if (((flags & MAP_ANONYMOUS) != MAP_ANONYMOUS) && !((fd == dramfd) || (fd == nvmfd))) {
-    //LOG("hemem interpose: calling libc mmap due to non-anonymous, non-devdax mapping\n");
+  if (((flags & MAP_ANONYMOUS) != MAP_ANONYMOUS) && !((fd == dramfd) || (fd == nvmfd) || (fd == devmemfd))) {
+    fprintf(stderr, "hemem interpose: calling libc mmap due to non-anonymous, non-devdax mapping: mmap(0x%lx, %ld, %x, %x, %d, %ld)\n", (uint64_t)addr, length, prot, flags, fd, offset);
     return 1;
   }
 
   if ((flags & MAP_STACK) == MAP_STACK) {
     // pthread mmaps are called with MAP_STACK
-    //LOG("hemem interpose: calling libc mmap due to stack mapping\n");
+    fprintf(stderr, "hemem interpose: calling libc mmap due to stack mapping: mmap(0x%lx, %ld, %x, %x, %d, %ld)\n", (uint64_t)addr, length, prot, flags, fd, offset);
     return 1;
   }
 
   if (((flags & MAP_NORESERVE) == MAP_NORESERVE)) {
     // thread stack is called without swap space reserved, so we can probably ignore these
-    LOG("hemem interpose: calling libc mmap due to non-swap space reserved mapping\n");
+    fprintf(stderr, "hemem interpose: calling libc mmap due to non-swap space reserved mapping: mmap(0x%lx, %ld, %x, %x, %d, %ld)\n", (uint64_t)addr, length, prot, flags, fd, offset);
+    return 1;
+  }
+  
+  if ((fd == dramfd) || (fd == nvmfd) || (fd == devmemfd)) {
+    //LOG("hemem interpose: calling libc mmap due to hemem devdax mapping\n");
     return 1;
   }
 
@@ -45,26 +50,21 @@ static int mmap_filter(void *addr, size_t length, int prot, int flags, int fd, o
     return 1;
   }
 
-  if (ignore_this_mmap) {
+  if (internal_call) {
     return 1;
   }
-
-  if (length <= 100UL * 1024UL * 1024UL * 1024UL) {
-    //LOG("hemem interpose calling libc mmap due to small allocation size\n");
-    return 1;
-  }
-
+  
   if (!is_init) {
     //LOG("hemem interpose: calling libc mmap due to hemem init in progress\n");
     return 1;
   }
 
-  if ((fd == dramfd) || (fd == nvmfd)) {
-    //LOG("hemem interpose: calling libc mmap due to hemem devdax mapping\n");
+  if (length <= 100UL * 1024UL * 1024UL * 1024UL) {
+    fprintf(stderr, "hemem interpose calling libc mmap due to small allocation size: mmap(0x%lx, %ld, %x, %x, %d, %ld)\n", (uint64_t)addr, length, prot, flags, fd, offset);
     return 1;
   }
 
-  LOG("hemem interpose: calling hemem mmap(0x%lx, %ld, %x, %x, %d, %ld)\n", (uint64_t)addr, length, prot, flags, fd, offset);
+  fprintf(stderr, "hemem interpose: calling hemem mmap(0x%lx, %ld, %x, %x, %d, %ld)\n", (uint64_t)addr, length, prot, flags, fd, offset);
   if ((*result = (uint64_t)hemem_mmap(addr, length, prot, flags, fd, offset)) == (uint64_t)MAP_FAILED) {
     // hemem failed for some reason, try libc
     LOG("hemem mmap failed\n\tmmap(0x%lx, %ld, %x, %x, %d, %ld)\n", (uint64_t)addr, length, prot, flags, fd, offset);
@@ -79,7 +79,7 @@ static int munmap_filter(void *addr, size_t length, uint64_t* result)
   
   //TODO: figure out which munmap calls should go to libc vs hemem
   
-  if (internal_munmap || ignore_this_mmap) {
+  if (internal_munmap || internal_call) {
     return 1;
   }
 

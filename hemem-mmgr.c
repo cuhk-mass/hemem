@@ -24,21 +24,15 @@ static _Atomic uint64_t slowmem_freebytes = NVMSIZE;
 static void mmgr_list_add(struct mmgr_list *list, struct mmgr_node *node)
 {
   pthread_mutex_lock(&(list->list_lock));
-  ignore_this_mmap = true;
   assert(node->prev == NULL);
-  ignore_this_mmap = false;
   node->next = list->first;
   if(list->first != NULL) {
-    ignore_this_mmap = true;
     assert(list->first->prev == NULL);
-    ignore_this_mmap = false;
     list->first->prev = node;
   } 
   else {
-    ignore_this_mmap = true;
     assert(list->last == NULL);
     assert(list->numentries == 0);
-    ignore_this_mmap = false;
     list->last = node;
   }
 
@@ -54,9 +48,7 @@ static struct mmgr_node* mmgr_list_remove(struct mmgr_list *list)
   struct mmgr_node *ret = list->last;
 
   if(ret == NULL) {
-    ignore_this_mmap = true;
     assert(list->numentries == 0);
-    ignore_this_mmap = false;
     pthread_mutex_unlock(&(list->list_lock));
     return ret;
   }
@@ -71,9 +63,7 @@ static struct mmgr_node* mmgr_list_remove(struct mmgr_list *list)
   ret->prev = NULL;
   ret->next = NULL;
   ret->list = NULL;
-  ignore_this_mmap = true;
   assert(list->numentries > 0);
-  ignore_this_mmap = false;
   list->numentries--;
   pthread_mutex_unlock(&(list->list_lock));
   return ret;
@@ -88,10 +78,8 @@ static void mmgr_list_remove_node(struct mmgr_list *list, struct mmgr_node *node
 {
   pthread_mutex_lock(&(list->list_lock));
   if (list->first == NULL) {
-    ignore_this_mmap = true;
     assert(list->last == NULL);
     assert(list->numentries == 0);
-    ignore_this_mmap = false;
     pthread_mutex_unlock(&(list->list_lock));
     LOG("mmgr_list_remove_node: list was empty\n");
     return;
@@ -161,9 +149,7 @@ static void move_hot(void)
   /*if (nn == NULL) {
       // break up a huge page
       struct mmgr_node *hn = mmgr_list_remove(&mem_free[FASTMEM][HUGEP]);
-      ignore_this_mmap = true;
       assert(hn != NULL);
-      ignore_this_mmap = false;
 
       //hemem_demote_pages(hn->page->va);
 
@@ -204,10 +190,8 @@ static void move_hot(void)
     n->page->in_dram = false;
     n->page->devdax_offset = n->offset;
 
-    ignore_this_mmap = true;
     assert(n->page->devdax_offset == n->offset);
     assert(nn->page->devdax_offset == nn->offset);
-    ignore_this_mmap = false;
 
     nn->page->migrating = false;
     pthread_mutex_unlock(&(nn->page->page_lock));
@@ -282,15 +266,13 @@ move:
       switch (pt) {
         case BASEP: times = 1; break;
         case HUGEP: times = 512; break;
-        default: ignore_this_mmap = true; assert("Unknown page type"); ignore_this_mmap = false;
+        default: assert("Unknown page type");
       }
       */
       //for (size_t i = 0; i < times; i++) {
         struct mmgr_node *nn = mmgr_list_remove(&mem_free[SLOWMEM][HUGEP]);
-        ignore_this_mmap = true;
         assert(nn != NULL);
         assert(!nn->page->present);
-        ignore_this_mmap = false;
 
         // TODO: move memory
         slowmem_freebytes -= pt_to_pagesize(HUGEP);
@@ -317,10 +299,8 @@ move:
         n->page->present = false;
         n->page->devdax_offset = n->offset;
         
-        ignore_this_mmap = true;
         assert(n->page->devdax_offset == n->offset);
         assert(nn->page->devdax_offset == nn->offset);
-        ignore_this_mmap = false;
 
         nn->page->migrating = false;
         pthread_mutex_unlock(&(nn->page->page_lock));
@@ -492,11 +472,9 @@ static struct hemem_page* mmgr_allocate_page()
     enum pagetypes pt = HUGEP;
     node = mmgr_list_remove(&mem_free[FASTMEM][pt]);
     if (node != NULL) {
-      ignore_this_mmap = true;
       assert(node->page->in_dram);
       assert(!node->page->present);
       assert(node->page->pt == HUGEP);
-      ignore_this_mmap = false;
       
       node->page->present = true;
       mmgr_list_add(&mem_active[FASTMEM][pt], node);
@@ -514,12 +492,10 @@ static struct hemem_page* mmgr_allocate_page()
     pt = HUGEP;
     node = mmgr_list_remove(&mem_free[SLOWMEM][pt]);
 
-    ignore_this_mmap = true;
     assert(node != NULL);
     assert(!node->page->in_dram);
     assert(!node->page->present);
     assert(node->page->pt == HUGEP);
-    ignore_this_mmap = false;
 
     node->page->present = true;
     mmgr_list_add(&mem_active[SLOWMEM][pt], node);
@@ -543,9 +519,7 @@ struct hemem_page* hemem_mmgr_pagefault()
   pthread_mutex_lock(&global_lock);
   page = mmgr_allocate_page();
   pthread_mutex_unlock(&global_lock);
-  ignore_this_mmap = true;
   assert(page != NULL);
-  ignore_this_mmap = false;
 
   return page;
 }
@@ -555,9 +529,7 @@ struct hemem_page* hemem_mmgr_pagefault_unlocked()
   struct hemem_page *page;
   
   page = mmgr_allocate_page();
-  ignore_this_mmap = true;
   assert(page != NULL);
-  ignore_this_mmap = false;
 
   return page;
 }
@@ -567,19 +539,13 @@ void hemem_mmgr_remove_page(struct hemem_page *page)
   struct mmgr_node *node;
   struct mmgr_list *list;
 
-  ignore_this_mmap = true;
   assert(page != NULL);
-  ignore_this_mmap = false;
 
   node = page->management;
-  ignore_this_mmap = true;
   assert(node != NULL);
-  ignore_this_mmap = false;
 
   list = node->list;
-  ignore_this_mmap = true;
   assert(list != NULL);
-  ignore_this_mmap = false;
 
   mmgr_list_remove_node(list, node);
   page->present = false;
@@ -633,9 +599,7 @@ void hemem_mmgr_init(void)
   }
 
   int r = pthread_create(&thread, NULL, mmgr_thread, NULL);
-  ignore_this_mmap = true;
   assert(r == 0);
-  ignore_this_mmap = false;
 
   LOG("Memory management policy is Hemem\n");
 }

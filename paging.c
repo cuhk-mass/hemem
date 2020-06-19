@@ -43,44 +43,32 @@ uint64_t* va_to_pa(uint64_t va)
 
   pgd = (devmem_mmap + pt_base);
   pgd_offset = (((va) >> HEMEM_PGDIR_SHIFT) & (HEMEM_PTRS_PER_PGD - 1));
-  ignore_this_mmap = true;
   assert(pgd_offset < PAGE_SIZE);
-  ignore_this_mmap = false;
   pgd_entry = *(pgd + pgd_offset);
   LOG("pgd_entry: %lx\n", pgd_entry);
   if (!((pgd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     LOG("hemem_va_to_pa: pgd not present: %016lx\n", pgd_entry);
-    ignore_this_mmap = true;
     assert(0);
-    ignore_this_mmap = false;
   }
 
   pud = (uint64_t*)(pgd_entry & ADDRESS_MASK);
   pud_offset = (((va) >> HEMEM_PUD_SHIFT) & (HEMEM_PTRS_PER_PUD - 1));
-  ignore_this_mmap = true;
   assert(pud_offset < PAGE_SIZE);
-  ignore_this_mmap = false;
   pud_entry = *(pud + pud_offset);
   LOG("pud_entry: %lx\n", pud_entry);
   if (!((pud_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     LOG("hemem_va_to_pa: pud not present: %016lx\n", pud_entry);
-    ignore_this_mmap = true;
     assert(0);
-    ignore_this_mmap = false;
   }
 
   pmd = (uint64_t*)(pud_entry & ADDRESS_MASK);
   pmd_offset = (((va) >> HEMEM_PMD_SHIFT) & (HEMEM_PTRS_PER_PMD - 1));
-  ignore_this_mmap = true;
   assert(pmd_offset < PAGE_SIZE);
-  ignore_this_mmap = false;
   pmd_entry = *(pmd + pmd_offset);
   LOG("pmd_entry: %lx\n", pmd_entry);
   if (!((pmd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     LOG("hemem_va_to_pa: pmd not present: %016lx\n", pmd_entry);
-    ignore_this_mmap = true;
     assert(0);
-    ignore_this_mmap = false;
   }
 
   if ((pmd_entry & HEMEM_HUGEPAGE_FLAG) == HEMEM_HUGEPAGE_FLAG) {
@@ -89,16 +77,12 @@ uint64_t* va_to_pa(uint64_t va)
 
   pte = (uint64_t*)(pmd_entry & ADDRESS_MASK);
   pte_offset = (((va) >> HEMEM_PAGE_SHIFT) & (HEMEM_PTRS_PER_PTE - 1));
-  ignore_this_mmap = true;
   assert(pte_offset < PAGE_SIZE);
-  ignore_this_mmap = false;
   pte_entry = *(pte + pte_offset);
   LOG("pte_entry: %lx\n", pte_entry);
   if (!((pte_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     LOG("hemem_va_to_pa: pte not present: %016lx\n", pte_entry);
-    ignore_this_mmap = true;
     assert(0);
-    ignore_this_mmap = false;
   }
 
   return pte + pte_offset;
@@ -122,46 +106,34 @@ void clear_bit(uint64_t va, uint64_t bit)
 
   pgd = (devmem_mmap + pt_base);  
   pgd_offset = (((va) >> HEMEM_PGDIR_SHIFT) & (HEMEM_PTRS_PER_PGD - 1));
-  ignore_this_mmap = true;
   assert(pgd_offset < PAGE_SIZE);
-  ignore_this_mmap = false;
   pgd_entry = (pgd + pgd_offset);
   LOG("pgd_entry: %lx\n", *pgd_entry);
   if (!((*pgd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     LOG("clear_bit: pgd not present: %016lx\n", *pgd_entry);
-    ignore_this_mmap = true;
     //assert(0);
-    ignore_this_mmap = false;
     return;
   }
 
   pud = (uint64_t*)(*pgd_entry & ADDRESS_MASK);
   pud_offset = (((va) >> HEMEM_PUD_SHIFT) & (HEMEM_PTRS_PER_PUD - 1));
-  ignore_this_mmap = true;
   assert(pud_offset < PAGE_SIZE);
-  ignore_this_mmap = false;
   pud_entry = (pud + pud_offset);
   LOG("pud_entry: %lx\n", *pud_entry);
   if (!((*pud_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     LOG("clear_bit: pud not present: %016lx\n", *pud_entry);
-    ignore_this_mmap = true;
     //assert(0);
-    ignore_this_mmap = false;
     return;
   }
 
   pmd = (uint64_t*)(*pud_entry & ADDRESS_MASK);
   pmd_offset = (((va) >> HEMEM_PMD_SHIFT) & (HEMEM_PTRS_PER_PMD - 1));
-  ignore_this_mmap = true;
   assert(pmd_offset < PAGE_SIZE);
-  ignore_this_mmap = false;
   pmd_entry = (pmd + pmd_offset);
   LOG("pmd_entry: %lx\n", *pmd_entry);
   if (!((*pmd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     LOG("clear_bit: pmd not present: %016lx\n", *pmd_entry);
-    ignore_this_mmap = true;
     //assert(0);
-    ignore_this_mmap = false;
     return;
   }
 
@@ -172,16 +144,12 @@ void clear_bit(uint64_t va, uint64_t bit)
 
   pte = (uint64_t*)(*pmd_entry & ADDRESS_MASK);
   pte_offset = (((va) >> HEMEM_PAGE_SHIFT) & (HEMEM_PTRS_PER_PTE - 1));
-  ignore_this_mmap = true;
   assert(pte_offset < PAGE_SIZE);
-  ignore_this_mmap = false;
   pte_entry = (pte + pte_offset);
   LOG("pte_entry: %lx\n", *pte_entry);
   if (!((*pte_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     LOG("clear_bit: pte not present: %016lx\n", *pte_entry);
-    ignore_this_mmap = true;
     //assert(0);
-    ignore_this_mmap = false;
     return;
   }
 
@@ -206,46 +174,34 @@ uint64_t get_bit(uint64_t va, uint64_t bit)
 
   pgd = (devmem_mmap + pt_base);  
   pgd_offset = (((va) >> HEMEM_PGDIR_SHIFT) & (HEMEM_PTRS_PER_PGD - 1));
-  ignore_this_mmap = true;
   assert(pgd_offset < PAGE_SIZE);
-  ignore_this_mmap = false;
   pgd_entry = (pgd + pgd_offset);
   LOG("pgd_entry: %lx\n", *pgd_entry);
   if (!((*pgd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     LOG("set_bit: pgd not present: %016lx\n", *pgd_entry);
-    ignore_this_mmap = true;
     //assert(0);
-    ignore_this_mmap = false;
     return 0;
   }
 
   pud = (uint64_t*)(*pgd_entry & ADDRESS_MASK);
   pud_offset = (((va) >> HEMEM_PUD_SHIFT) & (HEMEM_PTRS_PER_PUD - 1));
-  ignore_this_mmap = true;
   assert(pud_offset < PAGE_SIZE);
-  ignore_this_mmap = false;
   pud_entry = (pud + pud_offset);
   LOG("pud_entry: %lx\n", *pud_entry);
   if (!((*pud_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     LOG("set_bit: pud not present: %016lx\n", *pud_entry);
-    ignore_this_mmap = true;
     //assert(0);
-    ignore_this_mmap = false;
     return 0;
   }
 
   pmd = (uint64_t*)(*pud_entry & ADDRESS_MASK);
   pmd_offset = (((va) >> HEMEM_PMD_SHIFT) & (HEMEM_PTRS_PER_PMD - 1));
-  ignore_this_mmap = true;
   assert(pmd_offset < PAGE_SIZE);
-  ignore_this_mmap = false;
   pmd_entry = (pmd + pmd_offset);
   LOG("pmd_entry: %lx\n", *pmd_entry);
   if (!((*pmd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     LOG("set_bit: pmd not present: %016lx\n", *pmd_entry);
-    ignore_this_mmap = true;
     //assert(0);
-    ignore_this_mmap = false;
     return 0;
   }
 
@@ -255,16 +211,12 @@ uint64_t get_bit(uint64_t va, uint64_t bit)
 
   pte = (uint64_t*)(*pmd_entry & ADDRESS_MASK);
   pte_offset = (((va) >> HEMEM_PAGE_SHIFT) & (HEMEM_PTRS_PER_PTE - 1));
-  ignore_this_mmap = true;
   assert(pte_offset < PAGE_SIZE);
-  ignore_this_mmap = false;
   pte_entry = (pte + pte_offset);
   LOG("pte_entry: %lx\n", *pte_entry);
   if (!((*pte_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     LOG("set_bit: pte not present: %016lx\n", *pte_entry);
-    ignore_this_mmap = true;
     //assert(0);
-    ignore_this_mmap = false;
     return 0;
   }
 
@@ -308,9 +260,7 @@ void scan_fourth_level(uint64_t pde, bool clear_flag, uint64_t flag)
   ptable4_ptr = libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pde & ADDRESS_MASK);
   if (ptable4_ptr == MAP_FAILED) {
     perror("third level page table mmap");
-    ignore_this_mmap = true;
     assert(0);
-    ignore_this_mmap = false;
   }
 
   pte_ptr = (uint64_t*)ptable4_ptr;
@@ -344,9 +294,7 @@ void scan_third_level(uint64_t pdtpe, bool clear_flag, uint64_t flag)
   ptable3_ptr = libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pdtpe & ADDRESS_MASK);
   if (ptable3_ptr == MAP_FAILED) {
     perror("third level page table mmap");
-    ignore_this_mmap = true;
     assert(0);
-    ignore_this_mmap = false;
   }
 
   pde_ptr = (uint64_t*)ptable3_ptr;
@@ -377,9 +325,7 @@ void scan_second_level(uint64_t pml4e, bool clear_flag, uint64_t flag)
   ptable2_ptr = libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pml4e & ADDRESS_MASK);
   if (ptable2_ptr == MAP_FAILED) {
     perror("second level page table mmap");
-    ignore_this_mmap = true;
     assert(0);
-    ignore_this_mmap = false;
   }
 
   pdtpe_ptr = (uint64_t*)ptable2_ptr;
@@ -410,49 +356,37 @@ void _scan_pagetable(bool clear_flag, uint64_t flag)
   pml4es = fopen("logs/pml4es.txt", "w+");
   if (pml4es == NULL) {
     perror("pml4e file open");
-    ignore_this_mmap = true;
     assert(0);
-    ignore_this_mmap = false;
   }
   
   pdtpes = fopen("logs/pdtpes.txt", "w+");
   if (pdtpes == NULL) {
     perror("pdtpes open");
-    ignore_this_mmap = true;
     assert(0);
-    ignore_this_mmap = false;
   }
 
   pdes = fopen("logs/pdes.txt", "w+");
   if (pdes == NULL) {
     perror("pdes open");
-    ignore_this_mmap = true;
     assert(0);
-    ignore_this_mmap = false;
   }
   
   ptes = fopen("logs/ptes.txt", "w+");
   if (ptes == NULL) {
     perror("ptes open");
-    ignore_this_mmap = true;
     assert(0);
-    ignore_this_mmap = false;
   }
 
   valid = fopen("logs/valid.txt", "w+");
   if (valid == NULL) {
     perror("valid open");
-    ignore_this_mmap = true;
     assert(0);
-    ignore_this_mmap = false;
   }
 
   rootptr = libc_mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, cr3 & ADDRESS_MASK);
   if (rootptr == MAP_FAILED) {
     perror("/dev/mem mmap");
-    ignore_this_mmap = true;
     assert(0);
-    ignore_this_mmap = false;
   }
 
   pml4e_ptr = (uint64_t*)rootptr;
@@ -500,9 +434,7 @@ void *examine_pagetables()
   maps = fopen("/proc/self/maps", "r");
   if (maps == NULL) {
     perror("/proc/self/maps fopen");
-    ignore_this_mmap = true;
     assert(0);
-    ignore_this_mmap = false;
   }
 
   pagemaps = open("/proc/self/pagemap", O_RDONLY);
@@ -510,31 +442,24 @@ void *examine_pagetables()
     perror("/proc/self/pagemap fopen");
     ignore_this_mamp = true;
     assert(0);
-    ignore_this_mmap = false;
   }
 
   maps_copy = open("logs/maps.txt", O_CREAT | O_RDWR);
   if (maps_copy == -1) {
     perror("map.txt open");
-    ignore_this_mmap = true;
     assert(0);
-    ignore_this_mmap = false;
   }
 
   kpageflags = fopen("/proc/kpageflags", "r");
   if (kpageflags == NULL) {
     perror("/proc/kpageflags fopen");
-    ignore_this_mmap = true;
     assert(0);
-    ignore_this_mmap = false;
   }
 
   pfn_file = fopen("logs/pfn.txt", "w+");
   if (pfn_file == NULL) {
     perror("pfn.txt open");
-    ignore_this_mmap = true;
     assert(0);
-    ignore_this_mmap = false;
   }
 
   nread = getline(&line, &len, maps);
@@ -542,17 +467,13 @@ void *examine_pagetables()
     nwritten = write(maps_copy, line, nread);
     if (nwritten < 0) {
       perror("maps_copy write");
-      ignore_this_mmap = true;
       assert(0);
-      ignore_this_mmap = false;
     }
     if (strstr(line, DRAMPATH) != NULL) {
       n = sscanf(line, "%lX-%lX", &vm_start, &vm_end);
       if (n != 2) {
         fprintf(stderr, "error, invalid line: %s\n", line);
-        ignore_this_mmap = true;
         assert(0);
-        ignore_this_mmap = false;
       }
 
       num_pages = (vm_end - vm_start) / PAGE_SIZE;
@@ -562,9 +483,7 @@ void *examine_pagetables()
         o = lseek(pagemaps, index, SEEK_SET);
         if (o != index) {
           perror("pagemaps lseek");
-          ignore_this_mmap = true;
           assert(0);
-          ignore_this_mmap = false;
         }
 
         while (num_pages > 0) {
@@ -572,9 +491,7 @@ void *examine_pagetables()
           t = read(pagemaps, &pfn, sizeof(uint64_t));
           if (t < 0) {
             perror("pagemaps read");
-            ignore_this_mmap = true;
             assert(0);
-            ignore_this_mmap = false;
           }
 
           entry.pfn = pfn & 0x7ffffffffffff;
@@ -594,9 +511,7 @@ void *examine_pagetables()
       n = sscanf(line, "%lX-%lX", &vm_start, &vm_end);
       if (n != 2) {
         fprintf(stderr, "error, invalid line: %s\n", line);
-        ignore_this_mmap = true;
         assert(0);
-        ignore_this_mmap = false;
       }
 
       num_pages = (vm_end - vm_start) / PAGE_SIZE;
@@ -606,9 +521,7 @@ void *examine_pagetables()
         o = lseek(pagemaps, index, SEEK_SET);
         if (o != index) {
           perror("pagemaps lseek");
-          ignore_this_mmap = true;
           assert(0);
-          ignore_this_mmap = false;
         }
 
         while (num_pages > 0) {
@@ -616,9 +529,7 @@ void *examine_pagetables()
           t = read(pagemaps, &pfn, sizeof(uint64_t));
           if (t < 0) {
             perror("pagemaps read");
-            ignore_this_mmap = true;
             assert(0);
-            ignore_this_mmap = false;
           }
 
           entry.pfn = pfn & 0x7ffffffffffff;
