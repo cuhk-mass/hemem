@@ -435,6 +435,7 @@ static void hemem_mmap_populate(void* addr, size_t length)
     // use mmap return addr to track new page's virtual address
     page->va = (uint64_t)newptr;
     assert(page->va != 0);
+    assert(page->va % HUGEPAGE_SIZE == 0);
     page->migrating = false;
     page->migrations_up = page->migrations_down = 0;
     //page->pa = hemem_va_to_pa(page);
@@ -670,6 +671,7 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
   if (newptr != (void*)page->va) {
     fprintf(stderr, "mapped address is not same as faulting address\n");
   }
+  assert(page->va % HUGEPAGE_SIZE == 0);
   gettimeofday(&end, NULL);
   LOG_TIME("mmap_dram: %f s\n", elapsed(&start, &end));
 
@@ -766,6 +768,7 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
   if (newptr != (void*)page->va) {
     fprintf(stderr, "mapped address is not same as faulting address\n");
   }
+  assert(page->va % HUGEPAGE_SIZE == 0);
   gettimeofday(&end, NULL);
   LOG_TIME("mmap_nvm: %f s\n", elapsed(&start, &end));
 
@@ -816,6 +819,7 @@ void hemem_wp_page(struct hemem_page *page, bool protect)
   //LOG("hemem_wp_page: wp addr %lx pte: %lx\n", addr, hemem_va_to_pa(addr));
 
   assert(addr != 0);
+  assert(addr % HUGEPAGE_SIZE == 0);
 
   gettimeofday(&start, NULL);
   wp.range.start = addr;
@@ -946,6 +950,7 @@ void handle_missing_fault(uint64_t page_boundry)
   // use mmap return addr to track new page's virtual address
   page->va = (uint64_t)newptr;
   assert(page->va != 0);
+  assert(page->va % HUGEPAGE_SIZE == 0);
   page->migrating = false;
   page->migrations_up = page->migrations_down = 0;
   //page->pa = hemem_va_to_pa(page);
@@ -1193,6 +1198,7 @@ void hemem_clear_accessed_bit(struct hemem_page *page)
   internal_call = true;
 
   page_flags.va = page->va;
+  assert(page_flags.va % HUGEPAGE_SIZE == 0);
   page_flags.flag = HEMEM_ACCESSED_FLAG;
 
   if (ioctl(uffd, UFFDIO_CLEAR_FLAG, &page_flags) < 0) {
@@ -1218,6 +1224,7 @@ int hemem_get_accessed_bit(struct hemem_page *page)
   internal_call = true;
 
   page_flags.va = page->va;
+  assert(page_flags.va % HUGEPAGE_SIZE == 0);
   page_flags.flag = HEMEM_ACCESSED_FLAG;
 
   if (ioctl(uffd, UFFDIO_GET_FLAG, &page_flags) < 0) {

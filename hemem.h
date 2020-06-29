@@ -169,7 +169,6 @@ void hemem_wp_page(struct hemem_page *page, bool protect);
 void hemem_promote_pages(uint64_t addr);
 void hemem_demote_pages(uint64_t addr);
 
-uint64_t* hemem_va_to_pa(struct hemem_page *page);
 void hemem_clear_accessed_bit(struct hemem_page *page);
 int hemem_get_accessed_bit(struct hemem_page *page);
 void hemem_tlb_shootdown(uint64_t va);
