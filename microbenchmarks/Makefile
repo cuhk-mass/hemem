@@ -6,7 +6,10 @@ LIBS = -lm -lpthread
 
 default: all
 
-all: gups-simple gups-lru gups-lru-swap test-simple test-lru gups test
+all: gups-simple gups-lru gups-lru-swap test-simple test-lru gups test gups-small
+
+gups-small: gups-small.o
+	$(CC) $(CFLAGS) $(INCLUDES) -o gups-small gups-small.o ../timer.o $(LIBS)
 
 gups: gups.o
 	$(CC) $(CFLAGS) $(INCLUDES) -o gups gups.o zipf.o ../timer.o $(LIBS) #-L../ -lhemem
@@ -34,6 +37,9 @@ gups.o: gups.c zipf.c  gups.h
 
 test.o: test.c
 	$(CC) $(CFLAGS) $(INCLUDES) -c test.c
+
+gups-small.o: gups-small.c 
+	$(CC) $(CFLAGS) $(INCLUDES) -c gups-small.c
 
 clean:
 	$(RM) *.o gups gups-simple gups-lru gups-lru-swap test test-simple test-lru
