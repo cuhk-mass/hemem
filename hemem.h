@@ -49,8 +49,8 @@ extern "C" {
 
 FILE *hememlogf;
 //#define LOG(...) fprintf(stderr, __VA_ARGS__)
-#define LOG(...)	fprintf(hememlogf, __VA_ARGS__)
-//#define LOG(str, ...) while(0) {}
+//#define LOG(...)	fprintf(hememlogf, __VA_ARGS__)
+#define LOG(str, ...) while(0) {}
 
 
 FILE *timef;

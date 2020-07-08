@@ -60,8 +60,6 @@ void *dram_devdax_mmap;
 void *nvm_devdax_mmap;
 //void *devmem_mmap;
 
-__thread bool internal_malloc = false;
-__thread bool internal_munmap = false;
 __thread bool internal_call = false;
 __thread bool old_internal_call = false;
 
@@ -142,9 +140,6 @@ static void *hemem_stats_thread()
 
 void enqueue_fifo(struct fifo_list *queue, struct hemem_page *entry)
 {
-  old_internal_call = internal_call;
-  internal_call = true;
-
   pthread_mutex_lock(&(queue->list_lock));
   assert(entry->prev == NULL);
   entry->next = queue->first;
@@ -160,15 +155,10 @@ void enqueue_fifo(struct fifo_list *queue, struct hemem_page *entry)
   queue->first = entry;
   queue->numentries++;
   pthread_mutex_unlock(&(queue->list_lock));
-
-  internal_call = old_internal_call;
 }
 
 struct hemem_page *dequeue_fifo(struct fifo_list *queue)
 {
-  old_internal_call = internal_call;
-  internal_call = true;
-
   pthread_mutex_lock(&(queue->list_lock));
   struct hemem_page *ret = queue->last;
 
@@ -190,50 +180,32 @@ struct hemem_page *dequeue_fifo(struct fifo_list *queue)
   queue->numentries--;
   pthread_mutex_unlock(&(queue->list_lock));
 
-  internal_call = old_internal_call;
-
   return ret;
 }
 
 void add_page(struct hemem_page *page)
 {
-  old_internal_call = internal_call;
-  internal_call = true;
-
   struct hemem_page *p;
   pthread_mutex_lock(&pages_lock);
   HASH_FIND(hh, pages, &(page->va), sizeof(uint64_t), p);
   assert(p == NULL);
   HASH_ADD(hh, pages, va, sizeof(uint64_t), page);
   pthread_mutex_unlock(&pages_lock);
-
-  internal_call = old_internal_call;
 }
 
 void remove_page(struct hemem_page *page)
 {
-  old_internal_call = internal_call;
-  internal_call = true;
-
   pthread_mutex_lock(&pages_lock);
   HASH_DEL(pages, page);
   pthread_mutex_unlock(&pages_lock);
-
-  internal_call = old_internal_call;
 }
 
 struct hemem_page* find_page(uint64_t va)
 {
-  old_internal_call = internal_call;
-  internal_call = true;
-
   struct hemem_page *page;
   pthread_mutex_lock(&pages_lock);
   HASH_FIND(hh, pages, &va, sizeof(uint64_t), page);
   pthread_mutex_unlock(&pages_lock);
-
-  internal_call = old_internal_call;
-
   return page;
 }
 
@@ -357,9 +329,6 @@ void hemem_init()
 
 static void hemem_parallel_memset(void* addr, int c, size_t n)
 {
-  old_internal_call = internal_call;
-  internal_call = true;
-
   pthread_mutex_lock(&(pmemcpy.lock));
   pmemcpy.dst = addr;
   pmemcpy.length = n;
@@ -372,8 +341,6 @@ static void hemem_parallel_memset(void* addr, int c, size_t n)
   assert(r == 0 || r == PTHREAD_BARRIER_SERIAL_THREAD);
   
   pthread_mutex_unlock(&(pmemcpy.lock));
-
-  internal_call = old_internal_call;
 }
 
 static void hemem_mmap_populate(void* addr, size_t length)
@@ -387,9 +354,6 @@ static void hemem_mmap_populate(void* addr, size_t length)
   uint64_t page_boundry;
   void* tmpaddr;
   uint64_t pagesize;
-
-  old_internal_call = internal_call;
-  internal_call = true;
 
   assert(addr != 0);
   assert(length != 0);
@@ -451,8 +415,6 @@ static void hemem_mmap_populate(void* addr, size_t length)
   }
 
   policy_unlock();
-
-  internal_call = old_internal_call;
 }
 
 #define PAGE_ROUND_UP(x) (((x) + (HUGEPAGE_SIZE)-1) & (~((HUGEPAGE_SIZE)-1)))
@@ -557,9 +519,7 @@ int hemem_munmap(void* addr, size_t length)
     }
   }
 
-  internal_munmap = true;
   ret = libc_munmap(addr, length);
-  internal_munmap = false;
 
   internal_call = old_internal_call;
 
@@ -568,9 +528,6 @@ int hemem_munmap(void* addr, size_t length)
 
 static void hemem_parallel_memcpy(void *dst, void *src, size_t length)
 {
-  old_internal_call = internal_call;
-  internal_call = true;
-
   /* uint64_t i; */
   /* bool all_threads_done; */
   pthread_mutex_lock(&(pmemcpy.lock));
@@ -606,8 +563,6 @@ static void hemem_parallel_memcpy(void *dst, void *src, size_t length)
   /* for (i = 0; i < MAX_COPY_THREADS; i++) { */
   /*   pmemcpy.done_bitmap[i] = false; */
   /* } */
-
-  internal_call = old_internal_call;
 }
 
 void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
@@ -1157,10 +1112,7 @@ void hemem_tlb_shootdown(uint64_t va)
   uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
   struct uffdio_range range;
   int ret;
-
-  old_internal_call = internal_call;
-  internal_call = true;
-
+  
   range.start = page_boundry;
   range.len = PAGE_SIZE;
 
@@ -1169,8 +1121,6 @@ void hemem_tlb_shootdown(uint64_t va)
     perror("uffdio tlbflush");
     assert(0);
   }
-
-  internal_call = old_internal_call;
 }
 /*
 void hemem_clear_accessed_bit(struct hemem_page *page)
@@ -1194,9 +1144,6 @@ void hemem_clear_accessed_bit(struct hemem_page *page)
   uint64_t ret;
   struct uffdio_page_flags page_flags;
 
-  old_internal_call = internal_call;
-  internal_call = true;
-
   page_flags.va = page->va;
   assert(page_flags.va % HUGEPAGE_SIZE == 0);
   page_flags.flag = HEMEM_ACCESSED_FLAG;
@@ -1210,8 +1157,6 @@ void hemem_clear_accessed_bit(struct hemem_page *page)
   if (ret == 0) {
     LOG("hemem_clear_accessed_bit: accessed bit not cleared\n");
   }
-
-  internal_call = old_internal_call;
 }
 
 
@@ -1219,9 +1164,6 @@ int hemem_get_accessed_bit(struct hemem_page *page)
 {
   uint64_t ret;
   struct uffdio_page_flags page_flags;
-
-  old_internal_call = internal_call;
-  internal_call = true;
 
   page_flags.va = page->va;
   assert(page_flags.va % HUGEPAGE_SIZE == 0);
@@ -1234,15 +1176,11 @@ int hemem_get_accessed_bit(struct hemem_page *page)
 
   ret = page_flags.res;
 
-  internal_call = old_internal_call;
-
   return ret;;
 }
 
 void hemem_print_stats()
 {
-  old_internal_call = internal_call;
-  internal_call = true;
   LOG_STATS("mem_mmaped: [%lu]\tmem_allocated: [%lu]\tpages_allocated: [%lu]\tpages_freed: [%lu]\tmissing_faults_handled: [%lu]\tbytes_migrated: [%lu]\tmigrations_up: [%lu]\tmigrations_down: [%lu]\n", 
                mem_mmaped,
                mem_allocated, 
@@ -1253,8 +1191,6 @@ void hemem_print_stats()
                migrations_up, 
                migrations_down);
    mmgr_stats(); 
-
-   internal_call = old_internal_call;
 }
 
 
