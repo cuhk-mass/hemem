@@ -125,6 +125,7 @@ static void lru_list_remove_node(struct lru_list *list, struct lru_node *node)
   }
 
   list->numentries--;
+  assert(list->numentries > 0);
   node->next = NULL;
   node->prev = NULL;
   node->list = NULL;
@@ -138,6 +139,7 @@ static void shrink_caches(struct lru_list *active, struct lru_list *inactive)
   // find cold pages and move to inactive list
   while (nr_pages > 0 && active->numentries > 0) {
     struct lru_node *n = lru_list_remove(active);
+    pthread_mutex_lock(&(n->node_lock));
     if (hemem_get_accessed_bit(n->page) == HEMEM_ACCESSED_FLAG) {
       // give accessed pages another go-around in active list
       hemem_clear_accessed_bit(n->page);
@@ -148,6 +150,7 @@ static void shrink_caches(struct lru_list *active, struct lru_list *inactive)
       lru_list_add(inactive, n);
     }
     nr_pages--;
+    pthread_mutex_unlock(&(n->node_lock));
   }
 }
 
@@ -164,6 +167,7 @@ static void expand_caches(struct lru_list *active, struct lru_list *inactive)
     if (n == NULL) {
       break;
     }
+    pthread_mutex_lock(&(n->node_lock));
 
     if (hemem_get_accessed_bit(n->page) == HEMEM_ACCESSED_FLAG) {
       lru_list_add(active, n);
@@ -171,6 +175,8 @@ static void expand_caches(struct lru_list *active, struct lru_list *inactive)
     else {
       lru_list_add(inactive, n);
     }
+
+    pthread_mutex_unlock(&(n->node_lock));
   }
 }
 
@@ -226,11 +232,14 @@ void *lru_kswapd()
         break;
       }
 
+      pthread_mutex_lock(&(n->node_lock));
+
       for (tries = 0; tries < 2; tries++) {
         // find a free DRAM page
         nn = lru_list_remove(&dram_free_list);
 
         if (nn != NULL) {
+          pthread_mutex_lock(&(nn->node_lock));
           LOG("%lx: cold %lu -> hot %lu\t slowmem.active: %lu, slowmem.inactive: %lu\t hotmem.active: %lu, hotmem.inactive: %lu\n",
                 n->page->va, n->framenum, nn->framenum, nvm_active_list.numentries, nvm_inactive_list.numentries, active_list.numentries, inactive_list.numentries);
 
@@ -252,6 +261,9 @@ void *lru_kswapd()
 
           migrated_bytes += pt_to_pagesize(nn->page->pt);
 
+          pthread_mutex_unlock(&(nn->node_lock));
+          pthread_mutex_unlock(&(n->node_lock));
+
           break;
         }
 
@@ -266,6 +278,8 @@ void *lru_kswapd()
         // find a free nvm page to move the cold dram page to
         nn = lru_list_remove(&nvm_free_list);
         if (nn != NULL) {
+          pthread_mutex_lock(&(cn->node_lock));
+          pthread_mutex_lock(&(nn->node_lock));
           LOG("%lx: hot %lu -> cold %lu\t slowmem.active: %lu, slowmem.inactive: %lu\t hotmem.active: %lu, hotmem.inactive: %lu\n",
                 cn->page->va, cn->framenum, nn->framenum, nvm_active_list.numentries, nvm_inactive_list.numentries, active_list.numentries, inactive_list.numentries);
 
@@ -283,6 +297,9 @@ void *lru_kswapd()
           lru_list_add(&nvm_inactive_list, nn);
 
           lru_list_add(&dram_free_list, cn);
+
+          pthread_mutex_unlock(&(nn->node_lock));
+          pthread_mutex_unlock(&(cn->node_lock));
         }
       }
     }
@@ -314,6 +331,7 @@ static struct hemem_page* lru_allocate_page()
 #endif
     node = lru_list_remove(&dram_free_list);
     if (node != NULL) {
+      pthread_mutex_lock(&(node->node_lock));
       assert(node->page->in_dram);
       assert(!node->page->present);
       assert(node->page->devdax_offset == node->framenum * PAGE_SIZE);
@@ -326,6 +344,8 @@ static struct hemem_page* lru_allocate_page()
       gettimeofday(&end, NULL);
       LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
 
+      pthread_mutex_unlock(&(node->node_lock));
+
       return node->page;
     }
     
@@ -333,6 +353,7 @@ static struct hemem_page* lru_allocate_page()
     // DRAM is full, fall back to NVM
     node = lru_list_remove(&nvm_free_list);
     if (node != NULL) {
+      pthread_mutex_lock(&(node->node_lock));
       assert(!node->page->in_dram);
       assert(!node->page->present);
       assert(node->page->devdax_offset == node->framenum * PAGE_SIZE);
@@ -344,6 +365,8 @@ static struct hemem_page* lru_allocate_page()
 
       gettimeofday(&end, NULL);
       LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
+
+      pthread_mutex_unlock(&(node->node_lock));
 
       return node->page;
     }
@@ -415,6 +438,8 @@ void lru_remove_page(struct hemem_page *page)
   node = page->management;
   assert(node != NULL);
 
+  pthread_mutex_lock(&(node->node_lock));
+
   LOG("LRU: remove page: va: 0x%lx\n", page->va);
 
   list = node->list;
@@ -429,6 +454,8 @@ void lru_remove_page(struct hemem_page *page)
   else {
     lru_list_add(&nvm_free_list, node);
   }
+
+  pthread_mutex_unlock(&(node->node_lock));
 }
 
 
@@ -443,6 +470,8 @@ void lru_init(void)
   for (int i = 0; i < DRAMSIZE / PAGE_SIZE; i++) {
     struct lru_node *n = calloc(1, sizeof(struct lru_node));
     n->framenum = i;
+
+    pthread_mutex_init(&(n->node_lock), NULL);
 
     struct hemem_page *p = calloc(1, sizeof(struct hemem_page));
     p->devdax_offset = i * PAGE_SIZE;
@@ -460,6 +489,8 @@ void lru_init(void)
   for (int i = 0; i < NVMSIZE / PAGE_SIZE; i++) {
     struct lru_node *n = calloc(1, sizeof(struct lru_node));
     n->framenum = i;
+
+    pthread_mutex_init(&(n->node_lock), NULL);
 
     struct hemem_page *p = calloc(1, sizeof(struct hemem_page));
     p->devdax_offset = i * PAGE_SIZE;
