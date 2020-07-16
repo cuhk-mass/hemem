@@ -495,8 +495,10 @@ int hemem_munmap(void* addr, size_t length)
   old_internal_call = internal_call;
   internal_call = true;
 
+  policy_lock();
+
   // for each page in region specified...
-  for (page_boundry = (uint64_t)addr; page_boundry < (uint64_t)addr + length;) {\
+  for (page_boundry = (uint64_t)addr; page_boundry < (uint64_t)addr + length;) {
     // find the page in hemem's trackign list
     page = find_page(page_boundry);
     if (page != NULL) {
@@ -518,6 +520,8 @@ int hemem_munmap(void* addr, size_t length)
       page_boundry += BASEPAGE_SIZE;
     }
   }
+
+  policy_unlock();
 
   ret = libc_munmap(addr, length);
 
@@ -910,8 +914,6 @@ void handle_missing_fault(uint64_t page_boundry)
   page->migrations_up = page->migrations_down = 0;
   //page->pa = hemem_va_to_pa(page);
  
-  pthread_mutex_init(&(page->page_lock), NULL);
-
   mem_allocated += pagesize;
 
   //LOG("hemem_missing_fault: va: %lx assigned to %s frame %lu  pte: %lx\n", page->va, (in_dram ? "DRAM" : "NVM"), page->devdax_offset / pagesize, hemem_va_to_pa(page->va));
