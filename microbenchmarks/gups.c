@@ -41,6 +41,9 @@
 
 #define MAX_THREADS     64
 
+#define GUPS_PAGE_SIZE       (128 * (4 * 1024))
+#define PAGE_NUM        3
+
 #ifdef HOTSPOT
 extern uint64_t hotset_start;
 extern double hotset_fraction;
@@ -50,6 +53,7 @@ int threads;
 
 uint64_t hot_start = 0;
 uint64_t hotsize = 0;
+uint64_t hot_offset_page = 0;
 
 struct gups_args {
   int tid;                      // thread id
@@ -118,6 +122,7 @@ static void *do_gups(void *arguments)
   uint64_t lfsr;
   uint64_t hot_num;
   FILE *indexfile;
+  uint64_t offset;
 
   printf("thread %d starting GUPS\n", args->tid);
 
@@ -138,6 +143,10 @@ static void *do_gups(void *arguments)
     for (j = 0; j < hot_num; j++) {
       lfsr = lfsr_fast(lfsr);
       index1 = hot_start + (lfsr % hotsize);
+      offset = index1 * elt_size;
+      if (offset < PAGE_NUM * GUPS_PAGE_SIZE) {
+        index1 += ((hot_offset_page * GUPS_PAGE_SIZE) / elt_size);
+      }
       memcpy(data, &field[index1 * elt_size], elt_size);
       memset(data, data[0] + j, elt_size);
       memcpy(&field[index1 * elt_size], data, elt_size);
@@ -197,7 +206,6 @@ int main(int argc, char **argv)
   }
 
   gettimeofday(&starttime, NULL);
-
 
   threads = atoi(argv[1]);
   assert(threads <= MAX_THREADS);
@@ -305,6 +313,7 @@ int main(int argc, char **argv)
 
   fprintf(stderr, "Timing.\n");
   gettimeofday(&starttime, NULL);
+
   //hemem_clear_stats();
   // spawn gups worker threads
   for (i = 0; i < threads; i++) {
@@ -335,7 +344,8 @@ int main(int argc, char **argv)
   memset(thread_gups, 0, sizeof(thread_gups));
 
 #ifdef HOTSPOT
-  hot_start = (16UL * 1024UL * 1024UL * 1024UL) / elt_size;              // 16GB to the right;
+  hot_offset_page = 2097152;
+  //hot_start = (16UL * 1024UL * 1024UL * 1024UL) / elt_size;              // 16GB to the right;
   printf("hot_start: %lu\thot_size: %lu\n", hot_start, hotsize);
 
   filename = "indices3.txt";

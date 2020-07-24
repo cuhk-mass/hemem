@@ -18,7 +18,6 @@ struct lru_node {
   uint64_t framenum;
   struct lru_node *next, *prev;
   struct lru_list *list;
-  pthread_mutex_t node_lock;
 };
 
 struct lru_list {

@@ -26,22 +26,36 @@ static volatile bool in_kscand = false;
 
 static void lru_migrate_down(struct lru_node *n, uint64_t i)
 {
+  struct timeval start, end;
+
+  gettimeofday(&start, NULL);
+
   LOG("hemem: lru_migrate_down: migrating %lx to NVM frame %lu\n", n->page->va, i);
   n->page->migrating = true;
   hemem_wp_page(n->page, true);
   hemem_migrate_down(n->page, i * PAGE_SIZE);
   n->page->migrating = false; 
   LOG("hemem: lru_migrate_down: done migrating to NVM\n");
+
+  gettimeofday(&end, NULL);
+  LOG_TIME("migrate_down: %f s\n", elapsed(&start, &end));
 }
 
 static void lru_migrate_up(struct lru_node *n, uint64_t i)
 {
+  struct timeval start, end;
+
+  gettimeofday(&start, NULL);
+
   LOG("hemem: lru_migrate_up: migrating %lx to DRAM frame %lu\n", n->page->va, i);
   n->page->migrating = true;
   hemem_wp_page(n->page, true);
   hemem_migrate_up(n->page, i * PAGE_SIZE);
   n->page->migrating = false;
   LOG("hemem: lru_migrate_up: done migrating to DRAM\n");
+
+  gettimeofday(&end, NULL);
+  LOG_TIME("migrate_up: %f s\n", elapsed(&start, &end));
 }
 
 
@@ -228,8 +242,6 @@ void *lru_kswapd()
         break;
       }
 
-      pthread_mutex_lock(&(n->node_lock));
-
       struct hemem_page *p1 = n->page;
       pthread_mutex_lock(&(p1->page_lock));
 
@@ -238,7 +250,6 @@ void *lru_kswapd()
         nn = lru_list_remove(&dram_free_list);
 
         if (nn != NULL) {
-          pthread_mutex_lock(&(nn->node_lock));
 
           struct hemem_page *p2 = nn->page;
           pthread_mutex_lock(&(p2->page_lock));
@@ -265,7 +276,6 @@ void *lru_kswapd()
           migrated_bytes += pt_to_pagesize(nn->page->pt);
 
           pthread_mutex_unlock(&(p2->page_lock));
-          pthread_mutex_unlock(&(nn->node_lock));
 
           break;
         }
@@ -275,13 +285,10 @@ void *lru_kswapd()
         if (cn == NULL) {
           // all dram pages are hot
           lru_list_add(&nvm_active_list, n);
-          pthread_mutex_unlock(&(n->node_lock));
           pthread_mutex_unlock(&(p1->page_lock));
           goto out;
         }
         assert(cn != NULL);
-
-        pthread_mutex_lock(&(cn->node_lock));
 
         struct hemem_page *p3 = cn->page;
         pthread_mutex_lock(&(p3->page_lock));
@@ -289,7 +296,6 @@ void *lru_kswapd()
         // find a free nvm page to move the cold dram page to
         nn = lru_list_remove(&nvm_free_list);
         if (nn != NULL) {
-          pthread_mutex_lock(&(nn->node_lock));
           struct hemem_page *p4 = nn->page;
           pthread_mutex_lock(&(p4->page_lock));
 
@@ -312,16 +318,13 @@ void *lru_kswapd()
           lru_list_add(&dram_free_list, cn);
 
           pthread_mutex_unlock(&(p4->page_lock));
-          pthread_mutex_unlock(&(nn->node_lock));
         }
         assert(nn != NULL);
 
         pthread_mutex_unlock(&(p3->page_lock));
-        pthread_mutex_unlock(&(cn->node_lock));
       }
 
       pthread_mutex_unlock(&(p1->page_lock));
-      pthread_mutex_unlock(&(n->node_lock));
     }
 
 out:
@@ -467,8 +470,6 @@ void lru_remove_page(struct hemem_page *page)
   node = page->management;  
   assert(node != NULL);
 
-  pthread_mutex_lock(&(node->node_lock));
-
   list = node->list;
   assert(list != NULL);
 
@@ -483,7 +484,6 @@ void lru_remove_page(struct hemem_page *page)
   }
 
   pthread_mutex_unlock(&(page->page_lock));
-  pthread_mutex_unlock(&(node->node_lock));
 }
 
 
@@ -498,8 +498,6 @@ void lru_init(void)
   for (int i = 0; i < DRAMSIZE / PAGE_SIZE; i++) {
     struct lru_node *n = calloc(1, sizeof(struct lru_node));
 
-    pthread_mutex_init(&(n->node_lock), NULL);
-    
     n->framenum = i;
 
     struct hemem_page *p = calloc(1, sizeof(struct hemem_page));
@@ -517,7 +515,6 @@ void lru_init(void)
   pthread_mutex_init(&(nvm_free_list.list_lock), NULL);
   for (int i = 0; i < NVMSIZE / PAGE_SIZE; i++) {
     struct lru_node *n = calloc(1, sizeof(struct lru_node));
-    pthread_mutex_init(&(n->node_lock), NULL);
     
     n->framenum = i;
 
