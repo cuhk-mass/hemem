@@ -11,7 +11,7 @@
 
 #define KSCAND_INTERVAL   (10000) // in us (10ms)
 #define KSWAPD_INTERVAL   (1000000) // in us (1s)
-#define KSWAPD_MIGRATE_RATE  (10UL * 1024UL * 1024UL * 1024UL) // 10GB
+#define KSWAPD_MIGRATE_RATE  (1UL * 1024UL * 1024UL * 1024UL) // 10GB
 
 struct lru_node {
   struct hemem_page *page;

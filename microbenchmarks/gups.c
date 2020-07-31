@@ -41,8 +41,9 @@
 
 #define MAX_THREADS     64
 
-#define GUPS_PAGE_SIZE       (128 * (4 * 1024))
-#define PAGE_NUM        3
+#define GUPS_PAGE_SIZE      (4 * 1024)
+#define PAGE_NUM            3
+#define PAGES               2048
 
 #ifdef HOTSPOT
 extern uint64_t hotset_start;
@@ -144,7 +145,7 @@ static void *do_gups(void *arguments)
       lfsr = lfsr_fast(lfsr);
       index1 = hot_start + (lfsr % hotsize);
       offset = index1 * elt_size;
-      if (offset < PAGE_NUM * GUPS_PAGE_SIZE) {
+      if (offset >= PAGE_NUM * GUPS_PAGE_SIZE && offset < PAGE_NUM * GUPS_PAGE_SIZE * PAGES) {
         index1 += ((hot_offset_page * GUPS_PAGE_SIZE) / elt_size);
       }
       memcpy(data, &field[index1 * elt_size], elt_size);
@@ -236,8 +237,8 @@ int main(int argc, char **argv)
 
   gettimeofday(&stoptime, NULL);
   fprintf(stderr, "Init took %.4f seconds\n", elapsed(&starttime, &stoptime));
-  fprintf(stderr, "Region address: %p\t size: %ld\n", p, size);
-
+  fprintf(stderr, "Region address: %p - %p\t size: %ld\n", p, (p + size), size);
+  
   nelems = (size / threads) / elt_size; // number of elements per thread
   fprintf(stderr, "Elements per thread: %lu\n", nelems);
 
@@ -344,7 +345,7 @@ int main(int argc, char **argv)
   memset(thread_gups, 0, sizeof(thread_gups));
 
 #ifdef HOTSPOT
-  hot_offset_page = 2097152;
+  hot_offset_page = 33554432;
   //hot_start = (16UL * 1024UL * 1024UL * 1024UL) / elt_size;              // 16GB to the right;
   printf("hot_start: %lu\thot_size: %lu\n", hot_start, hotsize);
 
@@ -385,7 +386,7 @@ int main(int argc, char **argv)
   }
   free(ga);
 
-  //munmap(p, size);
+  munmap(p, size);
 
   return 0;
 }

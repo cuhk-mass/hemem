@@ -23,6 +23,7 @@
 #include "timer.h"
 #include "paging.h"
 #include "uthash.h"
+#include "pebs.h"
 
 pthread_t fault_thread;
 
@@ -46,6 +47,7 @@ _Atomic uint64_t migrations_down = 0;
 _Atomic uint64_t bytes_migrated = 0;
 _Atomic uint64_t pmemcpys = 0;
 _Atomic uint64_t memsets = 0;
+_Atomic uint64_t migration_waits = 0;
 
 static bool cr3_set = false;
 uint64_t cr3 = 0;
@@ -312,10 +314,16 @@ void hemem_init()
     assert(s == 0);
   }
 
+#ifdef STATS_THREAD
   s = pthread_create(&stats_thread, NULL, hemem_stats_thread, NULL);
   assert(s == 0);
+#endif
 
   paging_init();
+
+#ifdef USE_PEBS
+  pebs_init();
+#endif
   
   is_init = true;
 
@@ -493,7 +501,14 @@ int hemem_munmap(void* addr, size_t length)
 
   internal_call = true;
 
-  policy_lock();
+
+  //fprintf(stderr, "munmap(%p, %lu)\n", addr, length);
+#ifdef USE_PEBS
+  pebs_print();
+  pebs_clear();
+#endif
+
+  //policy_lock();
 
   // for each page in region specified...
   for (page_boundry = (uint64_t)addr; page_boundry < (uint64_t)addr + length;) {
@@ -519,7 +534,7 @@ int hemem_munmap(void* addr, size_t length)
     }
   }
 
-  policy_unlock();
+  //policy_unlock();
 
   ret = libc_munmap(addr, length);
 
@@ -801,6 +816,8 @@ void handle_wp_fault(uint64_t page_boundry)
 
   page = find_page(page_boundry);
   assert(page != NULL);
+
+  migration_waits++;
 
   LOG("hemem: handle_wp_fault: waiting for migration for page %lx\n", page_boundry);
 
@@ -1134,42 +1151,44 @@ int hemem_get_accessed_bit(struct hemem_page *page)
 }
 */
  
-void hemem_clear_accessed_bit(struct hemem_page *page)
+void hemem_clear_bits(struct hemem_page *page)
 {
   uint64_t ret;
   struct uffdio_page_flags page_flags;
 
   page_flags.va = page->va;
   assert(page_flags.va % HUGEPAGE_SIZE == 0);
-  page_flags.flag = HEMEM_ACCESSED_FLAG;
+  page_flags.flag1 = HEMEM_ACCESSED_FLAG;
+  page_flags.flag2 = HEMEM_DIRTY_FLAG;
 
   if (ioctl(uffd, UFFDIO_CLEAR_FLAG, &page_flags) < 0) {
     fprintf(stderr, "userfaultfd_clear_flag returned < 0\n");
     assert(0);
   }
 
-  ret = page_flags.res;
+  ret = page_flags.res1;
   if (ret == 0) {
     LOG("hemem_clear_accessed_bit: accessed bit not cleared\n");
   }
 }
 
 
-int hemem_get_accessed_bit(struct hemem_page *page)
+uint64_t hemem_get_bits(struct hemem_page *page)
 {
   uint64_t ret;
   struct uffdio_page_flags page_flags;
 
   page_flags.va = page->va;
   assert(page_flags.va % HUGEPAGE_SIZE == 0);
-  page_flags.flag = HEMEM_ACCESSED_FLAG;
+  page_flags.flag1 = HEMEM_ACCESSED_FLAG;
+  page_flags.flag2 = HEMEM_DIRTY_FLAG;
 
   if (ioctl(uffd, UFFDIO_GET_FLAG, &page_flags) < 0) {
     fprintf(stderr, "userfaultfd_get_flag returned < 0\n");
     assert(0);
   }
 
-  ret = page_flags.res;
+  ret = page_flags.res1 | page_flags.res2;
 
   return ret;;
 }
@@ -1177,13 +1196,14 @@ int hemem_get_accessed_bit(struct hemem_page *page)
 void hemem_print_stats()
 {
 
-  LOG_STATS("mem_allocated: [%lu]\tpages_allocated: [%lu]\tmissing_faults_handled: [%lu]\tbytes_migrated: [%lu]\tmigrations_up: [%lu]\tmigrations_down: [%lu]\n", 
+  LOG_STATS("mem_allocated: [%lu]\tpages_allocated: [%lu]\tmissing_faults_handled: [%lu]\tbytes_migrated: [%lu]\tmigrations_up: [%lu]\tmigrations_down: [%lu]\tmigration_waits: [%lu]\n", 
                mem_allocated, 
                pages_allocated, 
                missing_faults_handled, 
                bytes_migrated,
                migrations_up, 
-               migrations_down);
+               migrations_down,
+               migration_waits);
    mmgr_stats(); 
 }
 
@@ -1195,4 +1215,10 @@ void hemem_clear_stats()
   missing_faults_handled = 0;
   migrations_up = 0;
   migrations_down = 0;
+}
+
+
+struct hemem_page* get_hemem_page(uint64_t va)
+{
+  return find_page(va);
 }

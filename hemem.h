@@ -27,8 +27,11 @@ extern "C" {
 #include "timer.h"
 #include "interpose.h"
 #include "uthash.h"
+#include "pebs.h"
 
 //#define HEMEM_DEBUG
+//#define USE_PEBS
+#define STATS_THREAD
 
 #define MEM_BARRIER() __sync_synchronize()
 
@@ -47,6 +50,12 @@ extern "C" {
 #define FASTMEM_PAGES   ((DRAMSIZE) / (PAGE_SIZE))
 #define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
 
+#define BASEPAGE_MASK	(BASEPAGE_SIZE - 1)
+#define HUGEPAGE_MASK	(HUGEPAGE_SIZE - 1)
+
+#define BASE_PFN_MASK	(BASEPAGE_MASK ^ UINT64_MAX)
+#define HUGE_PFN_MASK	(HUGEPAGE_MASK ^ UINT64_MAX)
+
 FILE *hememlogf;
 //#define LOG(...) fprintf(stderr, __VA_ARGS__)
 //#define LOG(...)	fprintf(hememlogf, __VA_ARGS__)
@@ -54,13 +63,13 @@ FILE *hememlogf;
 
 
 FILE *timef;
-//#define LOG_TIME(str, ...) fprintf(timef, str, __VA_ARGS__)
-#define LOG_TIME(str, ...) while(0) {}
+#define LOG_TIME(str, ...) fprintf(timef, str, __VA_ARGS__)
+//#define LOG_TIME(str, ...) while(0) {}
 
 FILE *statsf;
-//#define LOG_STATS(str, ...) fprintf(stderr, str,  __VA_ARGS__)
+#define LOG_STATS(str, ...) fprintf(stderr, str,  __VA_ARGS__)
 //#define LOG_STATS(str, ...) fprintf(statsf, str, __VA_ARGS__)
-#define LOG_STATS(str, ...) while (0) {}
+//#define LOG_STATS(str, ...) while (0) {}
 
 #if defined (ALLOC_HEMEM)
   #define pagefault(...) hemem_mmgr_pagefault(__VA_ARGS__)
@@ -127,12 +136,18 @@ struct hemem_page {
   enum pagetypes pt;
   bool migrating;
   bool present;
+  bool written;
+  uint64_t naccesses;
   pthread_mutex_t page_lock;
   uint64_t migrations_up, migrations_down;
   UT_hash_handle hh;
   void *management;
 
   struct hemem_page *next, *prev;
+#ifdef USE_PEBS
+  uint64_t accesses[NPBUFTYPES];
+  UT_hash_handle phh;     // pebs hash handle
+#endif
 };
 
 struct fifo_list {
@@ -169,9 +184,11 @@ void hemem_wp_page(struct hemem_page *page, bool protect);
 void hemem_promote_pages(uint64_t addr);
 void hemem_demote_pages(uint64_t addr);
 
-void hemem_clear_accessed_bit(struct hemem_page *page);
-int hemem_get_accessed_bit(struct hemem_page *page);
+void hemem_clear_bits(struct hemem_page *page);
+uint64_t hemem_get_bits(struct hemem_page *page);
 void hemem_tlb_shootdown(uint64_t va);
+
+struct hemem_page* get_hemem_page(uint64_t va);
 
 void hemem_print_stats();
 void hemem_clear_stats();

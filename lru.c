@@ -17,6 +17,8 @@ static struct lru_list active_list;
 static struct lru_list inactive_list;
 static struct lru_list nvm_active_list;
 static struct lru_list nvm_inactive_list;
+static struct lru_list written_list;
+static struct lru_list nvm_written_list;
 static struct lru_list dram_free_list;
 static struct lru_list nvm_free_list;
 static pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -146,16 +148,25 @@ static void lru_list_remove_node(struct lru_list *list, struct lru_node *node)
 }
 
 
-static void shrink_caches(struct lru_list *active, struct lru_list *inactive)
+static void shrink_caches(struct lru_list *active, struct lru_list *inactive, struct lru_list *written)
 {
   size_t nr_pages = active->numentries;
+  uint64_t bits;
   // find cold pages and move to inactive list
   while (nr_pages > 0 && active->numentries > 0) {
     struct lru_node *n = lru_list_remove(active);
-    if (hemem_get_accessed_bit(n->page) == HEMEM_ACCESSED_FLAG) {
-      // give accessed pages another go-around in active list
-      hemem_clear_accessed_bit(n->page);
-      lru_list_add(active, n);
+    bits = hemem_get_bits(n->page);
+    if ((bits & HEMEM_ACCESSED_FLAG) == HEMEM_ACCESSED_FLAG) {
+      if ((bits & HEMEM_DIRTY_FLAG) == HEMEM_DIRTY_FLAG) {
+        n->page->written = true;
+        hemem_clear_bits(n->page);
+        lru_list_add(written, n);
+      }
+      else {
+        n->page->written = false;
+        hemem_clear_bits(n->page);
+        lru_list_add(active, n);
+      }
     }
     else {
       // found a cold page, put it on inactive list
@@ -166,11 +177,13 @@ static void shrink_caches(struct lru_list *active, struct lru_list *inactive)
 }
 
 
-static void expand_caches(struct lru_list *active, struct lru_list *inactive)
+static void expand_caches(struct lru_list *active, struct lru_list *inactive, struct lru_list *written)
 {
   size_t nr_pages = inactive->numentries;
   size_t i;
   struct lru_node *n;
+  uint64_t bits;
+
   // examine each page in inactive list and move to active list if accessed
   for (i = 0; i < nr_pages; i++) {
     n = lru_list_remove(inactive);
@@ -179,8 +192,60 @@ static void expand_caches(struct lru_list *active, struct lru_list *inactive)
       break;
     }
 
-    if (hemem_get_accessed_bit(n->page) == HEMEM_ACCESSED_FLAG) {
-      lru_list_add(active, n);
+    bits = hemem_get_bits(n->page);
+    if ((bits & HEMEM_ACCESSED_FLAG) == HEMEM_ACCESSED_FLAG) {
+      if ((bits & HEMEM_DIRTY_FLAG) == HEMEM_DIRTY_FLAG) {
+        n->page->written = true;
+        hemem_clear_bits(n->page);
+        lru_list_add(written, n);
+      }
+      else {
+        n->page->written = false;
+        if (n->page->naccesses >=  2) {
+          n->page->naccesses = 0;
+          hemem_clear_bits(n->page);
+          lru_list_add(active, n);
+        }
+        else {
+          n->page->naccesses++;
+          hemem_clear_bits(n->page);
+          lru_list_add(inactive, n);
+        }
+      }
+    }
+    else {
+      lru_list_add(inactive, n);
+    }
+  }
+}
+
+static void check_writes(struct lru_list *active, struct lru_list *inactive, struct lru_list *written)
+{
+  size_t nr_pages = written->numentries;
+  size_t i;
+  struct lru_node *n;
+  uint64_t bits;
+
+  for (i = 0; i < nr_pages; i++) {
+    n = lru_list_remove(written);
+    
+    if (n == NULL) {
+      break;
+    }
+
+    bits = hemem_get_bits(n->page);
+    if ((bits & HEMEM_ACCESSED_FLAG) == HEMEM_ACCESSED_FLAG) {
+      if ((bits & HEMEM_DIRTY_FLAG) == HEMEM_DIRTY_FLAG) {
+        n->page->written = true;
+        hemem_clear_bits(n->page);
+        lru_list_add(written, n);
+      }
+      else {
+        n->page->naccesses++;
+        n->page->written = false;
+        hemem_clear_bits(n->page);
+        lru_list_add(active, n);
+      }
     }
     else {
       lru_list_add(inactive, n);
@@ -199,11 +264,14 @@ void *lru_kscand()
 
     gettimeofday(&start, NULL);
 
-    shrink_caches(&active_list, &inactive_list);
-    shrink_caches(&nvm_active_list, &nvm_inactive_list);
+    check_writes(&active_list, &inactive_list, &written_list);
+    check_writes(&nvm_active_list, &nvm_inactive_list, &nvm_written_list);
 
-    expand_caches(&active_list, &inactive_list);
-    expand_caches(&nvm_active_list, &nvm_inactive_list);
+    shrink_caches(&active_list, &inactive_list, &written_list);
+    shrink_caches(&nvm_active_list, &nvm_inactive_list, &nvm_written_list);
+
+    expand_caches(&active_list, &inactive_list, &written_list);
+    expand_caches(&nvm_active_list, &nvm_inactive_list, &nvm_written_list);
 
     hemem_tlb_shootdown(0);
 
@@ -237,9 +305,12 @@ void *lru_kswapd()
 
     // move each active NVM page to DRAM
     for (migrated_bytes = 0; migrated_bytes < KSWAPD_MIGRATE_RATE;) {
-      n = lru_list_remove(&nvm_active_list);
+      n = lru_list_remove(&nvm_written_list);
       if (n == NULL) {
-        break;
+        n = lru_list_remove(&nvm_active_list);
+        if (n == NULL) {
+          break;
+        }
       }
 
       struct hemem_page *p1 = n->page;
@@ -399,7 +470,7 @@ static struct hemem_page* lru_allocate_page()
     // DRAM was full, try to free some space by moving a cold page down
     if (inactive_list.numentries == 0){
       // force some pages down to slow memory/inactive list
-      shrink_caches(&active_list, &inactive_list);
+      shrink_caches(&active_list, &inactive_list, &written_list);
     }
 
     // move a cold page from dram to nvm
@@ -548,10 +619,12 @@ void lru_init(void)
 
 void lru_stats()
 {
-  LOG_STATS("\tactive_list.numentries: [%ld]\tinactive_list.numentries: [%ld]\tnvm_active_list.numentries: [%ld]\tnvm_inactive_list.numentries: [%ld]\n",
+  LOG_STATS("\tactive_list.numentries: [%ld]\twritten_list.numentries: [%ld]\tinactive_list.numentries: [%ld]\tnvm_active_list.numentries: [%ld]\tnvm_written_list.numentries: [%ld]\tnvm_inactive_list.numentries: [%ld]\n",
           active_list.numentries,
+          written_list.numentries,
           inactive_list.numentries,
           nvm_active_list.numentries,
+          nvm_written_list.numentries,
           nvm_inactive_list.numentries);
 }
 

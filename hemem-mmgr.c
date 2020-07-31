@@ -335,8 +335,8 @@ static void cool(void)
 
         n = mmgr_list_remove(&mem_active[mt][pt]);
 
-        if (hemem_get_accessed_bit(n->page) == HEMEM_ACCESSED_FLAG) {
-          hemem_clear_accessed_bit(n->page);
+        if (hemem_get_bits(n->page) == HEMEM_ACCESSED_FLAG) {
+          hemem_clear_bits(n->page);
           mmgr_list_add(&mem_active[mt][pt], n);
 
           // remember first recirculated page;
@@ -384,16 +384,16 @@ static void thaw(void)
         }
         n = mmgr_list_remove(&mem_inactive[mt][pt]);
 
-        if (hemem_get_accessed_bit(n->page) == HEMEM_ACCESSED_FLAG) {
+        if (hemem_get_bits(n->page) == HEMEM_ACCESSED_FLAG) {
           n->tot_accesses++;
           if (n->accesses >= 2) {
             n->accesses = 0;
-            hemem_clear_accessed_bit(n->page);
+            hemem_clear_bits(n->page);
             mmgr_list_add(&mem_active[mt][pt], n);
           }
           else {
             n->accesses++;
-            hemem_clear_accessed_bit(n->page);
+            hemem_clear_bits(n->page);
             mmgr_list_add(&mem_inactive[mt][pt], n);
             recirculated = true;
           }
