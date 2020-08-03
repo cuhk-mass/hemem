@@ -158,11 +158,17 @@ static void shrink_caches(struct lru_list *active, struct lru_list *inactive, st
     bits = hemem_get_bits(n->page);
     if ((bits & HEMEM_ACCESSED_FLAG) == HEMEM_ACCESSED_FLAG) {
       if ((bits & HEMEM_DIRTY_FLAG) == HEMEM_DIRTY_FLAG) {
+        // page was written, so put it in the highest priority
+        // written list for memory type; if in DRAM< will
+        // remain in DRAM; if in NVM, has highest priority
+        // for migration to DRAM
         n->page->written = true;
         hemem_clear_bits(n->page);
         lru_list_add(written, n);
       }
       else {
+        // page was not written but was already in active list, so
+        // keep it in active list since it was accessed
         n->page->written = false;
         hemem_clear_bits(n->page);
         lru_list_add(active, n);
@@ -195,11 +201,18 @@ static void expand_caches(struct lru_list *active, struct lru_list *inactive, st
     bits = hemem_get_bits(n->page);
     if ((bits & HEMEM_ACCESSED_FLAG) == HEMEM_ACCESSED_FLAG) {
       if ((bits & HEMEM_DIRTY_FLAG) == HEMEM_DIRTY_FLAG) {
+        // page was written, so put it in the highest priority
+        // written list for memory type; if in DRAM, will
+        // remain in DRAM; if in NVM, has highest priority
+        // for migration to DRAM
         n->page->written = true;
         hemem_clear_bits(n->page);
         lru_list_add(written, n);
       }
       else {
+        // page was not written and used to be inactive
+        // non write-intensive pages must be accessed twice
+        // in a row to be marked active
         n->page->written = false;
         if (n->page->naccesses >=  2) {
           n->page->naccesses = 0;
@@ -236,14 +249,20 @@ static void check_writes(struct lru_list *active, struct lru_list *inactive, str
     bits = hemem_get_bits(n->page);
     if ((bits & HEMEM_ACCESSED_FLAG) == HEMEM_ACCESSED_FLAG) {
       if ((bits & HEMEM_DIRTY_FLAG) == HEMEM_DIRTY_FLAG) {
+        // page was written in the recent past and continues to be written
+        // keep in written list for high priority migration to DRAM/high
+        // priority for remaining in DRAM
         n->page->written = true;
         hemem_clear_bits(n->page);
         lru_list_add(written, n);
       }
       else {
+        // page was written in the recent past, but was not written just
+        // now. it still may be written in the near future, so keep it
+        // in the regular active list to give it a good chance of
+        // remaining in DRAM or lower priority for migration to DRAM
         n->page->naccesses++;
         n->page->written = false;
-        hemem_clear_bits(n->page);
         lru_list_add(active, n);
       }
     }

@@ -31,7 +31,7 @@ extern "C" {
 
 //#define HEMEM_DEBUG
 //#define USE_PEBS
-#define STATS_THREAD
+//#define STATS_THREAD
 
 #define MEM_BARRIER() __sync_synchronize()
 

@@ -127,11 +127,11 @@ static void *do_gups(void *arguments)
 
   printf("thread %d starting GUPS\n", args->tid);
 
-  indexfile = fopen(filename, "w");
-  if (indexfile == NULL) {
-    perror("fopen");
-    assert(0);
-  }
+  //indexfile = fopen(filename, "w");
+  //if (indexfile == NULL) {
+    //perror("fopen");
+    //assert(0);
+  //}
 
   srand(0);
   lfsr = rand();
@@ -152,7 +152,7 @@ static void *do_gups(void *arguments)
       memset(data, data[0] + j, elt_size);
       memcpy(&field[index1 * elt_size], data, elt_size);
       thread_gups[args->tid]++;
-      fprintf(indexfile, "%lu\n", index1);
+      //fprintf(indexfile, "%lu\n", index1);
     }
     i += hot_num;
 
@@ -162,7 +162,7 @@ static void *do_gups(void *arguments)
     memset(data, data[0] + i, elt_size);
     memcpy(&field[index2 * elt_size], data, elt_size);
     thread_gups[args->tid]++;
-    fprintf(indexfile, "%lu\n", index1);
+    //fprintf(indexfile, "%lu\n", index1);
   }
 /*
   //printf("Thread [%d] starting: field: [%llx]\n", args->tid, field);
@@ -272,9 +272,9 @@ int main(int argc, char **argv)
   secs = elapsed(&starttime, &stoptime);
   fprintf(stderr, "Initialization time: %.4f seconds.\n", secs);
 
-  pthread_t print_thread;
-  int pt = pthread_create(&print_thread, NULL, print_instantaneous_gups, NULL);
-  assert(pt == 0);
+  //pthread_t print_thread;
+  //int pt = pthread_create(&print_thread, NULL, print_instantaneous_gups, NULL);
+  //assert(pt == 0);
 
   hot_start = 0;
   hotsize = (tot_hot_size / threads) / elt_size;
@@ -345,9 +345,10 @@ int main(int argc, char **argv)
   memset(thread_gups, 0, sizeof(thread_gups));
 
 #ifdef HOTSPOT
-  hot_offset_page = 33554432;
+  hot_offset_page = hotsize / GUPS_PAGE_SIZE;
   //hot_start = (16UL * 1024UL * 1024UL * 1024UL) / elt_size;              // 16GB to the right;
   printf("hot_start: %lu\thot_size: %lu\n", hot_start, hotsize);
+  printf("hot_offset_page: %lu\n", hot_offset_page);
 
   filename = "indices3.txt";
 
