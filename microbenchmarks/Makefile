@@ -6,7 +6,7 @@ LIBS = -lm -lpthread
 
 default: all
 
-all: gups-simple gups-lru gups-lru-swap test-simple test-lru gups test gups-small
+all: gups-simple gups-lru gups-lru-swap test-simple test-lru test gups-small #gups
 
 gups-small: gups-small.o
 	$(CC) $(CFLAGS) $(INCLUDES) -o gups-small gups-small.o ../timer.o $(LIBS)

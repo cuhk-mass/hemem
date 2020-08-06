@@ -33,6 +33,7 @@ int devmemfd = -1;
 long uffd = -1;
 
 bool is_init = false;
+bool timing = false;
 
 _Atomic uint64_t mem_mmaped = 0;
 _Atomic uint64_t mem_allocated = 0;
@@ -1221,4 +1222,9 @@ void hemem_clear_stats()
 struct hemem_page* get_hemem_page(uint64_t va)
 {
   return find_page(va);
+}
+
+void hemem_start_timing(void)
+{
+  timing = true;
 }

@@ -8,6 +8,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 
 #ifndef __cplusplus
 #include <stdatomic.h>
@@ -56,14 +57,28 @@ extern "C" {
 #define BASE_PFN_MASK	(BASEPAGE_MASK ^ UINT64_MAX)
 #define HUGE_PFN_MASK	(HUGEPAGE_MASK ^ UINT64_MAX)
 
+
 FILE *hememlogf;
 //#define LOG(...) fprintf(stderr, __VA_ARGS__)
 //#define LOG(...)	fprintf(hememlogf, __VA_ARGS__)
 #define LOG(str, ...) while(0) {}
 
-
 FILE *timef;
-#define LOG_TIME(str, ...) fprintf(timef, str, __VA_ARGS__)
+extern bool timing;
+
+static inline void log_time(const char* fmt, ...)
+{
+  if (timing) {
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(timef, fmt, args);
+    va_end(args);
+  }
+}
+
+
+#define LOG_TIME(str, ...) log_time(str, __VA_ARGS__)
+//#define LOG_TIME(str, ...) fprintf(timef, str, __VA_ARGS__)
 //#define LOG_TIME(str, ...) while(0) {}
 
 FILE *statsf;
@@ -195,6 +210,8 @@ void hemem_clear_stats();
 
 void enqueue_fifo(struct fifo_list *list, struct hemem_page *page);
 struct hemem_page* dequeue_fifo(struct fifo_list *list);
+
+void hemem_start_timing(void);
 
 
 #ifdef __cplusplus

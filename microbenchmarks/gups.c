@@ -34,7 +34,7 @@
 #include <stdint.h>
 
 #include "../timer.h"
-//#include "../hemem.h"
+#include "../hemem.h"
 
 
 #include "gups.h"
@@ -124,8 +124,6 @@ static void *do_gups(void *arguments)
   uint64_t hot_num;
   FILE *indexfile;
   uint64_t offset;
-
-  printf("thread %d starting GUPS\n", args->tid);
 
   //indexfile = fopen(filename, "w");
   //if (indexfile == NULL) {
@@ -271,6 +269,8 @@ int main(int argc, char **argv)
   gettimeofday(&stoptime, NULL);
   secs = elapsed(&starttime, &stoptime);
   fprintf(stderr, "Initialization time: %.4f seconds.\n", secs);
+
+  hemem_start_timing();
 
   //pthread_t print_thread;
   //int pt = pthread_create(&print_thread, NULL, print_instantaneous_gups, NULL);
