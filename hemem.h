@@ -57,7 +57,6 @@ extern "C" {
 #define BASE_PFN_MASK	(BASEPAGE_MASK ^ UINT64_MAX)
 #define HUGE_PFN_MASK	(HUGEPAGE_MASK ^ UINT64_MAX)
 
-
 FILE *hememlogf;
 //#define LOG(...) fprintf(stderr, __VA_ARGS__)
 //#define LOG(...)	fprintf(hememlogf, __VA_ARGS__)
@@ -121,9 +120,9 @@ extern int dramfd;
 extern int nvmfd;
 extern int devmemfd;
 extern bool is_init;
-extern _Atomic(uint64_t) missing_faults_handled;
-extern _Atomic(uint64_t) migrations_up;
-extern _Atomic(uint64_t) migrations_down;
+extern uint64_t missing_faults_handled;
+extern uint64_t migrations_up;
+extern uint64_t migrations_down;
 extern __thread bool internal_malloc;
 extern __thread bool old_internal_call;
 extern __thread bool internal_call;

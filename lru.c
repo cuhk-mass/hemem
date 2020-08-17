@@ -13,6 +13,9 @@
 #include "lru.h"
 #include "timer.h"
 
+
+#define MAX_VAS                1000000
+
 static struct lru_list active_list;
 static struct lru_list inactive_list;
 static struct lru_list nvm_active_list;
@@ -21,6 +24,8 @@ static struct lru_list written_list;
 static struct lru_list nvm_written_list;
 static struct lru_list dram_free_list;
 static struct lru_list nvm_free_list;
+static uint64_t vas[MAX_VAS];
+static uint64_t vanum = 0;
 static pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
 static bool __thread in_kswapd = false;
 uint64_t lru_runs = 0;
@@ -159,23 +164,26 @@ static void shrink_caches(struct lru_list *active, struct lru_list *inactive, st
     if ((bits & HEMEM_ACCESSED_FLAG) == HEMEM_ACCESSED_FLAG) {
       if ((bits & HEMEM_DIRTY_FLAG) == HEMEM_DIRTY_FLAG) {
         // page was written, so put it in the highest priority
-        // written list for memory type; if in DRAM< will
+        // written list for memory type; if in DRAM, will
         // remain in DRAM; if in NVM, has highest priority
         // for migration to DRAM
         n->page->written = true;
-        hemem_clear_bits(n->page);
+        assert(vanum < MAX_VAS);
+        vas[vanum++] = n->page->va;
         lru_list_add(written, n);
       }
       else {
         // page was not written but was already in active list, so
         // keep it in active list since it was accessed
         n->page->written = false;
-        hemem_clear_bits(n->page);
+        assert(vanum < MAX_VAS);
+        vas[vanum++] = n->page->va;
         lru_list_add(active, n);
       }
     }
     else {
       // found a cold page, put it on inactive list
+      n->page->naccesses = 0;
       lru_list_add(inactive, n);
     }
     nr_pages--;
@@ -206,7 +214,6 @@ static void expand_caches(struct lru_list *active, struct lru_list *inactive, st
         // remain in DRAM; if in NVM, has highest priority
         // for migration to DRAM
         n->page->written = true;
-        hemem_clear_bits(n->page);
         lru_list_add(written, n);
       }
       else {
@@ -216,17 +223,18 @@ static void expand_caches(struct lru_list *active, struct lru_list *inactive, st
         n->page->written = false;
         if (n->page->naccesses >=  2) {
           n->page->naccesses = 0;
-          hemem_clear_bits(n->page);
           lru_list_add(active, n);
         }
         else {
           n->page->naccesses++;
-          hemem_clear_bits(n->page);
+          assert(vanum < MAX_VAS);
+          vas[vanum++] = n->page->va;
           lru_list_add(inactive, n);
         }
       }
     }
     else {
+      n->page->naccesses = 0;
       lru_list_add(inactive, n);
     }
   }
@@ -253,7 +261,8 @@ static void check_writes(struct lru_list *active, struct lru_list *inactive, str
         // keep in written list for high priority migration to DRAM/high
         // priority for remaining in DRAM
         n->page->written = true;
-        hemem_clear_bits(n->page);
+        assert(vanum < MAX_VAS);
+        vas[vanum++] = n->page->va;
         lru_list_add(written, n);
       }
       else {
@@ -261,7 +270,6 @@ static void check_writes(struct lru_list *active, struct lru_list *inactive, str
         // now. it still may be written in the near future, so keep it
         // in the regular active list to give it a good chance of
         // remaining in DRAM or lower priority for migration to DRAM
-        n->page->naccesses++;
         n->page->written = false;
         lru_list_add(active, n);
       }
@@ -283,6 +291,8 @@ void *lru_kscand()
 
     gettimeofday(&start, NULL);
 
+    vanum = 0;
+
     check_writes(&active_list, &inactive_list, &written_list);
     check_writes(&nvm_active_list, &nvm_inactive_list, &nvm_written_list);
 
@@ -292,6 +302,11 @@ void *lru_kscand()
     expand_caches(&active_list, &inactive_list, &written_list);
     expand_caches(&nvm_active_list, &nvm_inactive_list, &nvm_written_list);
 
+    for(uint64_t i = 0; i < vanum; i++) {
+      struct hemem_page mypage = { .va = vas[i] };
+      hemem_clear_bits(&mypage);    
+    }
+    
     hemem_tlb_shootdown(0);
 
     gettimeofday(&end, NULL);
@@ -310,6 +325,7 @@ void *lru_kswapd()
   struct lru_node *nn;
   struct timeval start, end;
   uint64_t migrated_bytes;
+  bool from_written_list = true;
 
   //free(malloc(65536));
   
@@ -327,9 +343,13 @@ void *lru_kswapd()
       n = lru_list_remove(&nvm_written_list);
       if (n == NULL) {
         n = lru_list_remove(&nvm_active_list);
+        from_written_list = false;
         if (n == NULL) {
           break;
         }
+      }
+      else {
+        from_written_list = true;
       }
 
       struct hemem_page *p1 = n->page;
@@ -340,9 +360,10 @@ void *lru_kswapd()
         nn = lru_list_remove(&dram_free_list);
 
         if (nn != NULL) {
-
           struct hemem_page *p2 = nn->page;
           pthread_mutex_lock(&(p2->page_lock));
+
+          assert(!(nn->page->present));
 
           LOG("%lx: cold %lu -> hot %lu\t slowmem.active: %lu, slowmem.inactive: %lu\t hotmem.active: %lu, hotmem.inactive: %lu\n",
                 n->page->va, n->framenum, nn->framenum, nvm_active_list.numentries, nvm_inactive_list.numentries, active_list.numentries, inactive_list.numentries);
@@ -352,12 +373,14 @@ void *lru_kswapd()
           tmp = nn->page;
           nn->page = n->page;
           nn->page->management = nn;
+          nn->page->present = true;
 
           n->page = tmp;
           n->page->management = n;
 
           n->page->devdax_offset = n->framenum * PAGE_SIZE;
           n->page->in_dram = false;
+          assert(!(n->page->present));
 
           lru_list_add(&active_list, nn);
 
@@ -373,8 +396,13 @@ void *lru_kswapd()
         // no free dram page, try to find a cold dram page to move down
         cn = lru_list_remove(&inactive_list);
         if (cn == NULL) {
-          // all dram pages are hot
-          lru_list_add(&nvm_active_list, n);
+          // all dram pages are hot, so put it back in list we got it from
+          if (from_written_list) {
+            lru_list_add(&nvm_written_list, n);
+          }
+          else {
+            lru_list_add(&nvm_active_list, n);
+          }
           pthread_mutex_unlock(&(p1->page_lock));
           goto out;
         }
@@ -388,6 +416,7 @@ void *lru_kswapd()
         if (nn != NULL) {
           struct hemem_page *p4 = nn->page;
           pthread_mutex_lock(&(p4->page_lock));
+          assert(!(nn->page->present));
 
           LOG("%lx: hot %lu -> cold %lu\t slowmem.active: %lu, slowmem.inactive: %lu\t hotmem.active: %lu, hotmem.inactive: %lu\n",
                 cn->page->va, cn->framenum, nn->framenum, nvm_active_list.numentries, nvm_inactive_list.numentries, active_list.numentries, inactive_list.numentries);
@@ -397,11 +426,13 @@ void *lru_kswapd()
           tmp = nn->page;
           nn->page = cn->page;
           nn->page->management = nn;
+          nn->page->present = true;
 
           cn->page = tmp;
           cn->page->management = cn;
           cn->page->devdax_offset = cn->framenum * PAGE_SIZE;
           cn->page->in_dram = true;
+          assert(!(cn->page->present));
 
           lru_list_add(&nvm_inactive_list, nn);
 

@@ -35,20 +35,20 @@ long uffd = -1;
 bool is_init = false;
 bool timing = false;
 
-_Atomic uint64_t mem_mmaped = 0;
-_Atomic uint64_t mem_allocated = 0;
-_Atomic uint64_t pages_allocated = 0;
-_Atomic uint64_t pages_freed = 0;
-_Atomic uint64_t fastmem_allocated = 0;
-_Atomic uint64_t slowmem_allocated = 0;
-_Atomic uint64_t wp_faults_handled = 0;
-_Atomic uint64_t missing_faults_handled = 0;
-_Atomic uint64_t migrations_up = 0;
-_Atomic uint64_t migrations_down = 0;
-_Atomic uint64_t bytes_migrated = 0;
-_Atomic uint64_t pmemcpys = 0;
-_Atomic uint64_t memsets = 0;
-_Atomic uint64_t migration_waits = 0;
+uint64_t mem_mmaped = 0;
+uint64_t mem_allocated = 0;
+uint64_t pages_allocated = 0;
+uint64_t pages_freed = 0;
+uint64_t fastmem_allocated = 0;
+uint64_t slowmem_allocated = 0;
+uint64_t wp_faults_handled = 0;
+uint64_t missing_faults_handled = 0;
+uint64_t migrations_up = 0;
+uint64_t migrations_down = 0;
+uint64_t bytes_migrated = 0;
+uint64_t pmemcpys = 0;
+uint64_t memsets = 0;
+uint64_t migration_waits = 0;
 
 static bool cr3_set = false;
 uint64_t cr3 = 0;
@@ -212,6 +212,7 @@ struct hemem_page* find_page(uint64_t va)
   return page;
 }
 
+
 void hemem_init()
 {
   struct uffdio_api uffdio_api;
@@ -299,8 +300,8 @@ void hemem_init()
 
   //devmem_mmap = libc_mmap(NULL, 6762176548864, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, 0);
   //if (devmem_mmap == MAP_FAILED) {
-  //  perror("devmem mmap");
-  //  assert(0);
+    //perror("devmem mmap");
+    //assert(0);
   //}
  
   uint64_t i;
@@ -436,7 +437,8 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
   internal_call = true;
 
   assert(is_init);
-
+  assert(length != 0);
+  
   if ((flags & MAP_PRIVATE) == MAP_PRIVATE) {
     flags &= ~MAP_PRIVATE;
     flags |= MAP_SHARED;
@@ -482,12 +484,12 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
   }
 
    
-//  if ((flags & MAP_POPULATE) == MAP_POPULATE) {
+  if ((flags & MAP_POPULATE) == MAP_POPULATE) {
     hemem_mmap_populate(p, length);
-//  }
+  }
 
   mem_mmaped = length;
-
+  
   internal_call = false;
   
   return p;
@@ -1136,22 +1138,20 @@ void hemem_tlb_shootdown(uint64_t va)
   }
 }
 /*
-void hemem_clear_accessed_bit(struct hemem_page *page)
+void hemem_clear_bits(struct hemem_page *page)
 {
-  //uint64_t page_boundry = page->va & ~(PAGE_SIZE - 1);
-  //clear_accessed_bit(page_boundry);
-  *(page->pa) = *(page->pa) & ~HEMEM_ACCESSED_FLAG;
+  uint64_t page_boundry = page->va & ~(PAGE_SIZE - 1);
+  clear_bits(page_boundry);
 }
 
 
-int hemem_get_accessed_bit(struct hemem_page *page)
+uint64_t hemem_get_bits(struct hemem_page *page)
 {
-  //uint64_t page_boundry = page->va & ~(PAGE_SIZE - 1);
-  //return get_accessed_bit(page_boundry);
-  return *(page->pa) & HEMEM_ACCESSED_FLAG;
+  uint64_t page_boundry = page->va & ~(PAGE_SIZE - 1);
+  return get_bits(page_boundry);
 }
 */
- 
+
 void hemem_clear_bits(struct hemem_page *page)
 {
   uint64_t ret;

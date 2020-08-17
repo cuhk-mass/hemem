@@ -55,6 +55,7 @@ int threads;
 uint64_t hot_start = 0;
 uint64_t hotsize = 0;
 uint64_t hot_offset_page = 0;
+bool move_hotset = false;
 
 struct gups_args {
   int tid;                      // thread id
@@ -65,7 +66,7 @@ struct gups_args {
   uint64_t elt_size;       // size of elements
 };
 
-_Atomic uint64_t thread_gups[MAX_THREADS];
+//uint64_t thread_gups[MAX_THREADS];
 
 static unsigned long updates, nelems;
 
@@ -78,7 +79,7 @@ static void *print_instantaneous_gups()
   for (int i = 0; i < threads; i++) {
     last_second_gups[i] = 0;
     snprintf(fname, 20, "gups_%d.txt", i);
-    printf("file name: %s\n", fname);
+    //printf("file name: %s\n", fname);
     f[i] = fopen(fname, "w");
     if (f[i] == NULL) {
       perror("fopen");
@@ -88,8 +89,8 @@ static void *print_instantaneous_gups()
 
   for (;;) {
     for (int i = 0; i < threads; i++) {
-      fprintf(f[i], "%.10f\n", (1.0 * (abs(thread_gups[i] - last_second_gups[i]))) / (1.0e9));
-      last_second_gups[i] = thread_gups[i];
+      //fprintf(f[i], "%.10f\n", (1.0 * (abs(thread_gups[i] - last_second_gups[i]))) / (1.0e9));
+      //last_second_gups[i] = thread_gups[i];
     }
     sleep(1);
     //printf("GUPS: %.10f\n", (1.0 * (abs(thread_gups[0]- last_second_gups))) / (1.0e9));
@@ -116,7 +117,7 @@ static void *do_gups(void *arguments)
   //printf("do_gups entered\n");
   struct gups_args *args = (struct gups_args*)arguments;
   char *field = (char*)(args->field);
-  uint64_t i, j;
+  uint64_t i;
   uint64_t index1, index2;
   uint64_t elt_size = args->elt_size;
   char data[elt_size];
@@ -138,29 +139,31 @@ static void *do_gups(void *arguments)
   index2 = 0;
 
   for (i = 0; i < args->iters; i++) {
-    hot_num = lfsr % 4 + 8;
-    for (j = 0; j < hot_num; j++) {
+    hot_num = lfsr_fast(lfsr) % 100;
+    if (hot_num < 90) {
       lfsr = lfsr_fast(lfsr);
       index1 = hot_start + (lfsr % hotsize);
-      offset = index1 * elt_size;
-      if (offset >= PAGE_NUM * GUPS_PAGE_SIZE && offset < PAGE_NUM * GUPS_PAGE_SIZE * PAGES) {
-        index1 += ((hot_offset_page * GUPS_PAGE_SIZE) / elt_size);
+      if (move_hotset) {
+        offset = index1 * elt_size;
+        if (offset >= PAGE_NUM * GUPS_PAGE_SIZE && offset < PAGE_NUM * GUPS_PAGE_SIZE * PAGES) {
+          index1 += ((hot_offset_page * GUPS_PAGE_SIZE) / elt_size);
+        }
       }
       memcpy(data, &field[index1 * elt_size], elt_size);
-      memset(data, data[0] + j, elt_size);
+      memset(data, data[0] + i, elt_size);
       memcpy(&field[index1 * elt_size], data, elt_size);
-      thread_gups[args->tid]++;
+      //thread_gups[args->tid]++;
       //fprintf(indexfile, "%lu\n", index1);
     }
-    i += hot_num;
-
-    lfsr = lfsr_fast(lfsr);
-    index2 = lfsr % (args->size);
-    memcpy(data, &field[index2 * elt_size], elt_size);
-    memset(data, data[0] + i, elt_size);
-    memcpy(&field[index2 * elt_size], data, elt_size);
-    thread_gups[args->tid]++;
-    //fprintf(indexfile, "%lu\n", index1);
+    else {
+      lfsr = lfsr_fast(lfsr);
+      index2 = lfsr % (args->size);
+      memcpy(data, &field[index2 * elt_size], elt_size);
+      memset(data, data[0] + i, elt_size);
+      memcpy(&field[index2 * elt_size], data, elt_size);
+      //thread_gups[args->tid]++;
+      //fprintf(indexfile, "%lu\n", index1);
+    }
   }
 /*
   //printf("Thread [%d] starting: field: [%llx]\n", args->tid, field);
@@ -227,7 +230,7 @@ int main(int argc, char **argv)
   fprintf(stderr, "field of 2^%lu (%lu) bytes\n", expt, size);
   fprintf(stderr, "%ld byte element size (%ld elements total)\n", elt_size, size / elt_size);
 
-  p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE, -1, 0);
+  p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
   if (p == MAP_FAILED) {
     perror("mmap");
     assert(0);
@@ -240,7 +243,7 @@ int main(int argc, char **argv)
   nelems = (size / threads) / elt_size; // number of elements per thread
   fprintf(stderr, "Elements per thread: %lu\n", nelems);
 
-  memset(thread_gups, 0, sizeof(thread_gups));
+  //memset(thread_gups, 0, sizeof(thread_gups));
 
   fprintf(stderr, "initializing thread data\n");
   for (i = 0; i < threads; ++i) {
@@ -308,7 +311,7 @@ int main(int argc, char **argv)
   printf("Elapsed time: %.4f seconds.\n", secs);
   gups = threads * ((double)updates) / (secs * 1.0e9);
   printf("GUPS = %.10f\n", gups);
-  memset(thread_gups, 0, sizeof(thread_gups));
+  //memset(thread_gups, 0, sizeof(thread_gups));
 
   filename = "indices2.txt";
 
@@ -342,9 +345,10 @@ int main(int argc, char **argv)
   gups = threads * ((double)updates) / (secs * 1.0e9);
   printf("GUPS = %.10f\n", gups);
 
-  memset(thread_gups, 0, sizeof(thread_gups));
+  //memset(thread_gups, 0, sizeof(thread_gups));
 
 #ifdef HOTSPOT
+  move_hotset = true;
   hot_offset_page = hotsize / GUPS_PAGE_SIZE;
   //hot_start = (16UL * 1024UL * 1024UL * 1024UL) / elt_size;              // 16GB to the right;
   printf("hot_start: %lu\thot_size: %lu\n", hot_start, hotsize);
@@ -380,7 +384,6 @@ int main(int argc, char **argv)
 
   //hemem_print_stats();
 #endif
-
   for (i = 0; i < threads; i++) {
     //free(ga[i]->indices);
     free(ga[i]);

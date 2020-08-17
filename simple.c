@@ -104,4 +104,6 @@ void simple_init(void)
 }
 
 void simple_stats()
-{}
+{
+  LOG_STATS("\tfastmem_allocated: [%ld]\tslowmem_allocated: [%ld]\n", fastmem, slowmem);
+}
