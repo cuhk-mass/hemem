@@ -230,7 +230,7 @@ int main(int argc, char **argv)
   fprintf(stderr, "field of 2^%lu (%lu) bytes\n", expt, size);
   fprintf(stderr, "%ld byte element size (%ld elements total)\n", elt_size, size / elt_size);
 
-  p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
+  p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE, -1, 0);
   if (p == MAP_FAILED) {
     perror("mmap");
     assert(0);
@@ -274,6 +274,8 @@ int main(int argc, char **argv)
   fprintf(stderr, "Initialization time: %.4f seconds.\n", secs);
 
   hemem_start_timing();
+
+  //hemem_start_timing();
 
   //pthread_t print_thread;
   //int pt = pthread_create(&print_thread, NULL, print_instantaneous_gups, NULL);
@@ -346,7 +348,7 @@ int main(int argc, char **argv)
   printf("GUPS = %.10f\n", gups);
 
   //memset(thread_gups, 0, sizeof(thread_gups));
-
+#if 0
 #ifdef HOTSPOT
   move_hotset = true;
   hot_offset_page = hotsize / GUPS_PAGE_SIZE;
@@ -384,6 +386,10 @@ int main(int argc, char **argv)
 
   //hemem_print_stats();
 #endif
+#endif
+
+  hemem_stop_timing();
+
   for (i = 0; i < threads; i++) {
     //free(ga[i]->indices);
     free(ga[i]);
@@ -394,4 +400,5 @@ int main(int argc, char **argv)
 
   return 0;
 }
+
 

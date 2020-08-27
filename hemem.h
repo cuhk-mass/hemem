@@ -211,6 +211,7 @@ void enqueue_fifo(struct fifo_list *list, struct hemem_page *page);
 struct hemem_page* dequeue_fifo(struct fifo_list *list);
 
 void hemem_start_timing(void);
+void hemem_stop_timing(void);
 
 
 #ifdef __cplusplus

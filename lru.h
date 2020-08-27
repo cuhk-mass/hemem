@@ -9,9 +9,9 @@
 #include "paging.h"
 
 
-#define KSCAND_INTERVAL   (200000) // in us (10ms)
+#define KSCAND_INTERVAL   (50000) // in us (20ms)
 #define KSWAPD_INTERVAL   (1000000) // in us (1s)
-#define KSWAPD_MIGRATE_RATE  (10UL * 1024UL * 1024UL * 1024UL) // 10GB
+#define KSWAPD_MIGRATE_RATE  (50UL * 1024UL * 1024UL * 1024UL) // 50GB
 
 struct lru_node {
   struct hemem_page *page;

@@ -1228,3 +1228,8 @@ void hemem_start_timing(void)
 {
   timing = true;
 }
+
+void hemem_stop_timing(void)
+{
+  timing = false;
+}

@@ -282,7 +282,7 @@ static void check_writes(struct lru_list *active, struct lru_list *inactive, str
 
 void *lru_kscand()
 {
-  struct timeval start, end;
+  struct timeval start, end, clear_start, clear_end;
 
   for (;;) {
     usleep(KSCAND_INTERVAL);
@@ -302,10 +302,13 @@ void *lru_kscand()
     expand_caches(&active_list, &inactive_list, &written_list);
     expand_caches(&nvm_active_list, &nvm_inactive_list, &nvm_written_list);
 
+    gettimeofday(&clear_start, NULL);
     for(uint64_t i = 0; i < vanum; i++) {
       struct hemem_page mypage = { .va = vas[i] };
       hemem_clear_bits(&mypage);    
     }
+    gettimeofday(&clear_end, NULL);
+    LOG_TIME("clear_bits: %f s\n", elapsed(&clear_start, &clear_end));
     
     hemem_tlb_shootdown(0);
 
