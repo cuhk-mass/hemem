@@ -31,16 +31,16 @@ extern "C" {
 #include "pebs.h"
 
 //#define HEMEM_DEBUG
-//#define USE_PEBS
+#define USE_PEBS
 //#define STATS_THREAD
 
 #define MEM_BARRIER() __sync_synchronize()
 
-#define NVMSIZE   (450L * (1024L * 1024L * 1024L))
+#define NVMSIZE   (1024L * (1024L * 1024L * 1024L))
 #define DRAMSIZE  (128L * (1024L * 1024L * 1024L))
 
-#define DRAMPATH  "/dev/dax0.0"
-#define NVMPATH   "/dev/dax1.0"
+#define DRAMPATH  "/dev/dax2.0"
+#define NVMPATH   "/dev/dax0.0"
 
 //#define PAGE_SIZE (1024 * 1024 * 1024)
 //#define PAGE_SIZE (2 * (1024 * 1024))
@@ -76,14 +76,14 @@ static inline void log_time(const char* fmt, ...)
 }
 
 
-#define LOG_TIME(str, ...) log_time(str, __VA_ARGS__)
+//#define LOG_TIME(str, ...) log_time(str, __VA_ARGS__)
 //#define LOG_TIME(str, ...) fprintf(timef, str, __VA_ARGS__)
-//#define LOG_TIME(str, ...) while(0) {}
+#define LOG_TIME(str, ...) while(0) {}
 
 FILE *statsf;
-#define LOG_STATS(str, ...) fprintf(stderr, str,  __VA_ARGS__)
+//#define LOG_STATS(str, ...) fprintf(stderr, str,  __VA_ARGS__)
 //#define LOG_STATS(str, ...) fprintf(statsf, str, __VA_ARGS__)
-//#define LOG_STATS(str, ...) while (0) {}
+#define LOG_STATS(str, ...) while (0) {}
 
 #if defined (ALLOC_HEMEM)
   #define pagefault(...) hemem_mmgr_pagefault(__VA_ARGS__)

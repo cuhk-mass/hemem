@@ -34,10 +34,14 @@
 
 #ifdef USE_PEBS
 
+#define PEBS_FILE   "pebs.txt"
+
 static struct perf_event_mmap_page *perf_page[NPBUFTYPES];
 
 static struct hemem_page *pbuckets = NULL;
 pthread_mutex_t hash_lock;
+
+FILE *pebs_file;
 
 static long
 perf_event_open(struct perf_event_attr *hw_event, pid_t pid, 
@@ -66,7 +70,7 @@ static struct perf_event_mmap_page* perf_setup(__u64 config, __u64 config1)
 
   attr.sample_type = PERF_SAMPLE_IP | PERF_SAMPLE_TID | PERF_SAMPLE_WEIGHT | PERF_SAMPLE_ADDR;
   attr.disabled = 0;
-  //attr.inherit = 1;
+  attr.inherit = 1;
   attr.exclude_kernel = 1;
   attr.exclude_hv = 1;
   attr.exclude_callchain_kernel = 1;
@@ -143,7 +147,7 @@ static void *hemem_measure(void *arg)
         break;
       default:
         fprintf(stderr, "Unknown type %u\n", ph->type);
-        assert(!"NYI");
+        //assert(!"NYI");
         break;
       }
 
@@ -158,7 +162,7 @@ void pebs_print(void)
   struct hemem_page *p, *tmp;
   pthread_mutex_lock(&hash_lock);
   HASH_ITER(phh, pbuckets, p, tmp) {
-    fprintf(stderr, "va 0x%lx: %lu\t%lu\n", p->va, p->accesses[READ], p->accesses[WRITE]);
+    fprintf(pebs_file, "0x%lx: %lu\t%lu\n", p->va, p->accesses[READ], p->accesses[WRITE]);
   }
   pthread_mutex_unlock(&hash_lock);
 }
@@ -174,6 +178,9 @@ void pebs_init(void)
   perf_page[WRITE] = perf_setup(0x82d0, 0);
 
   pthread_mutex_init(&hash_lock, NULL);
+
+  pebs_file = fopen(PEBS_FILE, "w");
+  assert(pebs_file != NULL);
 
   struct hemem_page *dummy_page = calloc(1, sizeof(struct hemem_page));
   HASH_ADD(phh, pbuckets, va, sizeof(__u64), dummy_page);
