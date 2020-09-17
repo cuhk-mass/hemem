@@ -14,3 +14,8 @@ apps/
 logs/
 results/
 scripts/
+
+# vtunes traces
+*macc
+*ue
+*tr
