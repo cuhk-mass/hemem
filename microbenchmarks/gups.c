@@ -112,6 +112,8 @@ static uint64_t lfsr_fast(uint64_t lfsr)
 
 char *filename = "indices1.txt";
 
+FILE *hotsetfile = NULL;
+
 static void *do_gups(void *arguments)
 {
   //printf("do_gups entered\n");
@@ -126,17 +128,14 @@ static void *do_gups(void *arguments)
   FILE *indexfile;
   uint64_t offset;
 
-  //indexfile = fopen(filename, "w");
-  //if (indexfile == NULL) {
-    //perror("fopen");
-    //assert(0);
-  //}
 
   srand(0);
   lfsr = rand();
 
   index1 = 0;
   index2 = 0;
+
+  fprintf(hotsetfile, "Thread %d hot set: %p - %p\n", args->tid, field, field + (hotsize * elt_size));
 
   for (i = 0; i < args->iters; i++) {
     hot_num = lfsr_fast(lfsr) % 100;
@@ -268,6 +267,12 @@ int main(int argc, char **argv)
     //int r = pthread_join(t[i], NULL);
     //assert(r == 0);
   //}
+  
+  hotsetfile = fopen("hotsets.txt", "w");
+  if (hotsetfile == NULL) {
+    perror("fopen");
+    assert(0);
+  }
 
   gettimeofday(&stoptime, NULL);
   secs = elapsed(&starttime, &stoptime);
@@ -283,7 +288,7 @@ int main(int argc, char **argv)
 
   hot_start = 0;
   hotsize = (tot_hot_size / threads) / elt_size;
-  printf("hot_start: %lu\thot_size: %lu\n", hot_start, hotsize);
+  printf("hot_start: %p\thot_end: %p\thot_size: %lu\n", p + hot_start, p + hot_start + (hotsize * elt_size), hotsize);
 
   gettimeofday(&starttime, NULL);
 

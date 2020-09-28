@@ -36,9 +36,9 @@
 #include "hemem.h"
 #include "uthash.h"
 
-
-#define PERF_PAGES	(1 + (1 << 8))	// Has to be == 1+2^n, here 1MB
-#define SAMPLE_PERIOD	1000000
+#define PEBS_NPROCS 64
+#define PERF_PAGES	(1 + (1 << 18))	// Has to be == 1+2^n, here 1MB
+#define SAMPLE_PERIOD	100000
 //#define SAMPLE_FREQ	100
 
 struct perf_sample {
