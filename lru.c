@@ -168,6 +168,7 @@ static void shrink_caches(struct lru_list *active, struct lru_list *inactive, st
         // remain in DRAM; if in NVM, has highest priority
         // for migration to DRAM
         n->page->written = true;
+        //hemem_clear_bits(n->page);
         assert(vanum < MAX_VAS);
         vas[vanum++] = n->page->va;
         lru_list_add(written, n);
@@ -176,6 +177,7 @@ static void shrink_caches(struct lru_list *active, struct lru_list *inactive, st
         // page was not written but was already in active list, so
         // keep it in active list since it was accessed
         n->page->written = false;
+        //hemem_clear_bits(n->page);
         assert(vanum < MAX_VAS);
         vas[vanum++] = n->page->va;
         lru_list_add(active, n);
@@ -221,12 +223,13 @@ static void expand_caches(struct lru_list *active, struct lru_list *inactive, st
         // non write-intensive pages must be accessed twice
         // in a row to be marked active
         n->page->written = false;
-        if (n->page->naccesses >=  2) {
+        if (n->page->naccesses >= 4) {
           n->page->naccesses = 0;
           lru_list_add(active, n);
         }
         else {
           n->page->naccesses++;
+          //hemem_clear_bits(n->page);
           assert(vanum < MAX_VAS);
           vas[vanum++] = n->page->va;
           lru_list_add(inactive, n);
@@ -261,6 +264,7 @@ static void check_writes(struct lru_list *active, struct lru_list *inactive, str
         // keep in written list for high priority migration to DRAM/high
         // priority for remaining in DRAM
         n->page->written = true;
+        //hemem_clear_bits(n->page);
         assert(vanum < MAX_VAS);
         vas[vanum++] = n->page->va;
         lru_list_add(written, n);

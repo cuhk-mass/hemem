@@ -32,6 +32,7 @@
 #include <sys/mman.h>
 #include <errno.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #include "../timer.h"
 #include "../hemem.h"
@@ -64,6 +65,8 @@ struct gups_args {
   uint64_t iters;          // iterations to perform
   uint64_t size;           // size of region
   uint64_t elt_size;       // size of elements
+  uint64_t hot_start;            // start of hot set
+  uint64_t hotsize;        // size of hot set
 };
 
 //uint64_t thread_gups[MAX_THREADS];
@@ -112,7 +115,7 @@ static uint64_t lfsr_fast(uint64_t lfsr)
 
 char *filename = "indices1.txt";
 
-FILE *hotsetfile = NULL;
+//FILE *hotsetfile = NULL;
 
 static void *do_gups(void *arguments)
 {
@@ -125,34 +128,39 @@ static void *do_gups(void *arguments)
   char data[elt_size];
   uint64_t lfsr;
   uint64_t hot_num;
-  FILE *indexfile;
   uint64_t offset;
 
+  //FILE* indexfile;
+  //char filename[15];
+  //snprintf(filename, 15, "indices_%d.txt", args->tid);
+  //indexfile = fopen(filename, "w");
+  //assert(indexfile != NULL);
 
-  srand(0);
+
+  srand(args->tid);
   lfsr = rand();
 
   index1 = 0;
   index2 = 0;
 
-  fprintf(hotsetfile, "Thread %d hot set: %p - %p\n", args->tid, field, field + (hotsize * elt_size));
+  fprintf(stderr, "Thread %d region: %p - %p\thot set: %p - %p\n", args->tid, field, field + (args->size * elt_size), field + args->hot_start, field + args->hot_start + (args->hotsize * elt_size));
 
   for (i = 0; i < args->iters; i++) {
     hot_num = lfsr_fast(lfsr) % 100;
     if (hot_num < 90) {
       lfsr = lfsr_fast(lfsr);
-      index1 = hot_start + (lfsr % hotsize);
-      if (move_hotset) {
-        offset = index1 * elt_size;
-        if (offset >= PAGE_NUM * GUPS_PAGE_SIZE && offset < PAGE_NUM * GUPS_PAGE_SIZE * PAGES) {
-          index1 += ((hot_offset_page * GUPS_PAGE_SIZE) / elt_size);
-        }
-      }
+      index1 = args->hot_start + (lfsr % args->hotsize);
+      //if (move_hotset) {
+      //  offset = index1 * elt_size;
+      //  if (offset >= PAGE_NUM * GUPS_PAGE_SIZE && offset < PAGE_NUM * GUPS_PAGE_SIZE * PAGES) {
+      //    index1 += ((hot_offset_page * GUPS_PAGE_SIZE) / elt_size);
+      //  }
+      //}
       memcpy(data, &field[index1 * elt_size], elt_size);
       memset(data, data[0] + i, elt_size);
       memcpy(&field[index1 * elt_size], data, elt_size);
       //thread_gups[args->tid]++;
-      //fprintf(indexfile, "%lu\n", index1);
+      //fprintf(indexfile, "%p\n", field + (index1* elt_size));
     }
     else {
       lfsr = lfsr_fast(lfsr);
@@ -161,7 +169,7 @@ static void *do_gups(void *arguments)
       memset(data, data[0] + i, elt_size);
       memcpy(&field[index2 * elt_size], data, elt_size);
       //thread_gups[args->tid]++;
-      //fprintf(indexfile, "%lu\n", index1);
+      //fprintf(indexfile, "%p\n", field +  (index2 * elt_size));
     }
   }
 /*
@@ -173,6 +181,7 @@ static void *do_gups(void *arguments)
     memcpy(&field[index * elt_size], data, elt_size);
   }
 */
+  //fclose(indexfile);
   return 0;
 }
 /*
@@ -211,7 +220,6 @@ int main(int argc, char **argv)
   threads = atoi(argv[1]);
   assert(threads <= MAX_THREADS);
   ga = (struct gups_args**)malloc(threads * sizeof(struct gups_args*));
-  fprintf(stderr, "size of ga: %lu\n", sizeof(ga));
 
   updates = atol(argv[2]);
   updates -= updates % 256;
@@ -268,17 +276,15 @@ int main(int argc, char **argv)
     //assert(r == 0);
   //}
   
-  hotsetfile = fopen("hotsets.txt", "w");
-  if (hotsetfile == NULL) {
-    perror("fopen");
-    assert(0);
-  }
+  //hotsetfile = fopen("hotsets.txt", "w");
+  //if (hotsetfile == NULL) {
+  //  perror("fopen");
+  //  assert(0);
+  //}
 
   gettimeofday(&stoptime, NULL);
   secs = elapsed(&starttime, &stoptime);
   fprintf(stderr, "Initialization time: %.4f seconds.\n", secs);
-
-  hemem_start_timing();
 
   //hemem_start_timing();
 
@@ -300,6 +306,8 @@ int main(int argc, char **argv)
     ga[i]->iters = updates;
     ga[i]->size = nelems;
     ga[i]->elt_size = elt_size;
+    ga[i]->hot_start = 0;        // hot set at start of thread's region
+    ga[i]->hotsize = hotsize;
     //printf("  tid: [%d]  iters: [%llu]  size: [%llu]  elt size: [%llu]\n", ga[i]->tid, ga[i]->iters, ga[i]->size, ga[i]->elt_size);
     int r = pthread_create(&t[i], NULL, do_gups, (void*)ga[i]);
     assert(r == 0);
@@ -393,7 +401,7 @@ int main(int argc, char **argv)
 #endif
 #endif
 
-  hemem_stop_timing();
+  //hemem_stop_timing();
 
   for (i = 0; i < threads; i++) {
     //free(ga[i]->indices);
