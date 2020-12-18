@@ -69,6 +69,15 @@ struct gups_args {
   uint64_t hotsize;        // size of hot set
 };
 
+
+static inline uint64_t rdtscp(void)
+{
+    uint32_t eax, edx;
+    // why is "ecx" in clobber list here, anyway? -SG&MH,2017-10-05
+    __asm volatile ("rdtscp" : "=a" (eax), "=d" (edx) :: "ecx", "memory");
+    return ((uint64_t)edx << 32) | eax;
+}
+
 //uint64_t thread_gups[MAX_THREADS];
 
 static unsigned long updates, nelems;
@@ -115,13 +124,13 @@ static uint64_t lfsr_fast(uint64_t lfsr)
 
 char *filename = "indices1.txt";
 
-//FILE *hotsetfile = NULL;
+FILE *hotsetfile = NULL;
 
 static void *do_gups(void *arguments)
 {
   //printf("do_gups entered\n");
   struct gups_args *args = (struct gups_args*)arguments;
-  char *field = (char*)(args->field);
+  uint64_t *field = (uint64_t*)(args->field);
   uint64_t i;
   uint64_t index1, index2;
   uint64_t elt_size = args->elt_size;
@@ -129,12 +138,13 @@ static void *do_gups(void *arguments)
   uint64_t lfsr;
   uint64_t hot_num;
   uint64_t offset;
+  uint64_t start, end;
 
-  //FILE* indexfile;
-  //char filename[15];
-  //snprintf(filename, 15, "indices_%d.txt", args->tid);
-  //indexfile = fopen(filename, "w");
-  //assert(indexfile != NULL);
+  //FILE* timefile;
+  //char filename[17];
+  //snprintf(filename, 17, "latencies_%d.txt", args->tid);
+  //timefile = fopen(filename, "w");
+  //assert(timefile != NULL);
 
 
   srand(args->tid);
@@ -143,7 +153,7 @@ static void *do_gups(void *arguments)
   index1 = 0;
   index2 = 0;
 
-  fprintf(stderr, "Thread %d region: %p - %p\thot set: %p - %p\n", args->tid, field, field + (args->size * elt_size), field + args->hot_start, field + args->hot_start + (args->hotsize * elt_size));
+  fprintf(hotsetfile, "Thread %d region: %p - %p\thot set: %p - %p\n", args->tid, field, field + (args->size * elt_size), field + args->hot_start, field + args->hot_start + (args->hotsize * elt_size));   
 
   for (i = 0; i < args->iters; i++) {
     hot_num = lfsr_fast(lfsr) % 100;
@@ -156,32 +166,47 @@ static void *do_gups(void *arguments)
       //    index1 += ((hot_offset_page * GUPS_PAGE_SIZE) / elt_size);
       //  }
       //}
-      memcpy(data, &field[index1 * elt_size], elt_size);
-      memset(data, data[0] + i, elt_size);
-      memcpy(&field[index1 * elt_size], data, elt_size);
+      start = rdtscp();
+      if (elt_size == 8) {
+        uint64_t  tmp = field[index1];
+        tmp = tmp + i;
+        field[index1] = tmp;
+      }
+      else {
+        memcpy(data, &field[index1 * elt_size], elt_size);
+        memset(data, data[0] + i, elt_size);
+        memcpy(&field[index1 * elt_size], data, elt_size);
+      }
+      end = rdtscp();
       //thread_gups[args->tid]++;
       //fprintf(indexfile, "%p\n", field + (index1* elt_size));
     }
     else {
       lfsr = lfsr_fast(lfsr);
       index2 = lfsr % (args->size);
-      memcpy(data, &field[index2 * elt_size], elt_size);
-      memset(data, data[0] + i, elt_size);
-      memcpy(&field[index2 * elt_size], data, elt_size);
+      start = rdtscp();
+      if (elt_size == 8) {
+        uint64_t tmp = field[index2];
+        tmp = tmp + i;
+        field[index2] = tmp;
+      }
+      else {
+        memcpy(data, &field[index2 * elt_size], elt_size);
+        memset(data, data[0] + i, elt_size);
+        memcpy(&field[index2 * elt_size], data, elt_size);
+      }
+      end = rdtscp();
       //thread_gups[args->tid]++;
       //fprintf(indexfile, "%p\n", field +  (index2 * elt_size));
     }
+
+    //fprintf(timefile, "%lu\n", end - start);
   }
-/*
-  //printf("Thread [%d] starting: field: [%llx]\n", args->tid, field);
-  for (i = 0; i < args->iters; i++) {
-    index = args->indices[i];
-    memcpy(data, &field[index * elt_size], elt_size);
-    memset(data, data[0] + i, elt_size);
-    memcpy(&field[index * elt_size], data, elt_size);
-  }
-*/
-  //fclose(indexfile);
+
+  //if (args->tid == 0) {
+  //  pebs_print(); 
+  //}
+  //fclose(timefile);
   return 0;
 }
 /*
@@ -252,35 +277,11 @@ int main(int argc, char **argv)
 
   //memset(thread_gups, 0, sizeof(thread_gups));
 
-  fprintf(stderr, "initializing thread data\n");
-  for (i = 0; i < threads; ++i) {
-    ga[i] = (struct gups_args*)malloc(sizeof(struct gups_args));
-    ga[i]->tid = i;
-    ga[i]->field = p + (i * nelems * elt_size);
-    //printf("Thread [%d] starting address: %llx\n", i, ga[i]->field);
-    //printf("thread %d start address: %llu\n", i, (unsigned long)td[i].field);
-    /*
-    ga[i]->indices = (unsigned long*)malloc(updates * sizeof(unsigned long));
-    if (ga[i]->indices == NULL) {
-      perror("malloc");
-      exit(1);
-    }
-    int r = pthread_create(&t[i], NULL, calc_indices_thread, (void*)ga[i]);
-    assert(r == 0);
-    */
+  hotsetfile = fopen("hotsets.txt", "w");
+  if (hotsetfile == NULL) {
+    perror("fopen");
+    assert(0);
   }
-
-  // wait for worker threads
-  //for (i = 0; i < threads; i++) {
-    //int r = pthread_join(t[i], NULL);
-    //assert(r == 0);
-  //}
-  
-  //hotsetfile = fopen("hotsets.txt", "w");
-  //if (hotsetfile == NULL) {
-  //  perror("fopen");
-  //  assert(0);
-  //}
 
   gettimeofday(&stoptime, NULL);
   secs = elapsed(&starttime, &stoptime);
@@ -292,6 +293,8 @@ int main(int argc, char **argv)
   //int pt = pthread_create(&print_thread, NULL, print_instantaneous_gups, NULL);
   //assert(pt == 0);
 
+  //pebs_print();
+
   hot_start = 0;
   hotsize = (tot_hot_size / threads) / elt_size;
   printf("hot_start: %p\thot_end: %p\thot_size: %lu\n", p + hot_start, p + hot_start + (hotsize * elt_size), hotsize);
@@ -302,7 +305,9 @@ int main(int argc, char **argv)
   // spawn gups worker threads
   for (i = 0; i < threads; i++) {
     //printf("starting thread [%d]\n", i);
+    ga[i] = (struct gups_args*)malloc(sizeof(struct gups_args));
     ga[i]->tid = i;
+    ga[i]->field = p + (i * nelems * elt_size);
     ga[i]->iters = updates;
     ga[i]->size = nelems;
     ga[i]->elt_size = elt_size;
@@ -408,6 +413,10 @@ int main(int argc, char **argv)
     free(ga[i]);
   }
   free(ga);
+
+  pebs_print();
+
+  //getchar();
 
   munmap(p, size);
 

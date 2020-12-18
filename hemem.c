@@ -206,9 +206,7 @@ void remove_page(struct hemem_page *page)
 struct hemem_page* find_page(uint64_t va)
 {
   struct hemem_page *page;
-  pthread_mutex_lock(&pages_lock);
   HASH_FIND(hh, pages, &va, sizeof(uint64_t), page);
-  pthread_mutex_unlock(&pages_lock);
   return page;
 }
 
@@ -286,11 +284,13 @@ void hemem_init()
     assert(0);
   }
 
+#if DRAMSIZE != 0
   dram_devdax_mmap =libc_mmap(NULL, DRAMSIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, dramfd, 0);
   if (dram_devdax_mmap == MAP_FAILED) {
     perror("dram devdax mmap");
     assert(0);
   }
+#endif
 
   nvm_devdax_mmap =libc_mmap(NULL, NVMSIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, nvmfd, 0);
   if (nvm_devdax_mmap == MAP_FAILED) {
@@ -507,8 +507,8 @@ int hemem_munmap(void* addr, size_t length)
 
   //fprintf(stderr, "munmap(%p, %lu)\n", addr, length);
 #ifdef USE_PEBS
-  pebs_print();
-  pebs_clear();
+  //pebs_print();
+  //pebs_clear();
 #endif
 
   //policy_lock();

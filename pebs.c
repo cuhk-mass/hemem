@@ -43,6 +43,12 @@ pthread_mutex_t hash_lock;
 
 FILE *pebs_file;
 
+uint64_t hemem_pages_cnt = 0;
+uint64_t other_pages_cnt = 0;
+uint64_t total_pages_cnt = 0;
+uint64_t throttle_cnt = 0;
+uint64_t unthrottle_cnt = 0;
+
 static long
 perf_event_open(struct perf_event_attr *hw_event, pid_t pid, 
     int cpu, int group_fd, unsigned long flags)
@@ -116,7 +122,7 @@ static void *hemem_measure(void *arg)
           {
             struct perf_sample *ps = (void *)ph;
             if(ps->addr != 0) {
-              __u64 pfn = ps->addr & HUGE_PFN_MASK;
+              __u64 pfn = ps->addr & GIGA_PFN_MASK;
             
               struct hemem_page* page = get_hemem_page(pfn);
               if (page != NULL) {
@@ -135,9 +141,33 @@ static void *hemem_measure(void *arg)
                   //assert(hp == page);
                   hp->accesses[j]++;
                 }
-
                 pthread_mutex_unlock(&(page->page_lock));
+                hemem_pages_cnt++;
               }
+              else {
+                other_pages_cnt++;
+                struct hemem_page *hp = NULL;
+                pthread_mutex_lock(&hash_lock);
+                HASH_FIND(phh, pbuckets, &pfn, sizeof(__u64), hp);
+                pthread_mutex_unlock(&hash_lock);
+
+                if (hp == NULL) { 
+                  // make hemem page for this sample
+                  struct hemem_page *other_page = calloc(1, sizeof(struct hemem_page));
+                  other_page->va = pfn;
+                  other_page->accesses[j] = 1;
+                  pthread_mutex_lock(&hash_lock);
+                  HASH_ADD(phh, pbuckets, va, sizeof(__u64), other_page);
+                  fprintf(stderr, "pebs addr %016llx\n", ps->addr);
+                  pthread_mutex_unlock(&hash_lock);
+                }
+                else {
+                  //fprintf(stderr, "pebs addr %016llx\n", ps->addr);
+                  hp->accesses[j]++;
+                }
+              }
+            
+              total_pages_cnt++;
             }
 	      }
   	      break;
@@ -145,6 +175,12 @@ static void *hemem_measure(void *arg)
         case PERF_RECORD_UNTHROTTLE:
           fprintf(stderr, "%s event!\n",
               ph->type == PERF_RECORD_THROTTLE ? "THROTTLE" : "UNTHROTTLE");
+          if (ph->type == PERF_RECORD_THROTTLE) {
+              throttle_cnt++;
+          }
+          else {
+              unthrottle_cnt++;
+          }
           break;
         default:
           fprintf(stderr, "Unknown type %u\n", ph->type);
@@ -159,14 +195,76 @@ static void *hemem_measure(void *arg)
   internal_call = false;
 }
 
+static int hash_sort(struct hemem_page *a, struct hemem_page *b)
+{
+    return (a->va - b->va);
+}
+
+uint32_t prints_called = 0;
+
 void pebs_print(void)
 {
+
+  HASH_SRT(phh, pbuckets, hash_sort);
+
   struct hemem_page *p, *tmp;
   pthread_mutex_lock(&hash_lock);
   HASH_ITER(phh, pbuckets, p, tmp) {
     fprintf(pebs_file, "0x%lx: %lu\t%lu\n", p->va, p->accesses[READ], p->accesses[WRITE]);
   }
   pthread_mutex_unlock(&hash_lock);
+
+  /*
+  FILE* pebsf;
+  char filename[10];
+  snprintf(filename, 10, "pebs%d.txt", prints_called);
+  pebsf = fopen(filename, "w");
+  assert(pebsf != NULL);
+  prints_called++;
+
+  fprintf(pebsf, "Hash Size: %u\n", HASH_CNT(phh, pbuckets));
+
+  struct hemem_page *p, *tmp;
+  FILE* mapsf = fopen("/proc/self/maps", "r");
+  if (mapsf == NULL) {
+    perror("fopen");
+  }
+  assert(mapsf != NULL);
+
+  char *line = NULL;
+  ssize_t nread;
+  size_t len;
+  __u64 start, end;
+  int n;
+
+  HASH_SRT(phh, pbuckets, hash_sort);
+
+  nread = getline(&line, &len, mapsf);
+  while (nread != -1) {
+    fprintf(pebsf, "%s", line);
+
+    n = sscanf(line, "%llX-%llX", &start, &end);
+    if (n != 2) {
+      fprintf(stderr, "error, invalid line: %s", line);
+      assert(0);
+    }
+    
+    pthread_mutex_lock(&hash_lock);
+    HASH_ITER(phh, pbuckets, p, tmp) {
+      if (p->va >= start && p->va < end) {
+        //if (get_hemem_page(p->va) == NULL) {
+          fprintf(pebsf, "\tvaddr 0x%lx: %zu %zu\n", p->va, p->accesses[READ], p->accesses[WRITE]);
+        //}
+      } 
+    }
+    pthread_mutex_unlock(&hash_lock);
+
+    nread = getline(&line, &len, mapsf);
+  }
+
+  fclose(mapsf);
+  fclose(pebsf);
+  */
 }
 
 void pebs_clear(void)
@@ -180,10 +278,37 @@ void pebs_clear(void)
   pthread_mutex_unlock(&hash_lock);
 }
 
+static void *pebs_stats(void *arg)
+{
+  internal_call = true;
+   
+  for (;;) {
+    sleep(1);
+    /*
+    pthread_mutex_lock(&hash_lock);
+    fprintf(stderr, "%u pebs pages touched\n", HASH_CNT(phh, pbuckets));
+    HASH_CLEAR(phh, pbuckets);
+  
+    struct hemem_page *dummy_page = calloc(1, sizeof(struct hemem_page));
+    HASH_ADD(phh, pbuckets, va, sizeof(__u64), dummy_page);
+
+    pthread_mutex_unlock(&hash_lock); 
+    */
+    fprintf(stderr, "%lu hemem pages, %lu other pages, %lu total pages %lu throttle %lu unthrottle\n",
+            hemem_pages_cnt, other_pages_cnt, total_pages_cnt, throttle_cnt, unthrottle_cnt);
+    hemem_pages_cnt = other_pages_cnt = total_pages_cnt = throttle_cnt = unthrottle_cnt = 0;
+  }
+
+  internal_call = false;    
+  return NULL;
+}
+
 void pebs_init(void)
 {
   for (int i = 0; i < PEBS_NPROCS; i++) {
-    perf_page[i][READ] = perf_setup(0x1cd, 0x4, i);
+    //perf_page[i][READ] = perf_setup(0x1cd, 0x4, i);
+    //perf_page[i][READ] = perf_setup(0x81d0, 0, i);
+    perf_page[i][READ] = perf_setup(0x80d1, 0, i);
     perf_page[i][WRITE] = perf_setup(0x82d0, 0, i);
   }
 
@@ -198,6 +323,10 @@ void pebs_init(void)
   pthread_t thread;
   int r = pthread_create(&thread, NULL, hemem_measure, NULL);
   assert(r == 0);
+
+  pthread_t stats_thread;
+  r = pthread_create(&stats_thread, NULL, pebs_stats, NULL);
+  assert(r ==  0);
 }
 
 #else
