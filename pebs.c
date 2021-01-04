@@ -21,7 +21,7 @@
 #define TB(x)		(GB(x) * 1024)
 
 #define PERF_PAGES	(1 + (1 << 8))	// Has to be == 1+2^n, here 1MB
-#define SAMPLE_PERIOD	100000
+#define SAMPLE_PERIOD	100007
 //#define SAMPLE_FREQ	100
 
 struct perf_sample {
@@ -133,6 +133,7 @@ struct perf_bucket {
 
 static struct perf_bucket *pbuckets = NULL;
 
+
 static void *hemem_measure(void *arg)
 {
   for(;;) {
@@ -178,13 +179,13 @@ static void *hemem_measure(void *arg)
 
       case PERF_RECORD_THROTTLE:
       case PERF_RECORD_UNTHROTTLE:
-	fprintf(stderr, "%s event!\n",
-		ph->type == PERF_RECORD_THROTTLE ? "THROTTLE" : "UNTHROTTLE");
+	//fprintf(stderr, "%s event!\n",
+	//	ph->type == PERF_RECORD_THROTTLE ? "THROTTLE" : "UNTHROTTLE");
 	break;
 	
       default:
-	fprintf(stderr, "Unknown type %u\n", ph->type);
-	assert(!"NYI");
+	//fprintf(stderr, "Unknown type %u\n", ph->type);
+	//assert(!"NYI");
 	break;
       }
     
@@ -195,26 +196,43 @@ static void *hemem_measure(void *arg)
 
 #define RAND_WITHIN(x)	(((double)rand() / RAND_MAX) * (x))
 
+
+static uint64_t lfsr_fast(uint64_t lfsr)
+{
+  lfsr ^= lfsr >> 7;
+  lfsr ^= lfsr << 9;
+  lfsr ^= lfsr >> 13;
+  return lfsr;
+}
+
 static volatile char *gups_buf;
 
 static void gups(size_t iters, uint64_t hotset_start, uint64_t hotset_size,
-		 double hotset_prob, uint64_t workset_size)
+		 uint64_t hotset_prob, uint64_t workset_size)
 {
   assert(hotset_start + hotset_size <= workset_size);
 
-  fprintf(stderr, "gups(iters = %zu, hotset_start = 0x%" PRIx64 ", hotset_size = 0x%" PRIx64 ", hotset_prob = %.2f, workset_size = 0x%" PRIx64 ")\n",
+  fprintf(stderr, "gups(iters = %zu, hotset_start = 0x%" PRIx64 ", hotset_size = 0x%" PRIx64 ", hotset_prob = %zu, workset_size = 0x%" PRIx64 ")\n",
       iters, hotset_start, hotset_size, hotset_prob, workset_size);
+
+  uint64_t lfsr;
+
+  srand(0);
+  lfsr = rand();
 
   // GUPS with hotset
   for(size_t i = 0; i < iters; i++) {
     uint64_t a;
 
-    if(RAND_WITHIN(1) < hotset_prob) {
+
+    if((lfsr_fast(lfsr) % 100) < hotset_prob) {
       // Hot set
-      a = hotset_start + (uint64_t)RAND_WITHIN(hotset_size);
+      lfsr = lfsr_fast(lfsr);
+      a = hotset_start + (lfsr % hotset_size);
     } else {
       // Entire working set
-      a = (uint64_t)RAND_WITHIN(workset_size);
+      lfsr = lfsr_fast(lfsr);
+      a = lfsr % workset_size;
     }
 
     // Read&update
@@ -231,33 +249,99 @@ int main(int argc, char *argv[])
     exit(EXIT_FAILURE);
   }
 
+  fprintf(stderr, "starting gups\n");
+
   uint64_t hotset_size = atoll(argv[1]);
-  
+ 
+  srand(0);
+
+  fprintf(stderr, "setting up perf... ");
+
   /* perf_page[READ] = perf_setup(0x81d0, 0); */
-  perf_page[READ] = perf_setup(0x1cd, 0x4);
+  //perf_page[READ] = perf_setup(0x1cd, 0x4);
+  perf_page[READ] = perf_setup(0x80d1, 0);
   perf_page[WRITE] = perf_setup(0x82d0, 0);
+
+  fprintf(stderr, "done\n");
+
+  fprintf(stderr, "starting pebs thread\n");
 
   pthread_t thread;
   int r = pthread_create(&thread, NULL, hemem_measure, NULL);
   assert(r == 0);
+
+
+  fprintf(stderr, "mapping GUPS area\n");
 
   gups_buf = mmap(NULL, WORKSET_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   assert(gups_buf != MAP_FAILED);
   
   // GUPS!
   fprintf(stderr, "GUPS buffer at %p\n", gups_buf);
-  gups(100000000, 0, hotset_size, 0.9, WORKSET_SIZE);
+  gups(1000000000, 0, hotset_size, 90, WORKSET_SIZE);
 
   struct perf_bucket *p, *tmp;
+/*
   HASH_ITER(hh, pbuckets, p, tmp) {
     printf("vaddr 0x%llx: %zu", p->vaddr, p->accesses);
 
     if(p->vaddr >= (uint64_t)gups_buf && p->vaddr < (uint64_t)gups_buf + WORKSET_SIZE) {
-      printf(" GUPS offset 0x%llx\n", p->vaddr - (uint64_t)gups_buf);
+      printf(" GUPS offset 0x%llx", p->vaddr - (uint64_t)gups_buf);
+      if ((p->vaddr - (uint64_t)gups_buf) < hotset_size) {
+        printf(" (in hotset)\n");
+      }
+      else {
+        printf("\n");
+      }
     } else {
       printf("\n");
     }
   }
+*/
+  FILE* mapsf = fopen("/proc/self/maps", "r");
+  if (mapsf == NULL) {
+    perror("fopen");
+  }
+  assert(mapsf != NULL);
+
+  char *line = NULL;
+  ssize_t nread;
+  size_t len;
+  __u64 start, end;
+  int n;
+
+  nread = getline(&line, &len, mapsf);
+  while (nread != -1) {
+    printf("%s", line);
+
+    n = sscanf(line, "%lX-%lX", &start, &end);
+    if (n != 2) {
+      fprintf(stderr, "error, invalid line: %s", line);
+      assert(0);
+    }
+    
+    HASH_ITER(hh, pbuckets, p, tmp) {
+      if (p->vaddr >= start && p->vaddr < end) {
+        printf("\tvaddr 0x%llx: %zu", p->vaddr, p->accesses);
+        if(p->vaddr >= (uint64_t)gups_buf && p->vaddr < (uint64_t)gups_buf + WORKSET_SIZE) {
+          printf(" GUPS offset 0x%llx", p->vaddr - (uint64_t)gups_buf);
+          if ((p->vaddr - (uint64_t)gups_buf) < hotset_size) {
+            printf(" (in hotset)\n");
+          }
+          else {
+            printf("\n");
+          }
+        } else {
+          printf("\n");
+        }
+      }
+    }
+
+    nread = getline(&line, &len, mapsf);
+  }
+
+  fclose(mapsf);
+
   
   return 0;
 }
