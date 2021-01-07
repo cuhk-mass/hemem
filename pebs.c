@@ -122,7 +122,7 @@ static void *hemem_measure(void *arg)
           {
             struct perf_sample *ps = (void *)ph;
             if(ps->addr != 0) {
-              __u64 pfn = ps->addr & GIGA_PFN_MASK;
+              __u64 pfn = ps->addr & HUGE_PFN_MASK;
             
               struct hemem_page* page = get_hemem_page(pfn);
               if (page != NULL) {
@@ -138,14 +138,17 @@ static void *hemem_measure(void *arg)
                   HASH_ADD(phh, pbuckets, va, sizeof(__u64), page);
                   pthread_mutex_unlock(&hash_lock);
                 } else {
-                  //assert(hp == page);
-                  hp->accesses[j]++;
+                  if (hp->va != 0) {
+                    assert(hp == page);
+                    hp->accesses[j]++;
+                  }
                 }
                 pthread_mutex_unlock(&(page->page_lock));
                 hemem_pages_cnt++;
               }
               else {
                 other_pages_cnt++;
+                /*
                 struct hemem_page *hp = NULL;
                 pthread_mutex_lock(&hash_lock);
                 HASH_FIND(phh, pbuckets, &pfn, sizeof(__u64), hp);
@@ -165,6 +168,7 @@ static void *hemem_measure(void *arg)
                   //fprintf(stderr, "pebs addr %016llx\n", ps->addr);
                   hp->accesses[j]++;
                 }
+                */
               }
             
               total_pages_cnt++;
@@ -173,8 +177,8 @@ static void *hemem_measure(void *arg)
   	      break;
         case PERF_RECORD_THROTTLE:
         case PERF_RECORD_UNTHROTTLE:
-          fprintf(stderr, "%s event!\n",
-              ph->type == PERF_RECORD_THROTTLE ? "THROTTLE" : "UNTHROTTLE");
+          //fprintf(stderr, "%s event!\n",
+          //   ph->type == PERF_RECORD_THROTTLE ? "THROTTLE" : "UNTHROTTLE");
           if (ph->type == PERF_RECORD_THROTTLE) {
               throttle_cnt++;
           }
@@ -206,15 +210,15 @@ void pebs_print(void)
 {
 
   HASH_SRT(phh, pbuckets, hash_sort);
-
+/*
   struct hemem_page *p, *tmp;
   pthread_mutex_lock(&hash_lock);
   HASH_ITER(phh, pbuckets, p, tmp) {
     fprintf(pebs_file, "0x%lx: %lu\t%lu\n", p->va, p->accesses[READ], p->accesses[WRITE]);
   }
   pthread_mutex_unlock(&hash_lock);
-
-  /*
+*/
+  
   FILE* pebsf;
   char filename[10];
   snprintf(filename, 10, "pebs%d.txt", prints_called);
@@ -264,7 +268,6 @@ void pebs_print(void)
 
   fclose(mapsf);
   fclose(pebsf);
-  */
 }
 
 void pebs_clear(void)
@@ -306,10 +309,10 @@ static void *pebs_stats(void *arg)
 void pebs_init(void)
 {
   for (int i = 0; i < PEBS_NPROCS; i++) {
-    //perf_page[i][READ] = perf_setup(0x1cd, 0x4, i);
-    //perf_page[i][READ] = perf_setup(0x81d0, 0, i);
-    perf_page[i][READ] = perf_setup(0x80d1, 0, i);
-    perf_page[i][WRITE] = perf_setup(0x82d0, 0, i);
+    //perf_page[i][READ] = perf_setup(0x1cd, 0x4, i);  // MEM_TRANS_RETIRED.LOAD_LATENCY_GT_4
+    //perf_page[i][READ] = perf_setup(0x81d0, 0, i);   // MEM_INST_RETIRED.ALL_LOADS
+    perf_page[i][READ] = perf_setup(0x80d1, 0, i);     // MEM_LOAD_RETIRED.LOCAL_PMM
+    perf_page[i][WRITE] = perf_setup(0x82d0, 0, i);    // MEM_INST_RETIRED.ALL_STORES
   }
 
   pthread_mutex_init(&hash_lock, NULL);
@@ -324,9 +327,9 @@ void pebs_init(void)
   int r = pthread_create(&thread, NULL, hemem_measure, NULL);
   assert(r == 0);
 
-  pthread_t stats_thread;
-  r = pthread_create(&stats_thread, NULL, pebs_stats, NULL);
-  assert(r ==  0);
+  //pthread_t stats_thread;
+  //r = pthread_create(&stats_thread, NULL, pebs_stats, NULL);
+  //assert(r ==  0);
 }
 
 #else

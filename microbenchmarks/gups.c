@@ -168,9 +168,11 @@ static void *do_gups(void *arguments)
       //}
       start = rdtscp();
       if (elt_size == 8) {
+        //index1 = i % (args->size);
         uint64_t  tmp = field[index1];
         tmp = tmp + i;
         field[index1] = tmp;
+        //field[index1] = index1 + i;
       }
       else {
         memcpy(data, &field[index1 * elt_size], elt_size);
@@ -186,9 +188,11 @@ static void *do_gups(void *arguments)
       index2 = lfsr % (args->size);
       start = rdtscp();
       if (elt_size == 8) {
+        //index2 = i % (args->size);
         uint64_t tmp = field[index2];
         tmp = tmp + i;
         field[index2] = tmp;
+        //field[index2] = index2 + i;
       }
       else {
         memcpy(data, &field[index2 * elt_size], elt_size);
