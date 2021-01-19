@@ -12,19 +12,19 @@ all: hemem-libs
 
 hemem-libs: libhemem-lru.so libhemem-simple.so libhemem-lru-swap.so libhemem.so
 
-libhemem.so: hemem.o hemem-mmgr.o timer.o interpose.o paging.o pebs.o
-	$(CC) $(LDFLAGS) -o libhemem.so hemem.o timer.o hemem-mmgr.o interpose.o paging.o pebs.o $(HEMEM_LIBS)
+libhemem.so: hemem.o pebs.o timer.o interpose.o
+	$(CC) $(LDFLAGS) -o libhemem.so hemem.o timer.o interpose.o pebs.o $(HEMEM_LIBS)
 
-libhemem-lru.so: hemem-lru.o lru.o timer.o interpose.o paging.o pebs.o
-	$(CC) $(LDFLAGS) -o libhemem-lru.so hemem-lru.o timer.o lru.o interpose.o paging.o pebs.o $(HEMEM_LIBS)
+libhemem-lru.so: hemem-lru.o lru.o timer.o interpose.o paging.o
+	$(CC) $(LDFLAGS) -o libhemem-lru.so hemem-lru.o timer.o lru.o interpose.o paging.o $(HEMEM_LIBS)
 
-libhemem-simple.so: hemem-simple.o simple.o timer.o interpose.o paging.o pebs.o
-	$(CC) $(LDFLAGS) -o libhemem-simple.so hemem-simple.o timer.o simple.o interpose.o paging.o pebs.o $(HEMEM_LIBS)
+libhemem-simple.so: hemem-simple.o simple.o timer.o interpose.o paging.o
+	$(CC) $(LDFLAGS) -o libhemem-simple.so hemem-simple.o timer.o simple.o interpose.o paging.o $(HEMEM_LIBS)
 
-libhemem-lru-swap.so: hemem-lru-swap.o lru_swap.o timer.o interpose.o paging.o pebs.o
-	$(CC) $(LDFLAGS) -o libhemem-lru-swap.so hemem-lru-swap.o timer.o lru_swap.o interpose.o paging.o pebs.o $(HEMEM_LIBS)
+libhemem-lru-swap.so: hemem-lru-swap.o lru_swap.o timer.o interpose.o paging.o
+	$(CC) $(LDFLAGS) -o libhemem-lru-swap.so hemem-lru-swap.o timer.o lru_swap.o interpose.o paging.o $(HEMEM_LIBS)
 
-hemem.o: hemem.c hemem.h hemem-mmgr.h interpose.h paging.h pebs.h
+hemem.o: hemem.c hemem.h pebs.h interpose.h
 	$(CC) $(CFLAGS) $(INCLUDES) -D ALLOC_HEMEM -c hemem.c -o hemem.o
 
 hemem-lru.o: hemem.c hemem.h lru.h interpose.h paging.h
@@ -42,8 +42,8 @@ interpose.o: interpose.c interpose.h hemem.h
 timer.o: timer.c timer.h
 	$(CC) $(CFLAGS) $(INCLUDES) -c timer.c
 
-hemem-mmgr.o: hemem-mmgr.c hemem-mmgr.h hemem.h
-	$(CC) $(CFLAGS) $(INCLUDES) -c hemem-mmgr.c
+hemem-mmgr.o: hemem-mmgr.c hemem-mmgr.h hemem.h	
+	$(CC) $(CFLAGS) $(INCLUDESV) -c hemem-mmgr.c
 
 lru.o: lru.c lru.h hemem.h
 	$(CC) $(CFLAGS) $(INCLUDES) -c lru.c

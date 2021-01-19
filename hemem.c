@@ -368,7 +368,7 @@ static void hemem_mmap_populate(void* addr, size_t length)
   assert(addr != 0);
   assert(length != 0);
 
-  policy_lock();
+  //policy_lock();
 
   for (page_boundry = (uint64_t)addr; page_boundry < (uint64_t)addr + length;) {
     page = pagefault_unlocked();
@@ -424,7 +424,7 @@ static void hemem_mmap_populate(void* addr, size_t length)
     page_boundry += pagesize;
   }
 
-  policy_unlock();
+  //policy_unlock();
 }
 
 #define PAGE_ROUND_UP(x) (((x) + (HUGEPAGE_SIZE)-1) & (~((HUGEPAGE_SIZE)-1)))

@@ -31,8 +31,8 @@ extern "C" {
 #include "pebs.h"
 
 //#define HEMEM_DEBUG
-#define USE_PEBS
-//#define STATS_THREAD
+//#define USE_PEBS
+#define STATS_THREAD
 
 #define MEM_BARRIER() __sync_synchronize()
 
@@ -89,13 +89,13 @@ FILE *statsf;
 //#define LOG_STATS(str, ...) while (0) {}
 
 #if defined (ALLOC_HEMEM)
-  #define pagefault(...) hemem_mmgr_pagefault(__VA_ARGS__)
-  #define pagefault_unlocked(...) hemem_mmgr_pagefault_unlocked(__VA_ARGS__)
-  #define paging_init(...) hemem_mmgr_init(__VA_ARGS__)
-  #define mmgr_remove(...) hemem_mmgr_remove_page(__VA_ARGS__)
-  #define mmgr_stats(...) hemem_mmgr_stats(__VA_ARGS__)
-  #define policy_lock(...) hemem_mmgr_lock(__VA_ARGS__)
-  #define policy_unlock(...) hemem_mmgr_unlock(__VA_ARGS__)
+  #define pagefault(...) pebs_pagefault(__VA_ARGS__)
+  #define pagefault_unlocked(...) pebs_pagefault_unlocked(__VA_ARGS__)
+  #define paging_init(...) pebs_init(__VA_ARGS__)
+  #define mmgr_remove(...) pebs_remove_page(__VA_ARGS__)
+  #define mmgr_stats(...) pebs_stats(__VA_ARGS__)
+  #define policy_lock(...) pebs_lock(__VA_ARGS__)
+  #define policy_unlock(...) pebs_unlock(__VA_ARGS__)
 #elif defined (ALLOC_LRU)
   #define pagefault(...) lru_pagefault(__VA_ARGS__)
   #define pagefault_unlocked(...) lru_pagefault_unlocked(__VA_ARGS__)
@@ -154,15 +154,17 @@ struct hemem_page {
   bool migrating;
   bool present;
   bool written;
+  bool hot;
   uint64_t naccesses;
   pthread_mutex_t page_lock;
   uint64_t migrations_up, migrations_down;
+  bool stop_migrating;
   UT_hash_handle hh;
   void *management;
 
   struct hemem_page *next, *prev;
-#ifdef USE_PEBS
   uint64_t accesses[NPBUFTYPES];
+#ifdef USE_PEBS
   UT_hash_handle phh;     // pebs hash handle
 #endif
 };

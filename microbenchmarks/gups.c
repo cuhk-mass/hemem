@@ -207,9 +207,6 @@ static void *do_gups(void *arguments)
     //fprintf(timefile, "%lu\n", end - start);
   }
 
-  //if (args->tid == 0) {
-  //  pebs_print(); 
-  //}
   //fclose(timefile);
   return 0;
 }
@@ -297,7 +294,6 @@ int main(int argc, char **argv)
   //int pt = pthread_create(&print_thread, NULL, print_instantaneous_gups, NULL);
   //assert(pt == 0);
 
-  //pebs_print();
 
   hot_start = 0;
   hotsize = (tot_hot_size / threads) / elt_size;
@@ -417,8 +413,6 @@ int main(int argc, char **argv)
     free(ga[i]);
   }
   free(ga);
-
-  pebs_print();
 
   //getchar();
 

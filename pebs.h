@@ -1,44 +1,24 @@
-/*
- * =====================================================================================
- *
- *       Filename:  pebs.c
- *
- *    Description:  
- *
- *        Version:  1.0
- *        Created:  07/24/20 17:41:35
- *       Revision:  none
- *       Compiler:  gcc
- *
- *         Author:  YOUR NAME (), 
- *   Organization:  
- *
- * =====================================================================================
- */
+#ifndef HEMEM_PEBS_H
+#define HEMEM_PEBS_H
 
-#ifndef PEBS_H
-#define PEBS_H
-
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <assert.h>
-#include <unistd.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <inttypes.h>
-#include <stdbool.h>
-#include <pthread.h>
-#include <asm/unistd.h>
 #include <linux/perf_event.h>
 #include <linux/hw_breakpoint.h>
-#include <sys/mman.h>
 
 #include "hemem.h"
-#include "uthash.h"
+
+#define PEBS_KSWAPD_INTERVAL   (1000000) // in us (1s)
+#define PEBS_KSWAPD_MIGRATE_RATE  (50UL * 1024UL * 1024UL * 1024UL) // 50GB
+#define HOT_READ_THRESHOLD     (4)
+#define HOT_WRITE_THRESHOLD    (2)
+#define MIGRATION_STOP_THRESHOLD (2)
 
 #define PEBS_NPROCS 64
 #define PERF_PAGES	(1 + (1 << 8))	// Has to be == 1+2^n, here 1MB
-#define SAMPLE_PERIOD	100003
+//#define SAMPLE_PERIOD	10007
+#define SAMPLE_PERIOD 10007
 //#define SAMPLE_FREQ	100
 
 struct perf_sample {
@@ -51,14 +31,34 @@ struct perf_sample {
 };
 
 enum pbuftype {
-  READ = 0,
-  WRITE = 1,
+  DRAMREAD = 0,
+  NVMREAD = 1,  
+  WRITE = 2,
   NPBUFTYPES
 };
 
+struct pebs_node {
+  struct hemem_page *page;
+  uint64_t framenum;
+  struct pebs_node *next, *prev;
+  struct pebs_list *list;
+};
 
+struct pebs_list {
+  struct pebs_node *first;
+  struct pebs_node *last;
+  size_t numentries;
+  pthread_mutex_t list_lock;
+};
+
+void *pebs_kswapd();
+struct hemem_page* pebs_pagefault(void);
+struct hemem_page* pebs_pagefault_unlocked(void);
 void pebs_init(void);
-void pebs_print(void);
-void pebs_clear(void);
+void pebs_remove_page(struct hemem_page *page);
+void pebs_stats();
+void pebs_lock();
+void pebs_unlock();
 
-#endif
+
+#endif /*  HEMEM_LRU_MODIFIED_H  */
