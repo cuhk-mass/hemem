@@ -11,14 +11,14 @@
 
 #define PEBS_KSWAPD_INTERVAL   (1000000) // in us (1s)
 #define PEBS_KSWAPD_MIGRATE_RATE  (50UL * 1024UL * 1024UL * 1024UL) // 50GB
-#define HOT_READ_THRESHOLD     (4)
-#define HOT_WRITE_THRESHOLD    (2)
-#define MIGRATION_STOP_THRESHOLD (2)
+#define HOT_READ_THRESHOLD     (3)
+#define HOT_WRITE_THRESHOLD    (3)
+#define MIGRATION_STOP_THRESHOLD (10)
 
 #define PEBS_NPROCS 64
 #define PERF_PAGES	(1 + (1 << 8))	// Has to be == 1+2^n, here 1MB
-//#define SAMPLE_PERIOD	10007
-#define SAMPLE_PERIOD 10007
+#define SAMPLE_PERIOD	10007
+//#define SAMPLE_PERIOD 5003
 //#define SAMPLE_FREQ	100
 
 struct perf_sample {
@@ -35,20 +35,6 @@ enum pbuftype {
   NVMREAD = 1,  
   WRITE = 2,
   NPBUFTYPES
-};
-
-struct pebs_node {
-  struct hemem_page *page;
-  uint64_t framenum;
-  struct pebs_node *next, *prev;
-  struct pebs_list *list;
-};
-
-struct pebs_list {
-  struct pebs_node *first;
-  struct pebs_node *last;
-  size_t numentries;
-  pthread_mutex_t list_lock;
 };
 
 void *pebs_kswapd();

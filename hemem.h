@@ -147,8 +147,6 @@ enum pagetypes {
 struct hemem_page {
   uint64_t va;
   uint64_t devdax_offset;
-  uint64_t *pgd, *pud, *pmd, *pte;
-  uint64_t *pa;
   bool in_dram;
   enum pagetypes pt;
   bool migrating;
@@ -156,17 +154,14 @@ struct hemem_page {
   bool written;
   bool hot;
   uint64_t naccesses;
-  pthread_mutex_t page_lock;
   uint64_t migrations_up, migrations_down;
   bool stop_migrating;
-  UT_hash_handle hh;
-  void *management;
-
-  struct hemem_page *next, *prev;
   uint64_t accesses[NPBUFTYPES];
-#ifdef USE_PEBS
-  UT_hash_handle phh;     // pebs hash handle
-#endif
+  pthread_mutex_t page_lock;
+
+  UT_hash_handle hh;
+  struct hemem_page *next, *prev;
+  struct fifo_list *list;
 };
 
 struct fifo_list {
@@ -214,6 +209,7 @@ void hemem_clear_stats();
 
 void enqueue_fifo(struct fifo_list *list, struct hemem_page *page);
 struct hemem_page* dequeue_fifo(struct fifo_list *list);
+void page_list_remove_page(struct fifo_list *list, struct hemem_page *page);
 
 void hemem_start_timing(void);
 void hemem_stop_timing(void);
