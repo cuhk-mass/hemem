@@ -90,92 +90,109 @@ static struct perf_event_mmap_page* perf_setup(__u64 config, __u64 config1, __u6
   return p;
 }
 
+static void cool(struct fifo_list *hot, struct fifo_list *cold, bool dram)
+{
+  struct hemem_page *p;
+  struct hemem_page *bookmark;
+  
+  // cool hot pages
+  bookmark = NULL;
+  p = dequeue_fifo(hot);
+  while (p != NULL) {
+    pthread_mutex_lock(&p->page_lock);
+    if (p == bookmark) {
+      // we've seen this page before, so put it back and bail out
+      enqueue_fifo(hot, p);
+      pthread_mutex_unlock(&p->page_lock);
+      break;
+    }
+
+    if (dram) {
+      assert(p->in_dram);
+    }
+    else {
+      assert(!p->in_dram);
+    }
+
+    for (int i = 0; i < NPBUFTYPES; i++) {
+      p->accesses[i] >>= 1;
+    }
+
+    // is page still hot?
+    if (p->accesses[WRITE] < HOT_WRITE_THRESHOLD) {
+      p->hot = false;
+    }
+    else if (p->accesses[DRAMREAD] + p->accesses[NVMREAD] < HOT_READ_THRESHOLD) {
+      p->hot = false;
+    }
+
+    if (p->hot) {
+      enqueue_fifo(hot, p);
+      if (bookmark == NULL) {
+        bookmark = p;
+      }
+    }
+    else {
+      enqueue_fifo(cold, p);
+    }
+
+    pthread_mutex_unlock(&p->page_lock);
+    p = dequeue_fifo(hot);
+  }
+}
+
+void *pebs_cooling()
+{
+  for(;;) {
+    usleep(PEBS_COOLING_INTERVAL);
+
+    cool(&dram_hot_list, &dram_cold_list, true);
+    cool(&nvm_hot_list, &nvm_cold_list, false);
+  }
+
+  return NULL;
+}
+
+
 // assumes page lock is held
 void make_hot(struct hemem_page* page)
 {
   assert(page != NULL);
   assert(page->va != 0);
-  
-  if (page->hot) {
+
+  if (page->stop_migrating) {
     if (page->in_dram) {
-      if (page->stop_migrating) {
-        assert(page->list == &dram_locked_list);
-      }
-      else {
-        assert(page->list == &dram_hot_list);
-      }
+      assert(page->list == &dram_locked_list);
     }
     else {
-      if (page->stop_migrating) {
-        assert(page->list == &nvm_locked_list);
-      }
-      else {
-        assert(page->list == &nvm_hot_list);
-      }
+      assert(page->list == &nvm_locked_list);
     }
-    // page is already in hot list for memory type, nothing to do
+    // we have decided to stop migrating this page
+    return;
+  }
+
+  if (page->hot) {
+    if (page->in_dram) {
+      assert(page->list == &dram_hot_list);
+    }
+    else {
+      assert(page->list == &nvm_hot_list);
+    }
+    // page is already hot -- nothing to do
     return;
   }
 
   if (page->in_dram) {
     assert(page->list == &dram_cold_list);
     page_list_remove_page(&dram_cold_list, page);
-    if (page->stop_migrating) {
-      enqueue_fifo(&dram_locked_list, page);
-      return;
-    }
     enqueue_fifo(&dram_hot_list, page);
     page->hot = true;
   }
   else {
     assert(page->list == &nvm_cold_list);
     page_list_remove_page(&nvm_cold_list, page);
-    if (page->stop_migrating) {
-      enqueue_fifo(&nvm_locked_list, page);
-      return;
-    }
     enqueue_fifo(&nvm_hot_list, page);
     page->hot = true;
-  }
-}
-
-void make_cold()
-{
-  struct hemem_page *p;
-
-  p = dequeue_fifo(&dram_hot_list);
-  while (p != NULL) {
-    pthread_mutex_lock(&p->page_lock);
-    assert(p->in_dram);
-    p->hot = false;
-    p->accesses[DRAMREAD] = p->accesses[NVMREAD] = p->accesses[WRITE] = 0;
-
-    if (p->stop_migrating) {
-      enqueue_fifo(&dram_locked_list, p);
-    }
-    else {
-      enqueue_fifo(&dram_cold_list, p);
-    }
-    pthread_mutex_unlock(&p->page_lock);
-    
-    p = dequeue_fifo(&dram_hot_list);
-  }
-  p = dequeue_fifo(&nvm_hot_list);
-  while (p != NULL) {
-    pthread_mutex_lock(&p->page_lock);
-    assert(!p->in_dram);
-    p->hot = false;
-    p->accesses[DRAMREAD] = p->accesses[NVMREAD] = p->accesses[WRITE] = 0;
-
-    if (p->stop_migrating) {
-      enqueue_fifo(&nvm_locked_list, p);
-    }
-    else {
-      enqueue_fifo(&nvm_cold_list, p);
-    }
-    
-    pthread_mutex_unlock(&p->page_lock);
-    p = dequeue_fifo(&nvm_hot_list);
   }
 }
 
@@ -194,7 +211,6 @@ void *pebs_kscand()
           continue;
         }
 
-        in_kscand = true;
         struct perf_event_header *ph = (void *)(pbuf + (p->data_tail % p->data_size));
 
         switch(ph->type) {
@@ -206,9 +222,9 @@ void *pebs_kscand()
             
               struct hemem_page* page = get_hemem_page(pfn);
               if (page != NULL) {
-                pthread_mutex_lock(&(page->page_lock));
-                
+                in_kscand = true;
                 if (page->va != 0) {
+                  pthread_mutex_lock(&page->page_lock);
                   page->accesses[j]++;
                   if (page->accesses[WRITE] >= HOT_WRITE_THRESHOLD) {
                     make_hot(page);
@@ -216,9 +232,9 @@ void *pebs_kscand()
                   else if (page->accesses[DRAMREAD] + page->accesses[NVMREAD] >= HOT_READ_THRESHOLD) {
                     make_hot(page);
                   }
+                  pthread_mutex_unlock(&page->page_lock);
                 }
-                
-                pthread_mutex_unlock(&(page->page_lock));
+                in_kscand = false;
                 hemem_pages_cnt++;
               }
               else {
@@ -247,11 +263,11 @@ void *pebs_kscand()
         }
 
         p->data_tail += ph->size;
-
-        in_kscand = false;
       }
     }
   }
+
+  return NULL;
 }
 
 
@@ -349,6 +365,11 @@ void *pebs_kswapd()
           np->devdax_offset = old_offset;
           np->in_dram = false;
           np->present = false;
+          np->stop_migrating = false;
+          np->hot = false;
+          for (int i = 0; i < NPBUFTYPES; i++) {
+            np->accesses[i] = 0;
+          }
 
           enqueue_fifo(&dram_hot_list, p);
           enqueue_fifo(&nvm_free_list, np);
@@ -369,7 +390,7 @@ void *pebs_kswapd()
           goto out;
         }
         assert(cp != NULL);
-
+         
         pthread_mutex_lock(&(cp->page_lock));
 
         // find a free nvm page to move the cold dram page to
@@ -386,6 +407,11 @@ void *pebs_kswapd()
           np->devdax_offset = old_offset;
           np->in_dram = true;
           np->present = false;
+          np->stop_migrating = false;
+          np->hot = false;
+          for (int i = 0; i < NPBUFTYPES; i++) {
+            np->accesses[i] = 0;
+          }
 
           enqueue_fifo(&nvm_cold_list, cp);
           enqueue_fifo(&dram_free_list, np);
@@ -401,8 +427,6 @@ void *pebs_kswapd()
     }
 
 out:
-    make_cold();
-
     pebs_runs++;
     pthread_mutex_unlock(&global_lock);
     gettimeofday(&end, NULL);
@@ -504,6 +528,10 @@ void pebs_remove_page(struct hemem_page *page)
   page_list_remove_page(list, page);
   page->present = false;
   page->stop_migrating = false;
+  page->hot = false;
+  for (int i = 0; i < NPBUFTYPES; i++) {
+    page->accesses[i] = 0;
+  }
 
   if (page->in_dram) {
     enqueue_fifo(&dram_free_list, page);
@@ -520,6 +548,7 @@ void pebs_init(void)
 {
   pthread_t kswapd_thread;
   pthread_t scan_thread;
+  pthread_t cooling_thread;
 
   LOG("pebs_init: started\n");
 
@@ -562,6 +591,9 @@ void pebs_init(void)
   assert(r == 0);
   
   r = pthread_create(&kswapd_thread, NULL, pebs_kswapd, NULL);
+  assert(r == 0);
+
+  r = pthread_create(&cooling_thread, NULL, pebs_cooling, NULL);
   assert(r == 0);
   
   LOG("Memory management policy is PEBS\n");

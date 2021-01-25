@@ -13,6 +13,7 @@
 #include "paging.h"
 #include "timer.h"
 #include "hemem-mmgr.h"
+#include "fifo.h"
 
 static struct mmgr_list mem_free[NMEMTYPES][NPAGETYPES];
 static struct mmgr_list mem_active[NMEMTYPES][NPAGETYPES];

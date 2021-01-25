@@ -12,6 +12,7 @@
 #include "paging.h"
 #include "lru.h"
 #include "timer.h"
+#include "fifo.h"
 
 
 #define MAX_VAS                1000000

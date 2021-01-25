@@ -10,15 +10,16 @@
 #include "hemem.h"
 
 #define PEBS_KSWAPD_INTERVAL   (1000000) // in us (1s)
-#define PEBS_KSWAPD_MIGRATE_RATE  (50UL * 1024UL * 1024UL * 1024UL) // 50GB
-#define HOT_READ_THRESHOLD     (3)
-#define HOT_WRITE_THRESHOLD    (3)
-#define MIGRATION_STOP_THRESHOLD (10)
+#define PEBS_KSWAPD_MIGRATE_RATE  (10UL * 1024UL * 1024UL * 1024UL) // 50GB
+#define HOT_READ_THRESHOLD     (2)
+#define HOT_WRITE_THRESHOLD    (1)
+#define MIGRATION_STOP_THRESHOLD (3)
+#define PEBS_COOLING_INTERVAL   (1000000) // 1s
 
 #define PEBS_NPROCS 64
-#define PERF_PAGES	(1 + (1 << 8))	// Has to be == 1+2^n, here 1MB
-#define SAMPLE_PERIOD	10007
-//#define SAMPLE_PERIOD 5003
+#define PERF_PAGES	(1 + (1 << 9))	// Has to be == 1+2^n, here 1MB
+//#define SAMPLE_PERIOD	10007
+#define SAMPLE_PERIOD 5003
 //#define SAMPLE_FREQ	100
 
 struct perf_sample {

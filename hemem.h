@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <assert.h>
 
 #ifndef __cplusplus
 #include <stdatomic.h>
@@ -29,6 +30,7 @@ extern "C" {
 #include "interpose.h"
 #include "uthash.h"
 #include "pebs.h"
+#include "fifo.h"
 
 //#define HEMEM_DEBUG
 //#define USE_PEBS
@@ -164,12 +166,6 @@ struct hemem_page {
   struct fifo_list *list;
 };
 
-struct fifo_list {
-  struct hemem_page *first, *last;
-  pthread_mutex_t list_lock;
-  size_t numentries;
-};
-
 static inline uint64_t pt_to_pagesize(enum pagetypes pt)
 {
   switch(pt) {
@@ -206,10 +202,6 @@ struct hemem_page* get_hemem_page(uint64_t va);
 
 void hemem_print_stats();
 void hemem_clear_stats();
-
-void enqueue_fifo(struct fifo_list *list, struct hemem_page *page);
-struct hemem_page* dequeue_fifo(struct fifo_list *list);
-void page_list_remove_page(struct fifo_list *list, struct hemem_page *page);
 
 void hemem_start_timing(void);
 void hemem_stop_timing(void);
