@@ -616,13 +616,3 @@ void hemem_mmgr_stats()
 //            mem_inactive[SLOWMEM][HUGEP].numentries);
 }
 
-
-void hemem_mmgr_lock()
-{
-  pthread_mutex_lock(&global_lock);
-}
-
-void hemem_mmgr_unlock()
-{
-  pthread_mutex_unlock(&global_lock);
-}

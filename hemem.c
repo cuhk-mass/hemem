@@ -323,10 +323,8 @@ static void hemem_mmap_populate(void* addr, size_t length)
   assert(addr != 0);
   assert(length != 0);
 
-  //policy_lock();
-
   for (page_boundry = (uint64_t)addr; page_boundry < (uint64_t)addr + length;) {
-    page = pagefault_unlocked();
+    page = pagefault();
     assert(page != NULL);
 
     // let policy algorithm do most of the heavy lifting of finding a free page
@@ -379,7 +377,6 @@ static void hemem_mmap_populate(void* addr, size_t length)
     page_boundry += pagesize;
   }
 
-  //policy_unlock();
 }
 
 #define PAGE_ROUND_UP(x) (((x) + (HUGEPAGE_SIZE)-1) & (~((HUGEPAGE_SIZE)-1)))
@@ -466,8 +463,6 @@ int hemem_munmap(void* addr, size_t length)
   //pebs_clear();
 #endif
 
-  //policy_lock();
-
   // for each page in region specified...
   for (page_boundry = (uint64_t)addr; page_boundry < (uint64_t)addr + length;) {
     // find the page in hemem's trackign list
@@ -492,7 +487,6 @@ int hemem_munmap(void* addr, size_t length)
     }
   }
 
-  //policy_unlock();
 
   ret = libc_munmap(addr, length);
 

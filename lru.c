@@ -556,14 +556,3 @@ void lru_stats()
           nvm_inactive_list.numentries);
 }
 
-
-void lru_lock()
-{
-  pthread_mutex_lock(&global_lock);
-}
-
-void lru_unlock()
-{
-  pthread_mutex_unlock(&global_lock);
-}
-

@@ -19,8 +19,6 @@ struct hemem_page* lru_pagefault_unlocked(void);
 void lru_init(void);
 void lru_remove_page(struct hemem_page *page);
 void lru_stats();
-void lru_lock();
-void lru_unlock();
 
 
 #endif /*  HEMEM_LRU_MODIFIED_H  */

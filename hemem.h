@@ -92,28 +92,19 @@ FILE *statsf;
 
 #if defined (ALLOC_HEMEM)
   #define pagefault(...) pebs_pagefault(__VA_ARGS__)
-  #define pagefault_unlocked(...) pebs_pagefault_unlocked(__VA_ARGS__)
   #define paging_init(...) pebs_init(__VA_ARGS__)
   #define mmgr_remove(...) pebs_remove_page(__VA_ARGS__)
   #define mmgr_stats(...) pebs_stats(__VA_ARGS__)
-  #define policy_lock(...) pebs_lock(__VA_ARGS__)
-  #define policy_unlock(...) pebs_unlock(__VA_ARGS__)
 #elif defined (ALLOC_LRU)
   #define pagefault(...) lru_pagefault(__VA_ARGS__)
-  #define pagefault_unlocked(...) lru_pagefault_unlocked(__VA_ARGS__)
   #define paging_init(...) lru_init(__VA_ARGS__)
   #define mmgr_remove(...) lru_remove_page(__VA_ARGS__)
   #define mmgr_stats(...) lru_stats(__VA_ARGS__)
-  #define policy_lock(...) lru_lock(__VA_ARGS__)
-  #define policy_unlock(...) lru_unlock(__VA_ARGS__)
 #elif defined (ALLOC_SIMPLE)
   #define pagefault(...) simple_pagefault(__VA_ARGS__)
-  #define pagefault_unlocked(...) simple_pagefault(__VA_ARGS__)
   #define paging_init(...) simple_init(__VA_ARGS__)
   #define mmgr_remove(...) simple_remove_page(__VA_ARGS__)
   #define mmgr_stats(...) simple_stats(__VA_ARGS__)
-  #define policy_lock(...) while (0) {}
-  #define policy_unlock(...) while (0) {}
 #endif
 
 

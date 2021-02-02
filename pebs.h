@@ -9,17 +9,17 @@
 
 #include "hemem.h"
 
-#define PEBS_KSWAPD_INTERVAL   (1000000) // in us (1s)
-#define PEBS_KSWAPD_MIGRATE_RATE  (10UL * 1024UL * 1024UL * 1024UL) // 50GB
-#define HOT_READ_THRESHOLD     (2)
-#define HOT_WRITE_THRESHOLD    (1)
+#define PEBS_KSWAPD_INTERVAL   (10000) // in us (10ms)
+#define PEBS_KSWAPD_MIGRATE_RATE  (10UL * 1024UL * 1024UL * 1024UL) // 10GB
+#define HOT_READ_THRESHOLD     (4)
+#define HOT_WRITE_THRESHOLD    (4)
 #define MIGRATION_STOP_THRESHOLD (3)
 #define PEBS_COOLING_INTERVAL   (1000000) // 1s
 
 #define PEBS_NPROCS 64
 #define PERF_PAGES	(1 + (1 << 9))	// Has to be == 1+2^n, here 1MB
-//#define SAMPLE_PERIOD	10007
-#define SAMPLE_PERIOD 5003
+#define SAMPLE_PERIOD	10007
+//#define SAMPLE_PERIOD 5003
 //#define SAMPLE_FREQ	100
 
 struct perf_sample {
@@ -44,8 +44,5 @@ struct hemem_page* pebs_pagefault_unlocked(void);
 void pebs_init(void);
 void pebs_remove_page(struct hemem_page *page);
 void pebs_stats();
-void pebs_lock();
-void pebs_unlock();
-
 
 #endif /*  HEMEM_LRU_MODIFIED_H  */
