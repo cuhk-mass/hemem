@@ -126,6 +126,36 @@ char *filename = "indices1.txt";
 
 FILE *hotsetfile = NULL;
 
+bool hotset_only = false;
+
+static void *prefill_hotset(void* arguments)
+{
+  struct gups_args *args = (struct gups_args*)arguments;
+  uint64_t *field = (uint64_t*)(args->field);
+  uint64_t i;
+  uint64_t index1;
+  uint64_t elt_size = args->elt_size;
+  char data[elt_size];
+
+  index1 = 0;
+
+  for (i = 0; i < args->hotsize; i++) {
+    index1 = i;
+    if (elt_size == 8) {
+      uint64_t  tmp = field[index1];
+      tmp = tmp + i;
+      field[index1] = tmp;
+    }
+    else {
+      memcpy(data, &field[index1 * elt_size], elt_size);
+      memset(data, data[0] + i, elt_size);
+      memcpy(&field[index1 * elt_size], data, elt_size);
+    }
+  }
+  return 0;
+  
+}
+
 static void *do_gups(void *arguments)
 {
   //printf("do_gups entered\n");
@@ -263,7 +293,7 @@ int main(int argc, char **argv)
   fprintf(stderr, "field of 2^%lu (%lu) bytes\n", expt, size);
   fprintf(stderr, "%ld byte element size (%ld elements total)\n", elt_size, size / elt_size);
 
-  p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
+  p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE, -1, 0);
   if (p == MAP_FAILED) {
     perror("mmap");
     assert(0);
@@ -300,9 +330,6 @@ int main(int argc, char **argv)
   printf("hot_start: %p\thot_end: %p\thot_size: %lu\n", p + hot_start, p + hot_start + (hotsize * elt_size), hotsize);
 
   gettimeofday(&starttime, NULL);
-
-  // run through gups once to touch all memory
-  // spawn gups worker threads
   for (i = 0; i < threads; i++) {
     //printf("starting thread [%d]\n", i);
     ga[i] = (struct gups_args*)malloc(sizeof(struct gups_args));
@@ -313,7 +340,25 @@ int main(int argc, char **argv)
     ga[i]->elt_size = elt_size;
     ga[i]->hot_start = 0;        // hot set at start of thread's region
     ga[i]->hotsize = hotsize;
-    //printf("  tid: [%d]  iters: [%llu]  size: [%llu]  elt size: [%llu]\n", ga[i]->tid, ga[i]->iters, ga[i]->size, ga[i]->elt_size);
+  }
+
+  if (hotset_only) {
+    fprintf(stderr, "Prefilling hotset\n");
+    for (i = 0; i < threads; i++) {
+      int r = pthread_create(&t[i], NULL, prefill_hotset, (void*)ga[i]);
+      assert(r == 0);
+    }
+    // wait for worker threads
+    for (i = 0; i < threads; i++) {
+      int r = pthread_join(t[i], NULL);
+      assert(r == 0);
+    }
+    fprintf(stderr, "Done prefilling hotset\n");
+  }
+
+  // run through gups once to touch all memory
+  // spawn gups worker threads
+  for (i = 0; i < threads; i++) {
     int r = pthread_create(&t[i], NULL, do_gups, (void*)ga[i]);
     assert(r == 0);
   }
@@ -341,12 +386,6 @@ int main(int argc, char **argv)
   //hemem_clear_stats();
   // spawn gups worker threads
   for (i = 0; i < threads; i++) {
-    //printf("starting thread [%d]\n", i);
-    ga[i]->tid = i;
-    ga[i]->iters = updates;
-    ga[i]->size = nelems;
-    ga[i]->elt_size = elt_size;
-    //printf("  tid: [%d]  iters: [%llu]  size: [%llu]  elt size: [%llu]\n", ga[i]->tid, ga[i]->iters, ga[i]->size, ga[i]->elt_size);
     int r = pthread_create(&t[i], NULL, do_gups, (void*)ga[i]);
     assert(r == 0);
   }

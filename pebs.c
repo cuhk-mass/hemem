@@ -39,6 +39,8 @@ uint64_t locked_pages = 0;
 
 static struct perf_event_mmap_page *perf_page[PEBS_NPROCS][NPBUFTYPES];
 
+static volatile bool needs_cooling = false;
+
 
 static long perf_event_open(struct perf_event_attr *hw_event, pid_t pid, 
     int cpu, int group_fd, unsigned long flags)
@@ -93,7 +95,7 @@ static void cool(struct fifo_list *hot, struct fifo_list *cold, bool dram)
 {
   struct hemem_page *p;
   struct hemem_page *bookmark;
-  
+
   // cool hot pages
   bookmark = NULL;
   p = dequeue_fifo(hot);
@@ -114,7 +116,8 @@ static void cool(struct fifo_list *hot, struct fifo_list *cold, bool dram)
     }
 
     for (int i = 0; i < NPBUFTYPES; i++) {
-      p->accesses[i]--;
+      //p->accesses[i]--;
+      p->accesses[i] >>= 1;
     }
 
     // is page still hot?
@@ -143,10 +146,13 @@ static void cool(struct fifo_list *hot, struct fifo_list *cold, bool dram)
 void *pebs_cooling()
 {
   for(;;) {
-    usleep(PEBS_COOLING_INTERVAL);
+    //usleep(PEBS_COOLING_INTERVAL);
+    while (!needs_cooling);
 
     cool(&dram_hot_list, &dram_cold_list, true);
     cool(&nvm_hot_list, &nvm_cold_list, false);
+
+    needs_cooling = false;
   }
 
   return NULL;
@@ -217,7 +223,8 @@ void *pebs_kscand()
         switch(ph->type) {
         case PERF_RECORD_SAMPLE:
           {
-            struct perf_sample *ps = (void *)ph;
+            struct perf_sample *ps = (struct perf_sample*)ph;
+            assert(ps != NULL);
             if(ps->addr != 0) {
               __u64 pfn = ps->addr & HUGE_PFN_MASK;
             
@@ -235,6 +242,10 @@ void *pebs_kscand()
                   }
                   else {
                     pthread_mutex_unlock(&page->page_lock);
+                  }
+
+                  if (page->accesses[j] > PEBS_COOLING_THRESHOLD) {
+                    needs_cooling = true;
                   }
                 }
                 in_kscand = false;
