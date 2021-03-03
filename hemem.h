@@ -2,6 +2,7 @@
 
 #define HEMEM_H
 
+#define _GNU_SOURCE 
 #include <pthread.h>
 #include <stdint.h>
 #include <inttypes.h>
@@ -34,7 +35,7 @@ extern "C" {
 
 //#define HEMEM_DEBUG
 //#define USE_PEBS
-#define STATS_THREAD
+//#define STATS_THREAD
 
 #define MEM_BARRIER() __sync_synchronize()
 
@@ -86,9 +87,9 @@ static inline void log_time(const char* fmt, ...)
 #define LOG_TIME(str, ...) while(0) {}
 
 FILE *statsf;
-#define LOG_STATS(str, ...) fprintf(stderr, str,  __VA_ARGS__)
+//#define LOG_STATS(str, ...) fprintf(stderr, str,  __VA_ARGS__)
 //#define LOG_STATS(str, ...) fprintf(statsf, str, __VA_ARGS__)
-//#define LOG_STATS(str, ...) while (0) {}
+#define LOG_STATS(str, ...) while (0) {}
 
 #if defined (ALLOC_HEMEM)
   #define pagefault(...) pebs_pagefault(__VA_ARGS__)
@@ -110,6 +111,10 @@ FILE *statsf;
 
 #define MAX_UFFD_MSGS	    (1)
 #define MAX_COPY_THREADS  (4)
+
+#define FAULT_THREAD_CPU  (0)
+#define COPY_THREAD_CPU   (1)
+#define LAST_COPY_THREAD_CPU (COPY_THREAD_CPU + MAX_COPY_THREADS)
 
 extern uint64_t cr3;
 extern int dramfd;

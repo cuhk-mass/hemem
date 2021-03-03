@@ -270,14 +270,14 @@ void *lru_kswapd()
         from_written_list = true;
       }
 
-      pthread_mutex_lock(&(p->page_lock));
+      //pthread_mutex_lock(&(p->page_lock));
 
       for (tries = 0; tries < 2; tries++) {
         // find a free DRAM page
         np = dequeue_fifo(&dram_free_list);
 
         if (np != NULL) {
-          pthread_mutex_lock(&(np->page_lock));
+          //pthread_mutex_lock(&(np->page_lock));
 
           assert(!(np->present));
 
@@ -295,7 +295,7 @@ void *lru_kswapd()
 
           migrated_bytes += pt_to_pagesize(p->pt);
 
-          pthread_mutex_unlock(&(np->page_lock));
+          //pthread_mutex_unlock(&(np->page_lock));
 
           break;
         }
@@ -310,17 +310,17 @@ void *lru_kswapd()
           else {
             enqueue_fifo(&nvm_active_list, p);
           }
-          pthread_mutex_unlock(&(p->page_lock));
+          //pthread_mutex_unlock(&(p->page_lock));
           goto out;
         }
         assert(cp != NULL);
 
-        pthread_mutex_lock(&(cp->page_lock));
+        //pthread_mutex_lock(&(cp->page_lock));
 
         // find a free nvm page to move the cold dram page to
         np = dequeue_fifo(&nvm_free_list);
         if (np != NULL) {
-          pthread_mutex_lock(&(np->page_lock));
+          //pthread_mutex_lock(&(np->page_lock));
           assert(!(np->present));
 
           LOG("%lx: hot %lu -> cold %lu\t slowmem.active: %lu, slowmem.inactive: %lu\t hotmem.active: %lu, hotmem.inactive: %lu\n",
@@ -335,14 +335,14 @@ void *lru_kswapd()
           enqueue_fifo(&nvm_inactive_list, cp);
           enqueue_fifo(&dram_free_list, np);
 
-          pthread_mutex_unlock(&(np->page_lock));
+          //pthread_mutex_unlock(&(np->page_lock));
         }
         assert(np != NULL);
 
-        pthread_mutex_unlock(&(cp->page_lock));
+        //pthread_mutex_unlock(&(cp->page_lock));
       }
 
-      pthread_mutex_unlock(&(p->page_lock));
+     // pthread_mutex_unlock(&(p->page_lock));
     }
 
 out:
@@ -372,7 +372,7 @@ static struct hemem_page* lru_allocate_page()
 #endif
     page = dequeue_fifo(&dram_free_list);
     if (page != NULL) {
-      pthread_mutex_lock(&(page->page_lock));
+      //pthread_mutex_lock(&(page->page_lock));
       assert(page->in_dram);
       assert(!page->present);
 
@@ -382,7 +382,7 @@ static struct hemem_page* lru_allocate_page()
       gettimeofday(&end, NULL);
       LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
 
-      pthread_mutex_unlock(&(page->page_lock));
+      //pthread_mutex_unlock(&(page->page_lock));
 
       return page;
     }
@@ -391,7 +391,7 @@ static struct hemem_page* lru_allocate_page()
     // DRAM is full, fall back to NVM
     page = dequeue_fifo(&nvm_free_list);
     if (page != NULL) {
-      pthread_mutex_lock(&(page->page_lock));
+      //pthread_mutex_lock(&(page->page_lock));
 
       assert(!page->in_dram);
       assert(!page->present);
@@ -402,7 +402,7 @@ static struct hemem_page* lru_allocate_page()
       gettimeofday(&end, NULL);
       LOG_TIME("mem_policy_allocate_page: %f s\n", elapsed(&start, &end));
 
-      pthread_mutex_unlock(&(page->page_lock));
+      //pthread_mutex_unlock(&(page->page_lock));
 
       return page;
     }
@@ -493,7 +493,7 @@ void lru_remove_page(struct hemem_page *page)
     enqueue_fifo(&nvm_free_list, page);
   }
 
-  pthread_mutex_unlock(&(page->page_lock));
+  //pthread_mutex_unlock(&(page->page_lock));
   pthread_mutex_unlock(&global_lock);
 }
 

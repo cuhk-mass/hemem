@@ -17,11 +17,15 @@
 #define PEBS_COOLING_INTERVAL   (1000000) // 1s
 #define PEBS_COOLING_THRESHOLD  (24)
 
-#define PEBS_NPROCS 64
-#define PERF_PAGES	(1 + (1 << 9))	// Has to be == 1+2^n, here 1MB
+#define PEBS_NPROCS 24
+#define PERF_PAGES	(1 + (1 << 10))	// Has to be == 1+2^n, here 1MB
 //#define SAMPLE_PERIOD	10007
-#define SAMPLE_PERIOD 5003
+#define SAMPLE_PERIOD 5000
 //#define SAMPLE_FREQ	100
+
+#define SCANNING_THREAD_CPU (LAST_COPY_THREAD_CPU)
+#define MIGRATION_THREAD_CPU (SCANNING_THREAD_CPU + 1)
+#define COOLING_THREAD_CPU  (MIGRATION_THREAD_CPU + 1)
 
 struct perf_sample {
   struct perf_event_header header;

@@ -183,7 +183,7 @@ static void *do_gups(void *arguments)
   index1 = 0;
   index2 = 0;
 
-  fprintf(hotsetfile, "Thread %d region: %p - %p\thot set: %p - %p\n", args->tid, field, field + (args->size * elt_size), field + args->hot_start, field + args->hot_start + (args->hotsize * elt_size));   
+  fprintf(hotsetfile, "Thread %d region: %p - %p\thot set: %p - %p\n", args->tid, field, field + (args->size), field + args->hot_start, field + args->hot_start + (args->hotsize));   
 
   for (i = 0; i < args->iters; i++) {
     hot_num = lfsr_fast(lfsr) % 100;
@@ -444,7 +444,17 @@ int main(int argc, char **argv)
   //hemem_print_stats();
 #endif
 #endif
-
+/*
+  FILE* pebsfile = fopen("pebs.txt", "w+");
+  assert(pebsfile != NULL);
+  for (uint64_t addr = (uint64_t)p; addr < (uint64_t)p + size; addr += (2*1024*1024)) {
+    struct hemem_page *pg = get_hemem_page(addr);
+    assert(pg != NULL);
+    if (pg != NULL) {
+      fprintf(pebsfile, "0x%lx:\t%lu\t%lu\t%lu\n", pg->va, pg->accesses[DRAMREAD], pg->accesses[NVMREAD], pg->accesses[WRITE]);
+    }
+  }
+*/
   //hemem_stop_timing();
 
   for (i = 0; i < threads; i++) {

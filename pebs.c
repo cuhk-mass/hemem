@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdlib.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -36,6 +37,7 @@ uint64_t total_pages_cnt = 0;
 uint64_t throttle_cnt = 0;
 uint64_t unthrottle_cnt = 0;
 uint64_t locked_pages = 0;
+uint64_t cools = 0;
 
 static struct perf_event_mmap_page *perf_page[PEBS_NPROCS][NPBUFTYPES];
 
@@ -145,12 +147,26 @@ static void cool(struct fifo_list *hot, struct fifo_list *cold, bool dram)
 
 void *pebs_cooling()
 {
+  cpu_set_t cpuset;
+  pthread_t thread;
+
+  thread = pthread_self();
+  CPU_ZERO(&cpuset);
+  CPU_SET(COOLING_THREAD_CPU, &cpuset);
+  int s = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
+  if (s != 0) {
+    perror("pthread_setaffinity_np");
+    assert(0);
+  }
+
   for(;;) {
     //usleep(PEBS_COOLING_INTERVAL);
     while (!needs_cooling);
 
     cool(&dram_hot_list, &dram_cold_list, true);
     cool(&nvm_hot_list, &nvm_cold_list, false);
+
+    cools++;
 
     needs_cooling = false;
   }
@@ -206,6 +222,18 @@ void make_hot(struct hemem_page* page)
 
 void *pebs_kscand()
 {
+ cpu_set_t cpuset;
+  pthread_t thread;
+
+  thread = pthread_self();
+  CPU_ZERO(&cpuset);
+  CPU_SET(SCANNING_THREAD_CPU, &cpuset);
+  int s = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
+  if (s != 0) {
+    perror("pthread_setaffinity_np");
+    assert(0);
+  }
+
   for(;;) {
     for (int i = 0; i < PEBS_NPROCS; i++) {
       for(int j = 0; j < NPBUFTYPES; j++) {
@@ -327,6 +355,17 @@ void *pebs_kswapd()
   uint64_t old_offset;
 
   //free(malloc(65536));
+  cpu_set_t cpuset;
+  pthread_t thread;
+
+  thread = pthread_self();
+  CPU_ZERO(&cpuset);
+  CPU_SET(MIGRATION_THREAD_CPU, &cpuset);
+  int s = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
+  if (s != 0) {
+    perror("pthread_setaffinity_np");
+    assert(0);
+  } 
   
   for (;;) {
     usleep(KSWAPD_INTERVAL);
@@ -414,7 +453,7 @@ void *pebs_kswapd()
           assert(!(np->present));
 
           LOG("%lx: hot %lu -> cold %lu\t slowmem.hot: %lu, slowmem.cold: %lu\t fastmem.hot: %lu, fastmem.cold: %lu\n",
-                cp>va, cp->devdax_offset, np->devdax_offset, nvm_hot_list.numentries, nvm_cold_list.numentries, dram_hot_list.numentries, dram_cold_list.numentries);
+                cp->va, cp->devdax_offset, np->devdax_offset, nvm_hot_list.numentries, nvm_cold_list.numentries, dram_hot_list.numentries, dram_cold_list.numentries);
 
           old_offset = cp->devdax_offset;
           pebs_migrate_down(cp, np->devdax_offset);
@@ -625,16 +664,16 @@ void pebs_init(void)
 
 void pebs_stats()
 {
-  LOG_STATS("\tdram_hot_list.numentries: [%ld]\tdram_cold_list.numentries: [%ld]\tnvm_hot_list.numentries: [%ld]\tnvm_cold_list.numentries: [%ld]\themem_pages: [%lu]\ttotal_pages: [%lu]\tlocked_pages: [%ld]\tthrottle/unthrottle_cnt: [%ld/%ld]\n",
+  LOG_STATS("\tdram_hot_list.numentries: [%ld]\tdram_cold_list.numentries: [%ld]\tnvm_hot_list.numentries: [%ld]\tnvm_cold_list.numentries: [%ld]\themem_pages: [%lu]\tlocked_pages: [%ld]\tthrottle/unthrottle_cnt: [%ld/%ld]\tcools: [%ld]\n",
           dram_hot_list.numentries,
           dram_cold_list.numentries,
           nvm_hot_list.numentries,
           nvm_cold_list.numentries,
           hemem_pages_cnt,
-          total_pages_cnt,
           locked_pages,
           throttle_cnt,
-          unthrottle_cnt);
+          unthrottle_cnt,
+          cools);
   hemem_pages_cnt = total_pages_cnt = throttle_cnt = unthrottle_cnt = 0;
 }
 
