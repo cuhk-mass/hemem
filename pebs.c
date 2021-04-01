@@ -22,9 +22,11 @@
 static struct fifo_list dram_hot_list;
 static struct fifo_list dram_cold_list;
 static struct fifo_list dram_locked_list;
+static struct fifo_list dram_written_list;
 static struct fifo_list nvm_hot_list;
 static struct fifo_list nvm_cold_list;
 static struct fifo_list nvm_locked_list;
+static struct fifo_list nvm_written_list;
 static struct fifo_list dram_free_list;
 static struct fifo_list nvm_free_list;
 static pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -93,10 +95,47 @@ static struct perf_event_mmap_page* perf_setup(__u64 config, __u64 config1, __u6
   return p;
 }
 
-static void cool(struct fifo_list *hot, struct fifo_list *cold, bool dram)
+static void cool(struct fifo_list *hot, struct fifo_list *cold, struct fifo_list *written, bool dram)
 {
   struct hemem_page *p;
   struct hemem_page *bookmark;
+
+  // cool written pages
+  bookmark = NULL;
+  p = dequeue_fifo(written);
+  while (p != NULL) {
+    if (p == bookmark) {
+      // we've seen this age before, so put it back and bail out
+      enqueue_fifo(written, p);
+      break;
+    }
+
+    if (dram) {
+      assert(p->in_dram);
+    }
+    else {
+      assert(!p->in_dram);
+    }
+
+    p->accesses[WRITE]--;
+
+    if (p->accesses[WRITE] < HOT_WRITE_THRESHOLD) {
+      LOG("%lx: no longer written: %lu %lu %lu\n", p->va, p->accesses[DRAMREAD], p->accesses[NVMREAD], p->accesses[WRITE]);
+      p->written = false;
+    }
+
+    if (p->written) {
+      enqueue_fifo(written, p);
+      if (bookmark == NULL) {
+        bookmark = p;
+      }
+    }
+    else {
+      enqueue_fifo(hot, p);
+    }
+
+    p = dequeue_fifo(written);
+  }
 
   // cool hot pages
   bookmark = NULL;
@@ -117,13 +156,12 @@ static void cool(struct fifo_list *hot, struct fifo_list *cold, bool dram)
       assert(!p->in_dram);
     }
 
-    for (int i = 0; i < NPBUFTYPES; i++) {
-      //p->accesses[i]--;
-      p->accesses[i] >>= 1;
-    }
+    p->accesses[DRAMREAD] >>= 1;
+    p->accesses[NVMREAD] >>= 1;
 
     // is page still hot?
-    if ((p->accesses[WRITE] < HOT_WRITE_THRESHOLD) && (p->accesses[DRAMREAD] + p->accesses[NVMREAD] < HOT_READ_THRESHOLD)) {
+    if (p->accesses[DRAMREAD] + p->accesses[NVMREAD] < HOT_READ_THRESHOLD) {
+      LOG("%lx: became cold: %lu %lu %lu\n", p->va, p->accesses[DRAMREAD], p->accesses[NVMREAD], p->accesses[WRITE]);
       p->hot = false;
     }
     //else if (p->accesses[DRAMREAD] + p->accesses[NVMREAD] < HOT_READ_THRESHOLD) {
@@ -163,8 +201,8 @@ void *pebs_cooling()
     //usleep(PEBS_COOLING_INTERVAL);
     while (!needs_cooling);
 
-    cool(&dram_hot_list, &dram_cold_list, true);
-    cool(&nvm_hot_list, &nvm_cold_list, false);
+    cool(&dram_hot_list, &dram_cold_list, &dram_written_list, true);
+    cool(&nvm_hot_list, &nvm_cold_list, &nvm_written_list, false);
 
     cools++;
 
@@ -172,6 +210,66 @@ void *pebs_cooling()
   }
 
   return NULL;
+}
+
+// assumes page lock is held
+void make_written(struct hemem_page* page)
+{
+  assert(page != NULL);
+  assert(page->va != 0);
+
+  if (page->stop_migrating) {
+    if (page->in_dram) {
+      assert(page->list == &dram_locked_list);
+    }
+    else {
+      assert(page->list == &nvm_locked_list);
+    }
+    pthread_mutex_unlock(&(page->page_lock));
+    return;
+  }
+
+  if (page->written) {
+    assert(page->hot);
+    if (page->in_dram) {
+      assert(page->list == &dram_written_list);
+    }
+    else {
+      assert(page->list == &nvm_written_list);
+    }
+    pthread_mutex_unlock(&(page->page_lock));
+    return;
+  }
+
+  if (page->in_dram) {
+    if (page->hot) {
+      assert(page->list == &dram_hot_list);
+      page_list_remove_page(&dram_hot_list, page);
+      page->written = true;
+      enqueue_fifo(&dram_written_list, page);
+    }
+    else {
+      assert(page->list == &dram_cold_list);
+      page_list_remove_page(&dram_cold_list, page);
+      page->written = page->hot = true;
+      enqueue_fifo(&dram_written_list, page);
+    }
+  }
+  else {
+    if (page->hot) {
+      assert(page->list == &nvm_hot_list);
+      page_list_remove_page(&nvm_hot_list, page);
+      page->written = true;
+      enqueue_fifo(&nvm_written_list, page);
+    }
+    else {
+      assert(page->list == &nvm_cold_list);
+      page_list_remove_page(&nvm_cold_list, page);
+      page->written = page->hot = true;
+      enqueue_fifo(&nvm_written_list, page);
+    } 
+  }
+  LOG("%lx: became written: %lu %lu %lu\n", page->va, page->accesses[DRAMREAD], page->accesses[NVMREAD], page->accesses[WRITE]);
 }
 
 
@@ -195,10 +293,20 @@ void make_hot(struct hemem_page* page)
 
   if (page->hot) {
     if (page->in_dram) {
-      assert(page->list == &dram_hot_list);
+      if (page->written) {
+        assert(page->list == &dram_written_list);
+      }
+      else {
+        assert(page->list == &dram_hot_list);
+      }
     }
     else {
-      assert(page->list == &nvm_hot_list);
+      if (page->written) {
+        assert(page->list == &nvm_written_list);
+      }
+      else {
+        assert(page->list == &nvm_hot_list);
+      }
     }
     // page is already hot -- nothing to do
     pthread_mutex_unlock(&(page->page_lock));
@@ -217,6 +325,7 @@ void make_hot(struct hemem_page* page)
     page->hot = true;
     enqueue_fifo(&nvm_hot_list, page);
   }
+  LOG("%lx: became hot: %lu %lu %lu\n", page->va, page->accesses[DRAMREAD], page->accesses[NVMREAD], page->accesses[WRITE]);
 }
 
 
@@ -261,9 +370,10 @@ void *pebs_kscand()
                 in_kscand = true;
                 if (page->va != 0) {
                   pthread_mutex_lock(&page->page_lock);
+                  LOG("%lx: recorded PEBS access: %d\n", page->va, j);
                   page->accesses[j]++;
                   if (page->accesses[WRITE] >= HOT_WRITE_THRESHOLD) {
-                    make_hot(page);
+                    make_written(page);
                   }
                   else if (page->accesses[DRAMREAD] + page->accesses[NVMREAD] >= HOT_READ_THRESHOLD) {
                     make_hot(page);
@@ -353,6 +463,7 @@ void *pebs_kswapd()
   struct timeval start, end;
   uint64_t migrated_bytes;
   uint64_t old_offset;
+  bool from_written_list;
 
   //free(malloc(65536));
   cpu_set_t cpuset;
@@ -377,10 +488,17 @@ void *pebs_kswapd()
 
     // move each hot NVM page to DRAM
     for (migrated_bytes = 0; migrated_bytes < KSWAPD_MIGRATE_RATE;) {
-      p = dequeue_fifo(&nvm_hot_list);
+      p = dequeue_fifo(&nvm_written_list);
       if (p == NULL) {
-        // nothing in NVM is currently hot -- bail out
-        break;
+        p = dequeue_fifo(&nvm_hot_list);
+        if (p == NULL) {
+          // nothing in NVM is currently hot or written -- bail out
+          break;
+        }
+        from_written_list = false;
+      }
+      else {
+        from_written_list = true;
       }
 
       //pthread_mutex_lock(&(p->page_lock));
@@ -424,7 +542,12 @@ void *pebs_kswapd()
             np->accesses[i] = 0;
           }
 
-          enqueue_fifo(&dram_hot_list, p);
+          if (from_written_list) {
+            enqueue_fifo(&dram_written_list, p);
+          }
+          else {
+            enqueue_fifo(&dram_hot_list, p);
+          }
           enqueue_fifo(&nvm_free_list, np);
 
           migrated_bytes += pt_to_pagesize(p->pt);
@@ -438,7 +561,12 @@ void *pebs_kswapd()
         cp = dequeue_fifo(&dram_cold_list);
         if (cp == NULL) {
           // all dram pages are hot, so put it back in list we got it from
-          enqueue_fifo(&nvm_hot_list, p);
+          if (from_written_list) {
+            enqueue_fifo(&nvm_written_list, p);
+          }
+          else {
+            enqueue_fifo(&nvm_hot_list, p);
+          }
           //pthread_mutex_unlock(&(p->page_lock));
           goto out;
         }
@@ -664,9 +792,11 @@ void pebs_init(void)
 
 void pebs_stats()
 {
-  LOG_STATS("\tdram_hot_list.numentries: [%ld]\tdram_cold_list.numentries: [%ld]\tnvm_hot_list.numentries: [%ld]\tnvm_cold_list.numentries: [%ld]\themem_pages: [%lu]\tlocked_pages: [%ld]\tthrottle/unthrottle_cnt: [%ld/%ld]\tcools: [%ld]\n",
+  LOG_STATS("\tdram_written: [%ld]\tdram_hot: [%ld]\tdram_cold: [%ld]\tnvm_written: [%ld]\tnvm_hot: [%ld]\tnvm_cold: [%ld]\themem_pages: [%lu]\tlocked_pages: [%ld]\tthrottle/unthrottle_cnt: [%ld/%ld]\tcools: [%ld]\n",
+          dram_written_list.numentries,
           dram_hot_list.numentries,
           dram_cold_list.numentries,
+          nvm_written_list.numentries,
           nvm_hot_list.numentries,
           nvm_cold_list.numentries,
           hemem_pages_cnt,
