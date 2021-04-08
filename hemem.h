@@ -39,7 +39,7 @@ extern "C" {
 
 #define MEM_BARRIER() __sync_synchronize()
 
-#define NVMSIZE   (480L * (1024L * 1024L * 1024L))
+#define NVMSIZE   (240L * (1024L * 1024L * 1024L))
 #define DRAMSIZE  (128L * (1024L * 1024L * 1024L))
 
 #define DRAMPATH  "/dev/dax0.0"
