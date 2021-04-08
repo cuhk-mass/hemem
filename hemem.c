@@ -243,7 +243,6 @@ static void hemem_mmap_populate(void* addr, size_t length)
     pagesize = pt_to_pagesize(page->pt);
 
     tmpaddr = (in_dram ? dram_devdax_mmap + offset : nvm_devdax_mmap + offset);
-    //hemem_parallel_memset(tmpaddr, 0, pagesize);
     memset(tmpaddr, 0, pagesize);
     memsets++;
   
@@ -720,8 +719,6 @@ void handle_missing_fault(uint64_t page_boundry)
   pagesize = pt_to_pagesize(page->pt);
 
   tmp_offset = (in_dram) ? dram_devdax_mmap + offset : nvm_devdax_mmap + offset;
-
-//  hemem_parallel_memset(tmp_offset, 0, pagesize);
   memset(tmp_offset, 0, pagesize);
   memsets++;
 
