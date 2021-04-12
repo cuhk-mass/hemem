@@ -26,6 +26,8 @@
 #include "uthash.h"
 #include "pebs.h"
 
+#define USE_MDA
+
 pthread_t fault_thread;
 
 int dramfd = -1;
@@ -441,6 +443,7 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
 
   // copy page from faulting location to temp location
   gettimeofday(&start, NULL);
+#ifdef USE_DMA
   uffdio_dma_copy.src[0] = (uint64_t)old_addr;
   uffdio_dma_copy.dst[0] = (uint64_t)new_addr;
   uffdio_dma_copy.len[0] = pagesize;
@@ -451,6 +454,9 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
     LOG("hemem_migrate_up, ioctl dma_copy fails for src:%lly, dst:%llu\n", old_addr, new_addr); 
     assert(false);
   }
+#else
+  memcpy(new_addr, old_addr, pagesize);
+#endif
   gettimeofday(&end, NULL);
   memcpys++;
   LOG_TIME("memcpy_to_dram: %f s\n", elapsed(&start, &end));
@@ -549,6 +555,7 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
 
   // copy page from faulting location to temp location
   gettimeofday(&start, NULL);
+#ifdef USE_DMA
   uffdio_dma_copy.src[0] = (uint64_t)old_addr;
   uffdio_dma_copy.dst[0] = (uint64_t)new_addr;
   uffdio_dma_copy.len[0] = pagesize;
@@ -559,6 +566,9 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
     LOG("hemem_migrate_down, ioctl dma_copy fails for src:%lly, dst:%llu\n", old_addr, new_addr); 
     assert(false);
   }
+#else
+  memcpy(new_addr, old_addr, pagesize);
+#endif
   gettimeofday(&end, NULL);
   memcpys++;
   LOG_TIME("memcpy_to_nvm: %f s\n", elapsed(&start, &end));
