@@ -156,6 +156,9 @@ static void *prefill_hotset(void* arguments)
   
 }
 
+
+__thread uint64_t tmp;
+
 static void *do_gups(void *arguments)
 {
   //printf("do_gups entered\n");
@@ -190,24 +193,14 @@ static void *do_gups(void *arguments)
     if (hot_num < 90) {
       lfsr = lfsr_fast(lfsr);
       index1 = args->hot_start + (lfsr % args->hotsize);
-      //if (move_hotset) {
-      //  offset = index1 * elt_size;
-      //  if (offset >= PAGE_NUM * GUPS_PAGE_SIZE && offset < PAGE_NUM * GUPS_PAGE_SIZE * PAGES) {
-      //    index1 += ((hot_offset_page * GUPS_PAGE_SIZE) / elt_size);
-      //  }
-      //}
       start = rdtscp();
-      if (elt_size == 8) {
-        //index1 = i % (args->size);
-        uint64_t  tmp = field[index1];
+      if (index1 < ((args->hotsize) / 2)) {
         tmp = tmp + i;
         field[index1] = tmp;
-        //field[index1] = index1 + i;
       }
       else {
-        memcpy(data, &field[index1 * elt_size], elt_size);
-        memset(data, data[0] + i, elt_size);
-        memcpy(&field[index1 * elt_size], data, elt_size);
+        tmp = field[index1];
+        tmp = tmp + i;
       }
       end = rdtscp();
       //thread_gups[args->tid]++;
@@ -217,18 +210,9 @@ static void *do_gups(void *arguments)
       lfsr = lfsr_fast(lfsr);
       index2 = lfsr % (args->size);
       start = rdtscp();
-      if (elt_size == 8) {
-        //index2 = i % (args->size);
-        uint64_t tmp = field[index2];
-        tmp = tmp + i;
-        field[index2] = tmp;
-        //field[index2] = index2 + i;
-      }
-      else {
-        memcpy(data, &field[index2 * elt_size], elt_size);
-        memset(data, data[0] + i, elt_size);
-        memcpy(&field[index2 * elt_size], data, elt_size);
-      }
+      tmp = field[index2];
+      tmp = tmp + i;
+      //field[index2] = tmp;
       end = rdtscp();
       //thread_gups[args->tid]++;
       //fprintf(indexfile, "%p\n", field +  (index2 * elt_size));
@@ -308,7 +292,7 @@ int main(int argc, char **argv)
 
   //memset(thread_gups, 0, sizeof(thread_gups));
 
-  hotsetfile = fopen("hotsets.txt", "w");
+  hotsetfile = fopen("hotsets-writes.txt", "w");
   if (hotsetfile == NULL) {
     perror("fopen");
     assert(0);
@@ -445,7 +429,7 @@ int main(int argc, char **argv)
 #endif
 #endif
 
-  FILE* pebsfile = fopen("pebs.txt", "w+");
+  FILE* pebsfile = fopen("pebs-writes.txt", "w+");
   assert(pebsfile != NULL);
   for (uint64_t addr = (uint64_t)p; addr < (uint64_t)p + size; addr += (2*1024*1024)) {
     struct hemem_page *pg = get_hemem_page(addr);
@@ -469,5 +453,4 @@ int main(int argc, char **argv)
 
   return 0;
 }
-
 

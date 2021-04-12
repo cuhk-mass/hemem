@@ -372,6 +372,7 @@ void *pebs_kscand()
                   pthread_mutex_lock(&page->page_lock);
                   LOG("%lx: recorded PEBS access: %d\n", page->va, j);
                   page->accesses[j]++;
+                  page->tot_accesses[j]++;
                   if (page->accesses[WRITE] >= HOT_WRITE_THRESHOLD) {
                     make_written(page);
                   }
@@ -540,6 +541,7 @@ void *pebs_kswapd()
           np->hot = false;
           for (int i = 0; i < NPBUFTYPES; i++) {
             np->accesses[i] = 0;
+            np->tot_accesses[i] = 0;
           }
 
           if (from_written_list) {
@@ -592,6 +594,7 @@ void *pebs_kswapd()
           np->hot = false;
           for (int i = 0; i < NPBUFTYPES; i++) {
             np->accesses[i] = 0;
+            np->tot_accesses[i] = 0;
           }
 
           enqueue_fifo(&nvm_cold_list, cp);
@@ -712,6 +715,7 @@ void pebs_remove_page(struct hemem_page *page)
   page->hot = false;
   for (int i = 0; i < NPBUFTYPES; i++) {
     page->accesses[i] = 0;
+    page->tot_accesses[i] = 0;
   }
 
   if (page->in_dram) {
