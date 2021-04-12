@@ -78,7 +78,7 @@ static inline uint64_t rdtscp(void)
     return ((uint64_t)edx << 32) | eax;
 }
 
-uint64_t thread_gups[MAX_THREADS];
+//uint64_t thread_gups[MAX_THREADS];
 
 static unsigned long updates, nelems;
 
@@ -101,8 +101,8 @@ static void *print_instantaneous_gups()
 
   for (;;) {
     for (int i = 0; i < threads; i++) {
-      fprintf(f[i], "%.10f\n", (1.0 * (abs(thread_gups[i] - last_second_gups[i]))) / (1.0e9));
-      last_second_gups[i] = thread_gups[i];
+      //fprintf(f[i], "%.10f\n", (1.0 * (abs(thread_gups[i] - last_second_gups[i]))) / (1.0e9));
+      //last_second_gups[i] = thread_gups[i];
     }
     sleep(1);
     //printf("GUPS: %.10f\n", (1.0 * (abs(thread_gups[0]- last_second_gups))) / (1.0e9));
@@ -210,7 +210,7 @@ static void *do_gups(void *arguments)
         memcpy(&field[index1 * elt_size], data, elt_size);
       }
       end = rdtscp();
-      thread_gups[args->tid]++;
+      //thread_gups[args->tid]++;
       //fprintf(indexfile, "%p\n", field + (index1* elt_size));
     }
     else {
@@ -230,7 +230,7 @@ static void *do_gups(void *arguments)
         memcpy(&field[index2 * elt_size], data, elt_size);
       }
       end = rdtscp();
-      thread_gups[args->tid]++;
+      //thread_gups[args->tid]++;
       //fprintf(indexfile, "%p\n", field +  (index2 * elt_size));
     }
 
@@ -306,7 +306,7 @@ int main(int argc, char **argv)
   nelems = (size / threads) / elt_size; // number of elements per thread
   fprintf(stderr, "Elements per thread: %lu\n", nelems);
 
-  memset(thread_gups, 0, sizeof(thread_gups));
+  //memset(thread_gups, 0, sizeof(thread_gups));
 
   hotsetfile = fopen("hotsets.txt", "w");
   if (hotsetfile == NULL) {
@@ -320,9 +320,9 @@ int main(int argc, char **argv)
 
   //hemem_start_timing();
 
-  pthread_t print_thread;
-  int pt = pthread_create(&print_thread, NULL, print_instantaneous_gups, NULL);
-  assert(pt == 0);
+  //pthread_t print_thread;
+  //int pt = pthread_create(&print_thread, NULL, print_instantaneous_gups, NULL);
+  //assert(pt == 0);
 
 
   hot_start = 0;
@@ -376,7 +376,7 @@ int main(int argc, char **argv)
   printf("Elapsed time: %.4f seconds.\n", secs);
   gups = threads * ((double)updates) / (secs * 1.0e9);
   printf("GUPS = %.10f\n", gups);
-  memset(thread_gups, 0, sizeof(thread_gups));
+  //memset(thread_gups, 0, sizeof(thread_gups));
 
   filename = "indices2.txt";
 
