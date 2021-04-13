@@ -26,7 +26,7 @@
 #include "uthash.h"
 #include "pebs.h"
 
-#define USE_MDA
+//#define USE_DMA
 
 pthread_t fault_thread;
 
