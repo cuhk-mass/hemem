@@ -26,8 +26,6 @@
 #include "uthash.h"
 #include "pebs.h"
 
-//#define USE_DMA
-
 pthread_t fault_thread;
 
 int dramfd = -1;
@@ -109,6 +107,7 @@ struct hemem_page* find_page(uint64_t va)
 void hemem_init()
 {
   struct uffdio_api uffdio_api;
+  struct uffdio_dma_channs uffdio_dma_channs;
 
   internal_call = true;
 /*
@@ -214,6 +213,12 @@ void hemem_init()
 
   struct hemem_page *dummy_page = calloc(1, sizeof(struct hemem_page));
   add_page(dummy_page);
+
+  uffdio_dma_channs.num_channs = NUM_CHANNS;
+  if (ioctl(uffd, UFFDIO_DMA_REQUEST_CHANNS, &uffdio_dma_channs) == -1) {
+      printf("ioctl UFFDIO_API fails\n");
+      exit(1);
+  }
 
   LOG("hemem_init: finished\n");
 
