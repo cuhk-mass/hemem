@@ -225,6 +225,7 @@ void make_written(struct hemem_page* page)
     else {
       assert(page->list == &nvm_locked_list);
     }
+    pthread_mutex_unlock(&((page->list)->list_lock));
     pthread_mutex_unlock(&(page->page_lock));
     return;
   }
@@ -237,6 +238,7 @@ void make_written(struct hemem_page* page)
     else {
       assert(page->list == &nvm_written_list);
     }
+    pthread_mutex_unlock(&((page->list)->list_lock));
     pthread_mutex_unlock(&(page->page_lock));
     return;
   }
@@ -287,6 +289,7 @@ void make_hot(struct hemem_page* page)
       assert(page->list == &nvm_locked_list);
     }
     // we have decided to stop migrating this page
+    pthread_mutex_unlock(&((page->list)->list_lock));
     pthread_mutex_unlock(&(page->page_lock));
     return;
   }
@@ -309,6 +312,7 @@ void make_hot(struct hemem_page* page)
       }
     }
     // page is already hot -- nothing to do
+    pthread_mutex_unlock(&((page->list)->list_lock));
     pthread_mutex_unlock(&(page->page_lock));
     return;
   }
@@ -369,6 +373,11 @@ void *pebs_kscand()
               if (page != NULL) {
                 in_kscand = true;
                 if (page->va != 0) {
+                  if (page->list == NULL) {
+                    // migration or cooling is happening to this page -- skip for now?
+                    continue;
+                  }
+                  pthread_mutex_lock(&((page->list)->list_lock));
                   pthread_mutex_lock(&page->page_lock);
                   LOG("%lx: recorded PEBS access: %d\n", page->va, j);
                   page->accesses[j]++;
@@ -380,6 +389,7 @@ void *pebs_kscand()
                     make_hot(page);
                   }
                   else {
+                    pthread_mutex_unlock(&((page->list)->list_lock));
                     pthread_mutex_unlock(&page->page_lock);
                   }
 
@@ -694,7 +704,7 @@ struct hemem_page* pebs_pagefault_unlocked(void)
 
 void pebs_remove_page(struct hemem_page *page)
 {
-  struct fifo_list *list;
+//  struct fifo_list *list;
 
 
   // wait for kscand thread to complete its scan
@@ -702,14 +712,16 @@ void pebs_remove_page(struct hemem_page *page)
   while (in_kscand);
  
   assert(page != NULL);
-  pthread_mutex_lock(&(page->page_lock));
+  //pthread_mutex_lock(&(page->page_lock));
 
   LOG("pebs: remove page: va: 0x%lx\n", page->va);
   
-  list = page->list;
-  assert(list != NULL);
-
-  page_list_remove_page(list, page);
+  //list = page->list;
+  while (page->list == NULL);
+  assert(page->list != NULL);
+  pthread_mutex_lock(&((page->list)->list_lock));
+  pthread_mutex_lock(&(page->page_lock));
+  page_list_remove_page(page->list, page);
   page->present = false;
   page->stop_migrating = false;
   page->hot = false;
@@ -774,9 +786,11 @@ void pebs_init(void)
 
   pthread_mutex_init(&(dram_hot_list.list_lock), NULL);
   pthread_mutex_init(&(dram_cold_list.list_lock), NULL);
+  pthread_mutex_init(&(dram_written_list.list_lock), NULL);
   pthread_mutex_init(&(dram_locked_list.list_lock), NULL);
   pthread_mutex_init(&(nvm_hot_list.list_lock), NULL);
   pthread_mutex_init(&(nvm_cold_list.list_lock), NULL);
+  pthread_mutex_init(&(nvm_written_list.list_lock), NULL);
   pthread_mutex_init(&(nvm_locked_list.list_lock), NULL);
 
   int r = pthread_create(&scan_thread, NULL, pebs_kscand, NULL);

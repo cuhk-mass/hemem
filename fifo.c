@@ -59,10 +59,10 @@ struct hemem_page *dequeue_fifo(struct fifo_list *queue)
 }
 
 
-// assumes page's page lock is held
+// assumes page's page lock is held and this list's lock is also held
 void page_list_remove_page(struct fifo_list *list, struct hemem_page *page)
 {
-  pthread_mutex_lock(&(list->list_lock));
+  //pthread_mutex_lock(&(list->list_lock));
   if (list->first == NULL) {
     assert(list->last == NULL);
     assert(list->numentries == 0);
