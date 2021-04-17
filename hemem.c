@@ -215,6 +215,7 @@ void hemem_init()
   add_page(dummy_page);
 
   uffdio_dma_channs.num_channs = NUM_CHANNS;
+  uffdio_dma_channs.size_per_dma_request = SIZE_PER_DMA_REQUEST;
   if (ioctl(uffd, UFFDIO_DMA_REQUEST_CHANNS, &uffdio_dma_channs) == -1) {
       printf("ioctl UFFDIO_API fails\n");
       exit(1);
