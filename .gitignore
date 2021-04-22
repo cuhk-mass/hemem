@@ -12,6 +12,7 @@ microbenchmarks/gups-lru
 microbenchmarks/gups-simple
 microbenchmarks/gups-small
 microbenchmarks/gups-lru-swap
+microbenchmarks/gups-pebs
 microbenchmarks/test
 microbenchmarks/test-simple
 microbenchmarks/test-lru

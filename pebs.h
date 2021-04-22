@@ -1,45 +1,31 @@
-/*
- * =====================================================================================
- *
- *       Filename:  pebs.c
- *
- *    Description:  
- *
- *        Version:  1.0
- *        Created:  07/24/20 17:41:35
- *       Revision:  none
- *       Compiler:  gcc
- *
- *         Author:  YOUR NAME (), 
- *   Organization:  
- *
- * =====================================================================================
- */
+#ifndef HEMEM_PEBS_H
+#define HEMEM_PEBS_H
 
-#ifndef PEBS_H
-#define PEBS_H
-
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <assert.h>
-#include <unistd.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <inttypes.h>
-#include <stdbool.h>
-#include <pthread.h>
-#include <asm/unistd.h>
 #include <linux/perf_event.h>
 #include <linux/hw_breakpoint.h>
-#include <sys/mman.h>
 
 #include "hemem.h"
-#include "uthash.h"
 
-#define PEBS_NPROCS 64
-#define PERF_PAGES	(1 + (1 << 8))	// Has to be == 1+2^n, here 1MB
-#define SAMPLE_PERIOD	100003
+#define PEBS_KSWAPD_INTERVAL   (10000) // in us (10ms)
+#define PEBS_KSWAPD_MIGRATE_RATE  (10UL * 1024UL * 1024UL * 1024UL) // 10GB
+#define HOT_READ_THRESHOLD     (8)
+#define HOT_WRITE_THRESHOLD    (2)
+#define MIGRATION_STOP_THRESHOLD (3)
+#define PEBS_COOLING_INTERVAL   (1000000) // 1s
+#define PEBS_COOLING_THRESHOLD  (24)
+
+#define PEBS_NPROCS 24
+#define PERF_PAGES	(1 + (1 << 10))	// Has to be == 1+2^n, here 1MB
+//#define SAMPLE_PERIOD	10007
+#define SAMPLE_PERIOD 5000
 //#define SAMPLE_FREQ	100
+
+#define SCANNING_THREAD_CPU (LAST_COPY_THREAD_CPU)
+#define MIGRATION_THREAD_CPU (SCANNING_THREAD_CPU + 1)
+#define COOLING_THREAD_CPU  (MIGRATION_THREAD_CPU + 1)
 
 struct perf_sample {
   struct perf_event_header header;
@@ -51,14 +37,17 @@ struct perf_sample {
 };
 
 enum pbuftype {
-  READ = 0,
-  WRITE = 1,
+  DRAMREAD = 0,
+  NVMREAD = 1,  
+  WRITE = 2,
   NPBUFTYPES
 };
 
-
+void *pebs_kswapd();
+struct hemem_page* pebs_pagefault(void);
+struct hemem_page* pebs_pagefault_unlocked(void);
 void pebs_init(void);
-void pebs_print(void);
-void pebs_clear(void);
+void pebs_remove_page(struct hemem_page *page);
+void pebs_stats();
 
-#endif
+#endif /*  HEMEM_LRU_MODIFIED_H  */

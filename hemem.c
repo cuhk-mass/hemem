@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
@@ -95,6 +96,17 @@ void *hemem_parallel_memcpy_thread(void *arg)
 
   assert(tid < MAX_COPY_THREADS);
   
+  cpu_set_t cpuset;
+  pthread_t thread;
+
+  thread = pthread_self();
+  CPU_ZERO(&cpuset);
+  CPU_SET(COPY_THREAD_CPU + tid, &cpuset);
+  int s = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
+  if (s != 0) {
+    perror("pthread_setaffinity_np");
+    assert(0);
+  }
 
   for (;;) {
     /* while(!pmemcpy.activate || pmemcpy.done_bitmap[tid]) { } */
@@ -147,60 +159,6 @@ static void *hemem_stats_thread()
     hemem_clear_stats();
   }
   return NULL;
-}
-
-void enqueue_fifo(struct fifo_list *queue, struct hemem_page *entry)
-{
-  //assert(page->prev == NULL);
-  //page->next = list.first;
-  //if (list.first != NULL) {
-    //assert(list.first->prev == NULL);
-    //list.first->prev = page;
-  
-  pthread_mutex_lock(&(queue->list_lock));
-  assert(entry->prev == NULL);
-  entry->next = queue->first;
-  if(queue->first != NULL) {
-    assert(queue->first->prev == NULL);
-    queue->first->prev = entry;
-  } else {
-    assert(queue->last == NULL);
-    assert(queue->numentries == 0);
-    queue->last = entry;
-  }
-
-  queue->first = entry;
-  queue->numentries++;
-  pthread_mutex_unlock(&(queue->list_lock));
-}
-
-struct hemem_page *dequeue_fifo(struct fifo_list *queue)
-{
-  pthread_mutex_lock(&(queue->list_lock));
-  struct hemem_page *ret = queue->last;
-
-  if(ret == NULL) {
-    assert(queue->numentries == 0);
-    pthread_mutex_unlock(&(queue->list_lock));
-    return ret;
-  }
-
-  queue->last = ret->prev;
-  if(queue->last != NULL) {
-    queue->last->next = NULL;
-  } else {
-    queue->first = NULL;
-  }
-
-  ret->prev = ret->next = NULL;
-  assert(queue->numentries > 0);
-  queue->numentries--;
-  pthread_mutex_unlock(&(queue->list_lock));
-
-  mem_allocated -= ret->size;
-  queue->numentries--;
-  
-  return ret;
 }
 
 void add_page(struct hemem_page *page)
@@ -474,6 +432,10 @@ static void hemem_mmap_populate(void* addr, size_t length)
     page = pagefault_unlocked();
     //pagefault(page);
 #endif
+
+    //TODO: fix for coalescing
+  for (page_boundry = (uint64_t)addr; page_boundry < (uint64_t)addr + length;) {
+    page = pagefault();
     assert(page != NULL);
 
     page->va = page_boundry; 
@@ -535,7 +497,6 @@ static void hemem_mmap_populate(void* addr, size_t length)
     page_boundry += pagesize;
   }
 
-  policy_unlock();
 }
 
 #define PAGE_ROUND_UP(x) (((x) + (HUGEPAGE_SIZE)-1) & (~((HUGEPAGE_SIZE)-1)))
@@ -788,8 +749,6 @@ int hemem_munmap(void* addr, size_t length)
   //pebs_clear();
 #endif
 
-  //policy_lock();
-
   // for each page in region specified...
   for (page_boundry = (uint64_t)addr; page_boundry < (uint64_t)addr + length;) {
     // find the page in hemem's trackign list
@@ -814,7 +773,6 @@ int hemem_munmap(void* addr, size_t length)
     }
   }
 
-  //policy_unlock();
 
   ret = libc_munmap(addr, length);
 
@@ -1280,6 +1238,18 @@ void *handle_fault()
   int nmsgs;
   int i;
 
+  cpu_set_t cpuset;
+  pthread_t thread;
+
+  thread = pthread_self();
+  CPU_ZERO(&cpuset);
+  CPU_SET(FAULT_THREAD_CPU, &cpuset);
+  int s = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
+  if (s != 0) {
+    perror("pthread_setaffinity_np");
+    assert(0);
+  }
+
   for (;;) {
     struct pollfd pollfd;
     int pollres;
@@ -1377,10 +1347,10 @@ void *handle_fault()
   }
 }
 
-/*
-uint64_t* hemem_va_to_pa(struct hemem_page *page)
+// coalesce 512 base pages starting at addr into a huge page
+// addr is the addr of the first base page to promote (must be hugepage aligned)
+void hemem_promote_pages(uint64_t addr)
 {
-<<<<<<< HEAD
   void * ret;
   struct hemem_page *hugepage;
   struct hemem_page *basepage;
@@ -1390,7 +1360,7 @@ uint64_t* hemem_va_to_pa(struct hemem_page *page)
   uint64_t hugepage_fd;
 
   LOG("promote\n");
-  
+
   // ensure addr is hugepage aligned
   assert(addr % HUGEPAGE_SIZE == 0);
 
@@ -1398,47 +1368,45 @@ uint64_t* hemem_va_to_pa(struct hemem_page *page)
   basepage = find_page(addr);
   assert(basepage != NULL);
   assert(basepage->pt == BASEP);
-=======
-  uint64_t pt_base = ((uint64_t)(cr3 & ADDRESS_MASK));
-  uint64_t pgd_entry;
-  uint64_t pud_entry;
-  uint64_t pmd_entry;
-  uint64_t pte_entry;
-  uint64_t offset;
->>>>>>> origin/wp-fault-handling
 
-  page->pgd = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pt_base);
-  if (page->pgd == MAP_FAILED) {
-    perror("hemem_va_to_pa pgd mmap:");
-    assert(0);
-  }
-  offset = (((page->va) >> HEMEM_PGDIR_SHIFT) & (HEMEM_PTRS_PER_PGD - 1));
-  assert(offset < BASEPAGE_SIZE);
-  pgd_entry = *(page->pgd + offset) ;
-  if (!((pgd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
-    LOG("hemem_va_to_pa: pgd not present: %016lx\n", pgd_entry);
-    assert(0);
+  hugepage_offset = basepage->devdax_offset;
+  in_dram = basepage->in_dram;
+  migrating = basepage->migrating;
+  hugepage_fd = (in_dram) ? dramfd : nvmfd;
+  remove_page(basepage);
+
+  // remove base pages from hemem tracking (already moved first page)
+  uint64_t basepage_addr = addr + BASEPAGE_SIZE;
+  for (uint64_t i = 0; i < 511; i++) {
+    struct hemem_page *page;
+    page = find_page(basepage_addr);
+    assert(page != NULL);
+    assert(page->pt == BASEP);
+    remove_page(page);
+    basepage_addr += BASEPAGE_SIZE;
   }
 
-  page->pud = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pgd_entry & ADDRESS_MASK);
-  if (page->pud == MAP_FAILED) {
-    perror("hemem_va_to_pa pud mmap:");
+  assert(nextfreepage < MAXPAGES);
+  hugepage = &freepages[nextfreepage++];
+
+  ret = libc_mmap((void*)addr, HUGEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE | MAP_FIXED, hugepage_fd, hugepage_offset);
+  if (ret == MAP_FAILED) {
+    perror("coalesce page mmap");
     assert(0);
   }
-  offset =  (((page->va) >> HEMEM_PUD_SHIFT) & (HEMEM_PTRS_PER_PUD - 1));
-  assert(offset < BASEPAGE_SIZE);
-  pud_entry = *(page->pud + offset);
-  if (!((pud_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
-    LOG("hemem_va_to_pa: pud not present: %016lx\n", pud_entry);
-    assert(0);
+  if (ret != (void*)addr) {
+    fprintf(stderr, "promote pages: not mapped where expected: %p != %p\n", ret, (void*)addr);
   }
 
-  page->pmd = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pud_entry & ADDRESS_MASK);
-  if (page->pmd == MAP_FAILED) {
-    perror("hemem_va_to_pa pmd mmap:");
+  struct uffdio_register uffdio_register;
+  uffdio_register.range.start = addr;
+  uffdio_register.range.len = HUGEPAGE_SIZE;
+  uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
+  uffdio_register.ioctls = 0;
+  if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
+    perror("promote pages ioctl uffdio_register");
     assert(0);
   }
-<<<<<<< HEAD
 
   hugepage->va = addr;
   hugepage->devdax_offset = hugepage_offset;
@@ -1515,14 +1483,56 @@ void hemem_demote_pages(uint64_t addr)
 
     // add base page to hemem tracking list
     enqueue_page(page);
-=======
+  }
+}
+
+/*
+uint64_t* hemem_va_to_pa(struct hemem_page *page)
+{
+  uint64_t pt_base = ((uint64_t)(cr3 & ADDRESS_MASK));
+  uint64_t pgd_entry;
+  uint64_t pud_entry;
+  uint64_t pmd_entry;
+  uint64_t pte_entry;
+  uint64_t offset;
+
+  page->pgd = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pt_base);
+  if (page->pgd == MAP_FAILED) {
+    perror("hemem_va_to_pa pgd mmap:");
+    assert(0);
+  }
+  offset = (((page->va) >> HEMEM_PGDIR_SHIFT) & (HEMEM_PTRS_PER_PGD - 1));
+  assert(offset < BASEPAGE_SIZE);
+  pgd_entry = *(page->pgd + offset) ;
+  if (!((pgd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
+    LOG("hemem_va_to_pa: pgd not present: %016lx\n", pgd_entry);
+    assert(0);
+  }
+
+  page->pud = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pgd_entry & ADDRESS_MASK);
+  if (page->pud == MAP_FAILED) {
+    perror("hemem_va_to_pa pud mmap:");
+    assert(0);
+  }
+  offset =  (((page->va) >> HEMEM_PUD_SHIFT) & (HEMEM_PTRS_PER_PUD - 1));
+  assert(offset < BASEPAGE_SIZE);
+  pud_entry = *(page->pud + offset);
+  if (!((pud_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
+    LOG("hemem_va_to_pa: pud not present: %016lx\n", pud_entry);
+    assert(0);
+  }
+
+  page->pmd = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pud_entry & ADDRESS_MASK);
+  if (page->pmd == MAP_FAILED) {
+    perror("hemem_va_to_pa pmd mmap:");
+    assert(0);
+  }
   offset = (((page->va) >> HEMEM_PMD_SHIFT) & (HEMEM_PTRS_PER_PMD - 1));
   assert(offset < BASEPAGE_SIZE);
   pmd_entry = *(page->pmd + offset);
   if (!((pmd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
     LOG("hemem_va_to_pa: pmd not present: %016lx\n", pmd_entry);
     assert(0);
->>>>>>> origin/wp-fault-handling
   }
 
   if ((pmd_entry & HEMEM_HUGEPAGE_FLAG) == HEMEM_HUGEPAGE_FLAG) {

@@ -122,63 +122,6 @@ static uint64_t lfsr_fast(uint64_t lfsr)
   return lfsr;
 }
 
-static void *do_gups_init(void *arguments)
-{
-  //printf("do_gups entered\n");
-  struct gups_args *args = (struct gups_args*)arguments;
-  char *field = (char*)(args->field);
-  uint64_t i, j;
-  uint64_t index1, index2;
-  uint64_t elt_size = args->elt_size;
-  char data[elt_size];
-  uint64_t lfsr;
-  uint64_t hot_num;
-
-  srand(0);
-  lfsr = rand();
-
-  index1 = 0;
-  index2 = 0;
-
-#ifdef HOTSPOT
-  for(i = 0; i<hotsize; i++){
-    memcpy(data, &field[i * elt_size], elt_size);
-  }
-  sleep(5);
-#endif
-
-  //for(i = hotsize; i<args->size; i+=(PAGE_SIZE/elt_size)){
-    //memcpy(data, &field[i * elt_size], elt_size);
-  //}
-  for (i = 0; i < args->iters; i++) {
-#ifdef HOTSPOT
-    hot_num = lfsr % 4 + 8;
-    for (j = 0; j < hot_num; j++) {
-      lfsr = lfsr_fast(lfsr);
-      index1 = hot_start + (lfsr % hotsize);
-      memcpy(data, &field[index1 * elt_size], elt_size);
-      memset(data, data[0] + i, elt_size);
-      memcpy(&field[index1 * elt_size], data, elt_size);
-    }
-    i += hot_num;
-#endif
-    lfsr = lfsr_fast(lfsr);
-    index2 = lfsr % (args->size);
-    memcpy(data, &field[index2 * elt_size], elt_size);
-    memset(data, data[0] + i, elt_size);
-    memcpy(&field[index2 * elt_size], data, elt_size);
-  }
-/*
-  //printf("Thread [%d] starting: field: [%llx]\n", args->tid, field);
-  for (i = 0; i < args->iters; i++) {
-    index = args->indices[i];
-    memcpy(data, &field[index * elt_size], elt_size);
-    memset(data, data[0] + i, elt_size);
-    memcpy(&field[index * elt_size], data, elt_size);
-  }
-*/
-  return 0;
-}
 char *filename = "indices1.txt";
 
 FILE *hotsetfile = NULL;
@@ -212,6 +155,9 @@ static void *prefill_hotset(void* arguments)
   return 0;
   
 }
+
+
+__thread uint64_t tmp;
 
 static void *do_gups(void *arguments)
 {
@@ -247,24 +193,14 @@ static void *do_gups(void *arguments)
     if (hot_num < 90) {
       lfsr = lfsr_fast(lfsr);
       index1 = args->hot_start + (lfsr % args->hotsize);
-      //if (move_hotset) {
-      //  offset = index1 * elt_size;
-      //  if (offset >= PAGE_NUM * GUPS_PAGE_SIZE && offset < PAGE_NUM * GUPS_PAGE_SIZE * PAGES) {
-      //    index1 += ((hot_offset_page * GUPS_PAGE_SIZE) / elt_size);
-      //  }
-      //}
       start = rdtscp();
-      if (elt_size == 8) {
-        //index1 = i % (args->size);
-        uint64_t  tmp = field[index1];
+      if (index1 < ((args->hotsize) / 2)) {
         tmp = tmp + i;
         field[index1] = tmp;
-        //field[index1] = index1 + i;
       }
       else {
-        memcpy(data, &field[index1 * elt_size], elt_size);
-        memset(data, data[0] + i, elt_size);
-        memcpy(&field[index1 * elt_size], data, elt_size);
+        tmp = field[index1];
+        tmp = tmp + i;
       }
       end = rdtscp();
       //thread_gups[args->tid]++;
@@ -274,22 +210,14 @@ static void *do_gups(void *arguments)
       lfsr = lfsr_fast(lfsr);
       index2 = lfsr % (args->size);
       start = rdtscp();
-      if (elt_size == 8) {
-        //index2 = i % (args->size);
-        uint64_t tmp = field[index2];
-        tmp = tmp + i;
-        field[index2] = tmp;
-        //field[index2] = index2 + i;
-      }
-      else {
-        memcpy(data, &field[index2 * elt_size], elt_size);
-        memset(data, data[0] + i, elt_size);
-        memcpy(&field[index2 * elt_size], data, elt_size);
-      }
+      tmp = field[index2];
+      tmp = tmp + i;
+      //field[index2] = tmp;
       end = rdtscp();
       //thread_gups[args->tid]++;
       //fprintf(indexfile, "%p\n", field +  (index2 * elt_size));
     }
+
     //fprintf(timefile, "%lu\n", end - start);
   }
 
@@ -338,11 +266,7 @@ int main(int argc, char **argv)
   expt = atoi(argv[3]);
   assert(expt > 8);
   assert(updates > 0 && (updates % 256 == 0));
-  
-  hotsize = (unsigned long)(1) << expt;
-  size = 2199023300000;
-  //size = (unsigned long)(1) << expt;
-
+  size = (unsigned long)(1) << expt;
   size -= (size % 256);
   assert(size > 0 && (size % 256 == 0));
   elt_size = atoi(argv[4]);
@@ -353,9 +277,7 @@ int main(int argc, char **argv)
   fprintf(stderr, "field of 2^%lu (%lu) bytes\n", expt, size);
   fprintf(stderr, "%ld byte element size (%ld elements total)\n", elt_size, size / elt_size);
 
-  //p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_POPULATE, -1, 0);
-  p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-  
+  p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE, -1, 0);
   if (p == MAP_FAILED) {
     perror("mmap");
     assert(0);
@@ -368,26 +290,9 @@ int main(int argc, char **argv)
   nelems = (size / threads) / elt_size; // number of elements per thread
   fprintf(stderr, "Elements per thread: %lu\n", nelems);
 
- // printf("initializing thread data\n");
-  //for (i = 0; i < threads; ++i) {
-    //ga[i] = (struct gups_args*)malloc(sizeof(struct gups_args));
-    //ga[i]->field = p + (i * nelems * elt_size);
-    //printf("Thread [%d] starting address: %llx\n", i, ga[i]->field);
-    //printf("thread %d start address: %llu\n", i, (unsigned long)td[i].field);
-    /*
-    ga[i]->indices = (unsigned long*)malloc(updates * sizeof(unsigned long));
-    if (ga[i]->indices == NULL) {
-      perror("malloc");
-      exit(1);
-    }
-
-    int r = pthread_create(&t[i], NULL, calc_indices_thread, (void*)ga[i]);
-    assert(r == 0); 
-    */
-//}
   //memset(thread_gups, 0, sizeof(thread_gups));
 
-  hotsetfile = fopen("hotsets.txt", "w");
+  hotsetfile = fopen("hotsets-writes.txt", "w");
   if (hotsetfile == NULL) {
     perror("fopen");
     assert(0);
@@ -445,10 +350,8 @@ int main(int argc, char **argv)
   // wait for worker threads
   for (i = 0; i < threads; i++) {
     int r = pthread_join(t[i], NULL);
-    if(r < 0) perror("pthead_join");
     assert(r == 0);
   }
-
   //hemem_print_stats();
 
   gettimeofday(&stoptime, NULL);
@@ -485,6 +388,7 @@ int main(int argc, char **argv)
   gups = threads * ((double)updates) / (secs * 1.0e9);
   printf("GUPS = %.10f\n", gups);
 
+  //memset(thread_gups, 0, sizeof(thread_gups));
 #if 0
 #ifdef HOTSPOT
   move_hotset = true;
@@ -494,6 +398,9 @@ int main(int argc, char **argv)
   printf("hot_offset_page: %lu\n", hot_offset_page);
 
   filename = "indices3.txt";
+
+  printf("Timing.\n");
+  gettimeofday(&starttime, NULL);
 
   // spawn gups worker threads
   for (i = 0; i < threads; i++) {
@@ -522,7 +429,7 @@ int main(int argc, char **argv)
 #endif
 #endif
 
-  FILE* pebsfile = fopen("pebs.txt", "w+");
+  FILE* pebsfile = fopen("pebs-writes.txt", "w+");
   assert(pebsfile != NULL);
   for (uint64_t addr = (uint64_t)p; addr < (uint64_t)p + size; addr += (2*1024*1024)) {
     struct hemem_page *pg = get_hemem_page(addr);
@@ -546,5 +453,4 @@ int main(int argc, char **argv)
 
   return 0;
 }
-
 

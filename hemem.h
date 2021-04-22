@@ -2,6 +2,7 @@
 
 #define HEMEM_H
 
+#define _GNU_SOURCE 
 #include <pthread.h>
 #include <stdint.h>
 #include <inttypes.h>
@@ -9,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <assert.h>
 
 #ifndef __cplusplus
 #include <stdatomic.h>
@@ -31,10 +33,11 @@ extern "C" {
 #include "bitmap.h"
 #include "uthash.h"
 #include "pebs.h"
+#include "fifo.h"
 
 //#define HEMEM_DEBUG
-#define USE_PEBS
-//#define STATS_THREAD
+//#define USE_PEBS
+#define STATS_THREAD
 
 #define MEM_BARRIER() __sync_synchronize()
 
@@ -99,34 +102,29 @@ FILE *statsf;
 //#define LOG_STATS(str, ...) while (0) {}
 
 #if defined (ALLOC_HEMEM)
-  #define pagefault(...) hemem_mmgr_pagefault(__VA_ARGS__)
-  #define pagefault_unlocked(...) hemem_mmgr_pagefault_unlocked(__VA_ARGS__)
-  #define paging_init(...) hemem_mmgr_init(__VA_ARGS__)
-  #define mmgr_remove(...) hemem_mmgr_remove_page(__VA_ARGS__)
-  #define mmgr_stats(...) hemem_mmgr_stats(__VA_ARGS__)
-  #define policy_lock(...) hemem_mmgr_lock(__VA_ARGS__)
-  #define policy_unlock(...) hemem_mmgr_unlock(__VA_ARGS__)
+  #define pagefault(...) pebs_pagefault(__VA_ARGS__)
+  #define paging_init(...) pebs_init(__VA_ARGS__)
+  #define mmgr_remove(...) pebs_remove_page(__VA_ARGS__)
+  #define mmgr_stats(...) pebs_stats(__VA_ARGS__)
 #elif defined (ALLOC_LRU)
   #define pagefault(...) lru_pagefault(__VA_ARGS__)
-  #define pagefault_unlocked(...) lru_pagefault_unlocked(__VA_ARGS__)
   #define paging_init(...) lru_init(__VA_ARGS__)
   #define mmgr_remove(...) lru_remove_page(__VA_ARGS__)
   #define mmgr_stats(...) lru_stats(__VA_ARGS__)
-  #define policy_lock(...) lru_lock(__VA_ARGS__)
-  #define policy_unlock(...) lru_unlock(__VA_ARGS__)
 #elif defined (ALLOC_SIMPLE)
   #define pagefault(...) simple_pagefault(__VA_ARGS__)
-  #define pagefault_unlocked(...) simple_pagefault(__VA_ARGS__)
   #define paging_init(...) simple_init(__VA_ARGS__)
   #define mmgr_remove(...) simple_remove_page(__VA_ARGS__)
   #define mmgr_stats(...) simple_stats(__VA_ARGS__)
-  #define policy_lock(...) while (0) {}
-  #define policy_unlock(...) while (0) {}
 #endif
 
 
 #define MAX_UFFD_MSGS	    (1)
 #define MAX_COPY_THREADS  (4)
+
+#define FAULT_THREAD_CPU  (0)
+#define COPY_THREAD_CPU   (1)
+#define LAST_COPY_THREAD_CPU (COPY_THREAD_CPU + MAX_COPY_THREADS)
 
 extern uint64_t cr3;
 extern int dramfd;
@@ -157,32 +155,23 @@ enum pagetypes {
 struct hemem_page {
   uint64_t va;
   uint64_t devdax_offset;
-  uint64_t *pgd, *pud, *pmd, *pte;
-  uint64_t *pa;
   bool in_dram;
   enum pagetypes pt;
   bool migrating;
   bool present;
   bool written;
+  bool hot;
   uint64_t naccesses;
-  pthread_mutex_t page_lock;
   uint64_t migrations_up, migrations_down;
-  uint64_t size;
-  UT_hash_handle hh;
-  void *management;
 
-  struct fifo_list base_page_list;
-  struct hemem_page *next, *prev;
-#ifdef USE_PEBS
+  bool stop_migrating;
   uint64_t accesses[NPBUFTYPES];
-  UT_hash_handle phh;     // pebs hash handle
-#endif
-};
+  uint64_t tot_accesses[NPBUFTYPES];
+  pthread_mutex_t page_lock;
 
-struct fifo_list {
-  struct hemem_page *first, *last;
-  pthread_mutex_t list_lock;
-  size_t numentries;
+  UT_hash_handle hh;
+  struct hemem_page *next, *prev;
+  struct fifo_list *list;
 };
 
 static inline uint64_t pt_to_pagesize(enum pagetypes pt)
@@ -234,9 +223,6 @@ struct hemem_page* get_hemem_page(uint64_t va);
 
 void hemem_print_stats();
 void hemem_clear_stats();
-
-void enqueue_fifo(struct fifo_list *list, struct hemem_page *page);
-struct hemem_page* dequeue_fifo(struct fifo_list *list);
 
 void hemem_start_timing(void);
 void hemem_stop_timing(void);
