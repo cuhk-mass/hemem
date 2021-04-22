@@ -24,10 +24,9 @@
 #include "hemem.h"
 #include "paging.h"
 
-extern uint64_t fastmem;
-extern uint64_t slowmem;
-
-void simple_pagefault(struct hemem_page *page);
+struct hemem_page* simple_pagefault(void);
 void simple_init(void);
+void simple_remove_page(struct hemem_page *page);
+void simple_stats();
 
 #endif // HEMEM_SIMPLE_H

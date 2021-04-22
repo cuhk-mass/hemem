@@ -8,6 +8,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 
 #ifndef __cplusplus
 #include <stdatomic.h>
@@ -28,13 +29,16 @@ extern "C" {
 #include "timer.h"
 #include "interpose.h"
 #include "bitmap.h"
+#include "uthash.h"
+#include "pebs.h"
 
 //#define HEMEM_DEBUG
-#define HEMEM_THREAD_POOL
+#define USE_PEBS
+//#define STATS_THREAD
 
 #define MEM_BARRIER() __sync_synchronize()
 
-#define NVMSIZE   (2750L * (1024L * 1024L * 1024L))
+#define NVMSIZE   (480L * (1024L * 1024L * 1024L))
 #define DRAMSIZE  (128L * (1024L * 1024L * 1024L))
 
 #define DRAMPATH  "/dev/dax0.0"
@@ -42,9 +46,9 @@ extern "C" {
 
 //#define PAGE_SIZE (1024 * 1024 * 1024)
 //#define PAGE_SIZE (2 * (1024 * 1024))
-#define BASEPAGE_SIZE (4UL * 1024UL)
-#define HUGEPAGE_SIZE (2UL * 1024UL * 1024UL)
-#define HUGEPAGE_MASK (HUGEPAGE_SIZE - 1)
+#define BASEPAGE_SIZE	  (4UL * 1024UL)
+#define HUGEPAGE_SIZE 	(2UL * 1024UL * 1024UL)
+#define GIGAPAGE_SIZE   (1024UL * 1024UL * 1024UL)
 
 #ifdef COALESCE
 #define PAGE_SIZE BASEPAGE_SIZE
@@ -56,6 +60,14 @@ extern "C" {
 #define FASTMEM_PAGES   ((DRAMSIZE) / (PAGE_SIZE))
 #define SLOWMEM_PAGES   ((NVMSIZE) / (PAGE_SIZE))
 
+#define BASEPAGE_MASK	(BASEPAGE_SIZE - 1)
+#define HUGEPAGE_MASK	(HUGEPAGE_SIZE - 1)
+#define GIGAPAGE_MASK   (GIGAPAGE_SIZE - 1)
+
+#define BASE_PFN_MASK	(BASEPAGE_MASK ^ UINT64_MAX)
+#define HUGE_PFN_MASK	(HUGEPAGE_MASK ^ UINT64_MAX)
+#define GIGA_PFN_MASK   (GIGAPAGE_MASK ^ UINT64_MAX)
+
 FILE *hememlogf;
 //#define LOG(...) fprintf(stderr, __VA_ARGS__)
 //#define LOG(...)	fprintf(hememlogf, __VA_ARGS__)
@@ -63,37 +75,72 @@ FILE *hememlogf;
 //#define LOG2(...) fprintf(stderr, __VA_ARGS__)
 #define LOG2(...) while(0) {}
 
-
 FILE *timef;
+extern bool timing;
+
+static inline void log_time(const char* fmt, ...)
+{
+  if (timing) {
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(timef, fmt, args);
+    va_end(args);
+  }
+}
+
+
+//#define LOG_TIME(str, ...) log_time(str, __VA_ARGS__)
 //#define LOG_TIME(str, ...) fprintf(timef, str, __VA_ARGS__)
 #define LOG_TIME(str, ...) while(0) {}
 
+FILE *statsf;
+#define LOG_STATS(str, ...) fprintf(stderr, str,  __VA_ARGS__)
+//#define LOG_STATS(str, ...) fprintf(statsf, str, __VA_ARGS__)
+//#define LOG_STATS(str, ...) while (0) {}
+
 #if defined (ALLOC_HEMEM)
-  #define pagefault(...) hemem_pagefault(__VA_ARGS__)
+  #define pagefault(...) hemem_mmgr_pagefault(__VA_ARGS__)
+  #define pagefault_unlocked(...) hemem_mmgr_pagefault_unlocked(__VA_ARGS__)
   #define paging_init(...) hemem_mmgr_init(__VA_ARGS__)
+  #define mmgr_remove(...) hemem_mmgr_remove_page(__VA_ARGS__)
+  #define mmgr_stats(...) hemem_mmgr_stats(__VA_ARGS__)
+  #define policy_lock(...) hemem_mmgr_lock(__VA_ARGS__)
+  #define policy_unlock(...) hemem_mmgr_unlock(__VA_ARGS__)
 #elif defined (ALLOC_LRU)
   #define pagefault(...) lru_pagefault(__VA_ARGS__)
+  #define pagefault_unlocked(...) lru_pagefault_unlocked(__VA_ARGS__)
   #define paging_init(...) lru_init(__VA_ARGS__)
+  #define mmgr_remove(...) lru_remove_page(__VA_ARGS__)
+  #define mmgr_stats(...) lru_stats(__VA_ARGS__)
+  #define policy_lock(...) lru_lock(__VA_ARGS__)
+  #define policy_unlock(...) lru_unlock(__VA_ARGS__)
 #elif defined (ALLOC_SIMPLE)
   #define pagefault(...) simple_pagefault(__VA_ARGS__)
+  #define pagefault_unlocked(...) simple_pagefault(__VA_ARGS__)
   #define paging_init(...) simple_init(__VA_ARGS__)
+  #define mmgr_remove(...) simple_remove_page(__VA_ARGS__)
+  #define mmgr_stats(...) simple_stats(__VA_ARGS__)
+  #define policy_lock(...) while (0) {}
+  #define policy_unlock(...) while (0) {}
 #endif
 
 
-#define MAX_UFFD_MSGS	    (8)
+#define MAX_UFFD_MSGS	    (1)
 #define MAX_COPY_THREADS  (4)
-
-#define KSWAPD_INTERVAL   (1000000)
 
 extern uint64_t cr3;
 extern int dramfd;
 extern int nvmfd;
 extern int devmemfd;
 extern bool is_init;
-extern _Atomic(uint64_t) missing_faults_handled;
-extern _Atomic(uint64_t) migrations_up;
-extern _Atomic(uint64_t) migrations_down;
+extern uint64_t missing_faults_handled;
+extern uint64_t migrations_up;
+extern uint64_t migrations_down;
 extern __thread bool internal_malloc;
+extern __thread bool old_internal_call;
+extern __thread bool internal_call;
+extern __thread bool internal_munmap;
+extern void* devmem_mmap;
 
 enum memtypes {
   FASTMEM = 0,
@@ -110,18 +157,31 @@ enum pagetypes {
 struct hemem_page {
   uint64_t va;
   uint64_t devdax_offset;
+  uint64_t *pgd, *pud, *pmd, *pte;
+  uint64_t *pa;
   bool in_dram;
   enum pagetypes pt;
   bool migrating;
+  bool present;
+  bool written;
+  uint64_t naccesses;
   pthread_mutex_t page_lock;
   uint64_t migrations_up, migrations_down;
   uint64_t size;
+  UT_hash_handle hh;
+  void *management;
 
+  struct fifo_list base_page_list;
   struct hemem_page *next, *prev;
+#ifdef USE_PEBS
+  uint64_t accesses[NPBUFTYPES];
+  UT_hash_handle phh;     // pebs hash handle
+#endif
 };
 
-struct page_list {
+struct fifo_list {
   struct hemem_page *first, *last;
+  pthread_mutex_t list_lock;
   size_t numentries;
 };
 
@@ -161,13 +221,25 @@ void hemem_break_huge_page(uint64_t addr, uint32_t fd, uint64_t offset, struct b
 uint64_t hemem_va_to_pa(uint64_t va);
 void hemem_clear_accessed_bit(uint64_t va);
 int hemem_get_accessed_bit(uint64_t va);
+
+void hemem_clear_bits(struct hemem_page *page);
+uint64_t hemem_get_bits(struct hemem_page *page);
+
 void hemem_tlb_shootdown(uint64_t va);
 void hemem_huge_tlb_shootdown(uint64_t va);
 
 void handle_missing_fault(uint64_t page_boundry);
 
+struct hemem_page* get_hemem_page(uint64_t va);
+
 void hemem_print_stats();
 void hemem_clear_stats();
+
+void enqueue_fifo(struct fifo_list *list, struct hemem_page *page);
+struct hemem_page* dequeue_fifo(struct fifo_list *list);
+
+void hemem_start_timing(void);
+void hemem_stop_timing(void);
 
 
 #ifdef __cplusplus

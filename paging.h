@@ -44,12 +44,12 @@
 void scan_pagetable();
 void _scan_pagetable(bool clear_flag, uint64_t flag);
 
-void clear_accessed_bit(uint64_t pa);
-uint64_t get_accessed_bit(uint64_t pa);
-void clear_dirty_bit(uint64_t pa);
-uint64_t get_dirty_bit(uint64_t pa);
-
-uint64_t va_to_pa(uint64_t va);
+//void clear_accessed_bit(uint64_t pa);
+//uint64_t get_accessed_bit(uint64_t pa);
+//void clear_dirty_bit(uint64_t pa);
+//uint64_t get_dirty_bit(uint64_t pa);
+//
+//uint64_t* va_to_pa(uint64_t va);
 
 #ifdef EXAMINE_PGTABLES
 
@@ -67,3 +67,4 @@ void *examine_pagetables();
 #endif /*EXAMINE_PGTABLES*/
 
 #endif /* HEMEM_PAGING_H */
+

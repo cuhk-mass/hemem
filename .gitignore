@@ -3,9 +3,14 @@
 *.txt
 *.patch
 *.data
+*.sh
+*.csv
+*.pdf
+*.py
 microbenchmarks/gups
 microbenchmarks/gups-lru
 microbenchmarks/gups-simple
+microbenchmarks/gups-small
 microbenchmarks/gups-lru-swap
 microbenchmarks/test
 microbenchmarks/test-simple

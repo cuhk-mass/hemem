@@ -8,7 +8,7 @@
 #include "hemem.h"
 #include "paging.h"
 
-#define HEMEM_INTERVAL 1000000ULL // in us
+#define HEMEM_INTERVAL 10000ULL // in us
 
 #define HEMEM_FASTFREE    (DRAMSIZE / 10)
 #define HEMEM_COOL_RATE   (10ULL * 1024ULL * 1024ULL * 1024ULL)
@@ -20,21 +20,28 @@
 #define SLOWMEM_HUGE_PAGES  ((NVMSIZE) / (HUGEPAGE_SIZE))
 #define SLOWMEM_BASE_PAGES  ((NVMSIZE) / (BASEPAGE_SIZE))
 
-struct hemem_node {
+struct mmgr_node {
   struct hemem_page *page;
-  bool accessed2;
+  uint64_t accesses, tot_accesses;
   uint64_t offset;
-  struct hemem_node *next, *prev;
+  struct mmgr_node *next, *prev;
+  struct mmgr_list *list;
 };
 
-struct hemem_list {
-  struct hemem_node *first;
-  struct hemem_node *last;
+struct mmgr_list {
+  struct mmgr_node *first;
+  struct mmgr_node *last;
   size_t numentries;
+  pthread_mutex_t list_lock;
 };
 
-void *hemem_kswapd(void);
-void hemem_pagefault(struct hemem_page *page);
+void *mmgr_kswapd(void);
+struct hemem_page* hemem_mmgr_pagefault();
+struct hemem_page* hemem_mmgr_pagefault_unlocked();
 void hemem_mmgr_init(void);
+void hemem_mmgr_remove_page(struct hemem_page *page);
+void hemem_mmgr_stats();
+void hemem_mmgr_lock();
+void hemem_mmgr_unlock();
 
 #endif
