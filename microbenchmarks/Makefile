@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -g -Wall -O2 
 #CFLAGS = -g3 -Wall -O0
-INCLUDES = -I/home/amanda/linux/usr/include
+INCLUDES = -I/home/wei/linux-uffd/usr/include
 LIBS = -lm -lpthread
 
 default: all
