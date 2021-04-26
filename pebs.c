@@ -774,9 +774,11 @@ void pebs_init(void)
 
   pthread_mutex_init(&(dram_hot_list.list_lock), NULL);
   pthread_mutex_init(&(dram_cold_list.list_lock), NULL);
+  pthread_mutex_init(&(dram_written_list.list_lock), NULL);
   pthread_mutex_init(&(dram_locked_list.list_lock), NULL);
   pthread_mutex_init(&(nvm_hot_list.list_lock), NULL);
   pthread_mutex_init(&(nvm_cold_list.list_lock), NULL);
+  pthread_mutex_init(&(nvm_written_list.list_lock), NULL);
   pthread_mutex_init(&(nvm_locked_list.list_lock), NULL);
 
   int r = pthread_create(&scan_thread, NULL, pebs_kscand, NULL);

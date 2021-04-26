@@ -12,10 +12,10 @@
 #define PEBS_KSWAPD_INTERVAL   (10000) // in us (10ms)
 #define PEBS_KSWAPD_MIGRATE_RATE  (10UL * 1024UL * 1024UL * 1024UL) // 10GB
 #define HOT_READ_THRESHOLD     (8)
-#define HOT_WRITE_THRESHOLD    (2)
+#define HOT_WRITE_THRESHOLD    (4)
 #define MIGRATION_STOP_THRESHOLD (3)
 #define PEBS_COOLING_INTERVAL   (1000000) // 1s
-#define PEBS_COOLING_THRESHOLD  (24)
+#define PEBS_COOLING_THRESHOLD  (18)
 
 #define PEBS_NPROCS 24
 #define PERF_PAGES	(1 + (1 << 10))	// Has to be == 1+2^n, here 1MB

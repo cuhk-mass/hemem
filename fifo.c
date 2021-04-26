@@ -10,6 +10,7 @@ void enqueue_fifo(struct fifo_list *queue, struct hemem_page *entry)
 {
   pthread_mutex_lock(&(queue->list_lock));
   assert(entry->prev == NULL);
+  assert(entry->list == NULL);
   entry->next = queue->first;
   if(queue->first != NULL) {
     assert(queue->first->prev == NULL);
@@ -34,7 +35,7 @@ struct hemem_page *dequeue_fifo(struct fifo_list *queue)
   struct hemem_page *ret = queue->last;
 
   if(ret == NULL) {
-    //assert(queue->numentries == 0);
+    assert(queue->numentries == 0);
     pthread_mutex_unlock(&(queue->list_lock));
     return ret;
   }
