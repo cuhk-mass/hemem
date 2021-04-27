@@ -669,7 +669,7 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
   page->in_dram = true;
   //page->pa = hemem_va_to_pa(page);
 
-  hemem_tlb_shootdown(page->va);
+  //hemem_tlb_shootdown(page->va);
 
   bytes_migrated += pagesize;
   
@@ -781,7 +781,7 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
   page->in_dram = false;
   //page->pa = hemem_va_to_pa(page);
 
-  hemem_tlb_shootdown(page->va);
+  //hemem_tlb_shootdown(page->va);
 
   bytes_migrated += pagesize;
 

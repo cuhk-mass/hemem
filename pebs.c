@@ -159,7 +159,7 @@ static void cool(struct fifo_list *hot, struct fifo_list *cold, struct fifo_list
     // is page still hot?
     if (p->accesses[DRAMREAD] + p->accesses[NVMREAD] < HOT_READ_THRESHOLD) {
       LOG("%lx: became cold: %lu %lu %lu\n", p->va, p->accesses[DRAMREAD], p->accesses[NVMREAD], p->accesses[WRITE]);
-      p->hot = false;
+      p->hot = p->written = false;
     }
     //else if (p->accesses[DRAMREAD] + p->accesses[NVMREAD] < HOT_READ_THRESHOLD) {
     //  p->hot = false;
@@ -214,7 +214,7 @@ void make_written(struct hemem_page* page)
 {
   assert(page != NULL);
   assert(page->va != 0);
-
+/*
   if (page->written) {
     assert(page->hot);
     if (page->in_dram) {
@@ -258,6 +258,18 @@ void make_written(struct hemem_page* page)
       enqueue_fifo(&nvm_written_list, page);
     } 
   }
+*/
+  while (page->migrating);
+  if (page->in_dram) {
+    page_list_remove_page(page->list, page);
+    page->written = page->hot = true;
+    enqueue_fifo(&dram_written_list, page);
+  }
+  else {
+    page_list_remove_page(page->list, page);
+    page->written = page->hot = true;
+    enqueue_fifo(&nvm_written_list, page);
+  }
   LOG("%lx: became written: %lu %lu %lu\n", page->va, page->accesses[DRAMREAD], page->accesses[NVMREAD], page->accesses[WRITE]);
 }
 
@@ -267,7 +279,7 @@ void make_hot(struct hemem_page* page)
 {
   assert(page != NULL);
   assert(page->va != 0);
-
+/* 
   if (page->hot) {
     if (page->in_dram) {
       if (page->written) {
@@ -305,6 +317,20 @@ void make_hot(struct hemem_page* page)
     page->hot = true;
     enqueue_fifo(&nvm_hot_list, page);
   }
+*/
+
+  while (page->migrating);
+  if (page->in_dram) {
+    page_list_remove_page(page->list, page);
+    page->hot = true;
+    enqueue_fifo(&dram_hot_list, page);
+  }
+  else {
+    page_list_remove_page(page->list, page);
+    page->hot = true;
+    enqueue_fifo(&nvm_hot_list, page);
+  }
+  
   LOG("%lx: became hot: %lu %lu %lu\n", page->va, page->accesses[DRAMREAD], page->accesses[NVMREAD], page->accesses[WRITE]);
 }
 
@@ -408,10 +434,8 @@ static void pebs_migrate_down(struct hemem_page *page, uint64_t offset)
 
   gettimeofday(&start, NULL);
 
-  page->migrating = true;
   hemem_wp_page(page, true);
   hemem_migrate_down(page, offset);
-  page->migrating = false; 
 
   gettimeofday(&end, NULL);
   LOG_TIME("migrate_down: %f s\n", elapsed(&start, &end));
@@ -423,10 +447,8 @@ static void pebs_migrate_up(struct hemem_page *page, uint64_t offset)
 
   gettimeofday(&start, NULL);
 
-  page->migrating = true;
   hemem_wp_page(page, true);
   hemem_migrate_up(page, offset);
-  page->migrating = false;
 
   gettimeofday(&end, NULL);
   LOG_TIME("migrate_up: %f s\n", elapsed(&start, &end));
@@ -480,6 +502,7 @@ void *pebs_kswapd()
         from_written_list = true;
       }
 
+      p->migrating = true;
       //pthread_mutex_lock(&(p->page_lock));
 
       for (tries = 0; tries < 2; tries++) {
@@ -490,6 +513,7 @@ void *pebs_kswapd()
           //pthread_mutex_lock(&(np->page_lock));
 
           assert(!(np->present));
+          assert(np->in_dram);
 
           LOG("%lx: cold %lu -> hot %lu\t slowmem.hot: %lu, slowmem.cold: %lu\t fastmem.hot: %lu, fastmem.cold: %lu\n",
                 p->va, p->devdax_offset, np->devdax_offset, nvm_hot_list.numentries, nvm_cold_list.numentries, dram_hot_list.numentries, dram_cold_list.numentries);
@@ -500,7 +524,7 @@ void *pebs_kswapd()
           np->in_dram = false;
           np->present = false;
           np->stop_migrating = false;
-          np->hot = false;
+          np->hot = np->written =  false;
           for (int i = 0; i < NPBUFTYPES; i++) {
             np->accesses[i] = 0;
             np->tot_accesses[i] = 0;
@@ -515,6 +539,7 @@ void *pebs_kswapd()
           enqueue_fifo(&nvm_free_list, np);
 
           migrated_bytes += pt_to_pagesize(p->pt);
+          p->migrating = false;
 
           //pthread_mutex_unlock(&(np->page_lock));
 
@@ -535,7 +560,8 @@ void *pebs_kswapd()
           goto out;
         }
         assert(cp != NULL);
-         
+        
+        cp->migrating = true;
         //pthread_mutex_lock(&(cp->page_lock));
 
         // find a free nvm page to move the cold dram page to
@@ -543,6 +569,7 @@ void *pebs_kswapd()
         if (np != NULL) {
           //pthread_mutex_lock(&(np->page_lock));
           assert(!(np->present));
+          assert(!(np->in_dram));
 
           LOG("%lx: hot %lu -> cold %lu\t slowmem.hot: %lu, slowmem.cold: %lu\t fastmem.hot: %lu, fastmem.cold: %lu\n",
                 cp->va, cp->devdax_offset, np->devdax_offset, nvm_hot_list.numentries, nvm_cold_list.numentries, dram_hot_list.numentries, dram_cold_list.numentries);
@@ -553,7 +580,7 @@ void *pebs_kswapd()
           np->in_dram = true;
           np->present = false;
           np->stop_migrating = false;
-          np->hot = false;
+          np->hot = np->written = false;
           for (int i = 0; i < NPBUFTYPES; i++) {
             np->accesses[i] = 0;
             np->tot_accesses[i] = 0;
@@ -561,6 +588,7 @@ void *pebs_kswapd()
 
           enqueue_fifo(&nvm_cold_list, cp);
           enqueue_fifo(&dram_free_list, np);
+          cp->migrating = false;
 
           //pthread_mutex_unlock(&(np->page_lock));
         }
@@ -674,7 +702,7 @@ void pebs_remove_page(struct hemem_page *page)
   page_list_remove_page(list, page);
   page->present = false;
   page->stop_migrating = false;
-  page->hot = false;
+  page->hot = page->written = false;
   for (int i = 0; i < NPBUFTYPES; i++) {
     page->accesses[i] = 0;
     page->tot_accesses[i] = 0;
