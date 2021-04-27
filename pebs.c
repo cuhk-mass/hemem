@@ -141,11 +141,11 @@ static void cool(struct fifo_list *hot, struct fifo_list *cold, struct fifo_list
   bookmark = NULL;
   p = dequeue_fifo(hot);
   while (p != NULL) {
-    //pthread_mutex_lock(&p->page_lock);
+    pthread_mutex_lock(&p->page_lock);
     if (p == bookmark) {
       // we've seen this page before, so put it back and bail out
       enqueue_fifo(hot, p);
-      //pthread_mutex_unlock(&p->page_lock);
+      pthread_mutex_unlock(&p->page_lock);
       break;
     }
 
@@ -178,7 +178,7 @@ static void cool(struct fifo_list *hot, struct fifo_list *cold, struct fifo_list
       enqueue_fifo(cold, p);
     }
 
-    //pthread_mutex_unlock(&p->page_lock);
+    pthread_mutex_unlock(&p->page_lock);
     p = dequeue_fifo(hot);
   }
 }
