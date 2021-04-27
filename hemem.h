@@ -37,13 +37,13 @@ extern "C" {
 //#define USE_PEBS
 #define STATS_THREAD
 
-#define USE_DMA
-#define NUM_CHANNS 2
-#define SIZE_PER_DMA_REQUEST (1024*1024)
+//#define USE_DMA
+//#define NUM_CHANNS 2
+//#define SIZE_PER_DMA_REQUEST (1024*1024)
 
 #define MEM_BARRIER() __sync_synchronize()
 
-#define NVMSIZE   (240L * (1024L * 1024L * 1024L))
+#define NVMSIZE   (480L * (1024L * 1024L * 1024L))
 #define DRAMSIZE  (128L * (1024L * 1024L * 1024L))
 
 #define DRAMPATH  "/dev/dax0.0"

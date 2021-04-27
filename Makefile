@@ -2,9 +2,9 @@ CC = gcc
 CFLAGS = -g -Wall -O2 -fPIC
 #CFLAGS = -g3 -Wall -O0 -fPIC
 LDFLAGS = -shared
-INCLUDES = -I/home/wei/linux-uffd/linux/usr/include
+INCLUDES = -I/home/amanda/linux/usr/include
 LIBS = -lm -lpthread
-HEMEM_LIBS = $(LIBS) -ldl -lsyscall_intercept -L/home/wei/Hoard/src -lhoard
+HEMEM_LIBS = $(LIBS) -ldl -lsyscall_intercept -L/home/amanda/Hoard/src -lhoard
 
 default: all
 

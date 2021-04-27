@@ -5,7 +5,6 @@
 #include "fifo.h"
 
 
-// assumes entry's page_lock is held, releases page_lock upon completion
 void enqueue_fifo(struct fifo_list *queue, struct hemem_page *entry)
 {
   pthread_mutex_lock(&(queue->list_lock));
@@ -25,10 +24,8 @@ void enqueue_fifo(struct fifo_list *queue, struct hemem_page *entry)
   entry->list = queue;
   queue->numentries++;
   pthread_mutex_unlock(&(queue->list_lock));
-  pthread_mutex_unlock(&(entry->page_lock));
 }
 
-// locks returned page's page_lock upon completion
 struct hemem_page *dequeue_fifo(struct fifo_list *queue)
 {
   pthread_mutex_lock(&(queue->list_lock));
@@ -39,9 +36,6 @@ struct hemem_page *dequeue_fifo(struct fifo_list *queue)
     pthread_mutex_unlock(&(queue->list_lock));
     return ret;
   }
-
-  pthread_mutex_lock(&(ret->page_lock));
-  //pthread_mutex_lock(&(queue->list_lock));
 
   queue->last = ret->prev;
   if(queue->last != NULL) {
@@ -60,7 +54,6 @@ struct hemem_page *dequeue_fifo(struct fifo_list *queue)
 }
 
 
-// assumes page's page lock is held
 void page_list_remove_page(struct fifo_list *list, struct hemem_page *page)
 {
   pthread_mutex_lock(&(list->list_lock));
