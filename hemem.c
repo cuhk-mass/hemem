@@ -839,11 +839,11 @@ void handle_wp_fault(uint64_t page_boundry)
 
   LOG("hemem: handle_wp_fault: waiting for migration for page %lx\n", page_boundry);
 
-  pthread_mutex_lock(&(page->page_lock));
+  //pthread_mutex_lock(&(page->page_lock));
 
-  assert(!page->migrating);
+  while (page->migrating);
 
-  pthread_mutex_unlock(&(page->page_lock));
+  //pthread_mutex_unlock(&(page->page_lock));
 
   internal_call = false;
 }

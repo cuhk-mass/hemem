@@ -151,7 +151,7 @@ struct hemem_page {
   uint64_t devdax_offset;
   bool in_dram;
   enum pagetypes pt;
-  bool migrating;
+  volatile bool migrating;
   bool present;
   bool written;
   bool hot;
