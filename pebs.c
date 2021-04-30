@@ -552,9 +552,11 @@ void *pebs_kswapd()
           // all dram pages are hot, so put it back in list we got it from
           if (from_written_list) {
             enqueue_fifo(&nvm_written_list, p);
+            p->migrating = false;
           }
           else {
             enqueue_fifo(&nvm_hot_list, p);
+            p->migrating = false;
           }
           //pthread_mutex_unlock(&(p->page_lock));
           goto out;
