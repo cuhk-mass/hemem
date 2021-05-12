@@ -38,6 +38,7 @@ uint64_t unthrottle_cnt = 0;
 uint64_t locked_pages = 0;
 
 static struct perf_event_mmap_page *perf_page[PEBS_NPROCS][NPBUFTYPES];
+int pfd[PEBS_NPROCS][NPBUFTYPES];
 
 static volatile bool needs_cooling = false;
 
@@ -52,7 +53,7 @@ static long perf_event_open(struct perf_event_attr *hw_event, pid_t pid,
   return ret;
 }
 
-static struct perf_event_mmap_page* perf_setup(__u64 config, __u64 config1, __u64 cpu)
+static struct perf_event_mmap_page* perf_setup(__u64 config, __u64 config1, __u64 cpu, __u64 type)
 {
   struct perf_event_attr attr;
 
@@ -74,15 +75,15 @@ static struct perf_event_mmap_page* perf_setup(__u64 config, __u64 config1, __u6
   attr.exclude_callchain_user = 1;
   attr.precise_ip = 1;
 
-  int pfd = perf_event_open(&attr, -1, cpu, -1, 0);
-  if(pfd == -1) {
+  pfd[cpu][type] = perf_event_open(&attr, -1, cpu, -1, 0);
+  if(pfd[cpu][type] == -1) {
     perror("perf_event_open");
   }
-  assert(pfd != -1);
+  assert(pfd[cpu][type] != -1);
 
   size_t mmap_size = sysconf(_SC_PAGESIZE) * PERF_PAGES;
   /* printf("mmap_size = %zu\n", mmap_size); */
-  struct perf_event_mmap_page *p = mmap(NULL, mmap_size, PROT_READ | PROT_WRITE, MAP_SHARED, pfd, 0);
+  struct perf_event_mmap_page *p = mmap(NULL, mmap_size, PROT_READ | PROT_WRITE, MAP_SHARED, pfd[cpu][type], 0);
   if(p == MAP_FAILED) {
     perror("mmap");
   }
@@ -569,9 +570,9 @@ void pebs_init(void)
   for (int i = 0; i < PEBS_NPROCS; i++) {
     //perf_page[i][READ] = perf_setup(0x1cd, 0x4, i);  // MEM_TRANS_RETIRED.LOAD_LATENCY_GT_4
     //perf_page[i][READ] = perf_setup(0x81d0, 0, i);   // MEM_INST_RETIRED.ALL_LOADS
-    perf_page[i][DRAMREAD] = perf_setup(0x1d3, 0, i);      // MEM_LOAD_L3_MISS_RETIRED.LOCAL_DRAM
-    perf_page[i][NVMREAD] = perf_setup(0x80d1, 0, i);     // MEM_LOAD_RETIRED.LOCAL_PMM
-    perf_page[i][WRITE] = perf_setup(0x82d0, 0, i);    // MEM_INST_RETIRED.ALL_STORES
+    perf_page[i][DRAMREAD] = perf_setup(0x1d3, 0, i, DRAMREAD);      // MEM_LOAD_L3_MISS_RETIRED.LOCAL_DRAM
+    perf_page[i][NVMREAD] = perf_setup(0x80d1, 0, i, NVMREAD);     // MEM_LOAD_RETIRED.LOCAL_PMM
+    perf_page[i][WRITE] = perf_setup(0x82d0, 0, i, WRITE);    // MEM_INST_RETIRED.ALL_STORES
     //perf_page[i][WRITE] = perf_setup(0x12d0, 0, i);   // MEM_INST_RETIRED.STLB_MISS_STORES
   }
 
@@ -621,6 +622,16 @@ void pebs_init(void)
 
   LOG("pebs_init: finished\n");
 
+}
+
+void pebs_shutdown()
+{
+  for (int i = 0; i < PEBS_NPROCS; i++) {
+    for (int j = 0; j < NPBUFTYPES; j++) {
+      ioctl(pfd[i][j], PERF_EVENT_IOC_DISABLE, 0);
+      //munmap(perf_page[i][j], sysconf(_SC_PAGESIZE) * PERF_PAGES);
+    }
+  }
 }
 
 void pebs_stats()

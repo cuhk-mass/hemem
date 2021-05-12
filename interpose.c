@@ -120,6 +120,11 @@ static __attribute__((constructor)) void init(void)
   hemem_init();
 }
 
+static __attribute__((destructor)) void hemem_shutdown(void)
+{
+  hemem_stop();
+}
+
 /* 
 void* malloc(size_t size)
 {

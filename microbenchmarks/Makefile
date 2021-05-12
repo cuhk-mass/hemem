@@ -6,7 +6,7 @@ LIBS = -lm -lpthread
 
 default: all
 
-all: gups-pebs gups-simple gups-lru gups-lru-swap test-simple test-lru test gups-small #gups
+all: gups-pebs gups-simple gups-lru gups-lru-swap test-simple test-lru test gups-small gups-hotset-move gups
 
 gups-small: gups-small.o
 	$(CC) $(CFLAGS) $(INCLUDES) -o gups-small gups-small.o ../timer.o $(LIBS)
@@ -16,6 +16,9 @@ gups: gups.o
 
 gups-pebs: gups.o
 	$(CC) $(CFLAGS) $(INCLUDES) -o gups-pebs gups.o zipf.o $(LIBS) -L../ -lhemem
+
+gups-hotset-move: gups-hotset-move.o
+	$(CC) $(CFLAGS) $(INCLUDES) -o gups-hotset-move gups-hotset-move.o zipf.o $(LIBS) -L../ -lhemem
 
 gups-simple: gups.o
 	$(CC) $(CFLAGS) $(INCLUDES) -o gups-simple gups.o zipf.o $(LIBS) -L../ -lhemem-simple
@@ -43,6 +46,9 @@ test.o: test.c
 
 gups-small.o: gups-small.c 
 	$(CC) $(CFLAGS) $(INCLUDES) -c gups-small.c
+
+gups-hotset-move.o: gups-hotset-move.c zipf.c gups.h
+	$(CC) $(CFLAGS) $(INCLUDES) -c gups-hotset-move.c zipf.c
 
 clean:
 	$(RM) *.o gups gups-simple gups-lru gups-lru-swap test test-simple test-lru

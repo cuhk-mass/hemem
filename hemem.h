@@ -34,7 +34,12 @@ extern "C" {
 
 //#define HEMEM_DEBUG
 //#define USE_PEBS
-#define STATS_THREAD
+//#define STATS_THREAD
+
+
+#define USE_DMA
+#define NUM_CHANNS 2
+#define SIZE_PER_DMA_REQUEST (1024*1024)
 
 #define MEM_BARRIER() __sync_synchronize()
 
@@ -95,16 +100,19 @@ FILE *statsf;
   #define paging_init(...) pebs_init(__VA_ARGS__)
   #define mmgr_remove(...) pebs_remove_page(__VA_ARGS__)
   #define mmgr_stats(...) pebs_stats(__VA_ARGS__)
+  #define policy_shutdown(...) pebs_shutdown(__VA_ARGS__)
 #elif defined (ALLOC_LRU)
   #define pagefault(...) lru_pagefault(__VA_ARGS__)
   #define paging_init(...) lru_init(__VA_ARGS__)
   #define mmgr_remove(...) lru_remove_page(__VA_ARGS__)
   #define mmgr_stats(...) lru_stats(__VA_ARGS__)
+  #define policy_shutdown(...) while(0) {}
 #elif defined (ALLOC_SIMPLE)
   #define pagefault(...) simple_pagefault(__VA_ARGS__)
   #define paging_init(...) simple_init(__VA_ARGS__)
   #define mmgr_remove(...) simple_remove_page(__VA_ARGS__)
   #define mmgr_stats(...) simple_stats(__VA_ARGS__)
+  #define policy_shutdown(...) while(0) {}
 #endif
 
 
@@ -176,6 +184,7 @@ static inline enum pagetypes pagesize_to_pt(uint64_t pagesize)
 }
 
 void hemem_init();
+void hemem_stop();
 void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
 int hemem_munmap(void* addr, size_t length);
 void *handle_fault();

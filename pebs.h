@@ -15,10 +15,10 @@
 #define HOT_WRITE_THRESHOLD    (8)
 #define MIGRATION_STOP_THRESHOLD (3)
 #define PEBS_COOLING_INTERVAL   (1000000) // 1s
-#define PEBS_COOLING_THRESHOLD  (24)
+#define PEBS_COOLING_THRESHOLD  (18)
 
-#define PEBS_NPROCS 64
-#define PERF_PAGES	(1 + (1 << 9))	// Has to be == 1+2^n, here 1MB
+#define PEBS_NPROCS 24
+#define PERF_PAGES	(1 + (1 << 16))	// Has to be == 1+2^n, here 1MB
 //#define SAMPLE_PERIOD	10007
 #define SAMPLE_PERIOD 5003
 //#define SAMPLE_FREQ	100
@@ -45,5 +45,6 @@ struct hemem_page* pebs_pagefault_unlocked(void);
 void pebs_init(void);
 void pebs_remove_page(struct hemem_page *page);
 void pebs_stats();
+void pebs_shutdown();
 
 #endif /*  HEMEM_LRU_MODIFIED_H  */

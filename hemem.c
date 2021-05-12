@@ -46,14 +46,16 @@ uint64_t missing_faults_handled = 0;
 uint64_t migrations_up = 0;
 uint64_t migrations_down = 0;
 uint64_t bytes_migrated = 0;
-uint64_t pmemcpys = 0;
+uint64_t memcpys = 0;
 uint64_t memsets = 0;
 uint64_t migration_waits = 0;
 
 static bool cr3_set = false;
 uint64_t cr3 = 0;
 
+#ifndef USE_DMA
 pthread_t copy_threads[MAX_COPY_THREADS];
+#endif
 pthread_t stats_thread;
 
 struct hemem_page *pages = NULL;
@@ -66,6 +68,7 @@ void *nvm_devdax_mmap;
 __thread bool internal_call = false;
 __thread bool old_internal_call = false;
 
+#ifndef USE_DMA
 struct pmemcpy {
   pthread_mutex_t lock;
   pthread_barrier_t barrier;
@@ -93,7 +96,7 @@ void *hemem_parallel_memcpy_thread(void *arg)
     int r = pthread_barrier_wait(&pmemcpy.barrier);
     assert(r == 0 || r == PTHREAD_BARRIER_SERIAL_THREAD);
     if (tid == 0) {
-      pmemcpys++;
+      memcpys++;
     }
 
     // grab data out of shared struct
@@ -128,7 +131,7 @@ void *hemem_parallel_memcpy_thread(void *arg)
   }
   return NULL;
 }
-
+#endif
 
 static void *hemem_stats_thread()
 {
@@ -169,6 +172,9 @@ struct hemem_page* find_page(uint64_t va)
 void hemem_init()
 {
   struct uffdio_api uffdio_api;
+#ifdef USE_DMA
+  struct uffdio_dma_channs uffdio_dma_channs;
+#endif
 
   internal_call = true;
 /*
@@ -258,7 +264,8 @@ void hemem_init()
     //perror("devmem mmap");
     //assert(0);
   //}
- 
+
+#ifndef USE_DMA 
   uint64_t i;
   int r = pthread_barrier_init(&pmemcpy.barrier, NULL, MAX_COPY_THREADS + 1);
   assert(r == 0);
@@ -270,6 +277,7 @@ void hemem_init()
     s = pthread_create(&copy_threads[i], NULL, hemem_parallel_memcpy_thread, (void*)i);
     assert(s == 0);
   }
+#endif
 
 #ifdef STATS_THREAD
   s = pthread_create(&stats_thread, NULL, hemem_stats_thread, NULL);
@@ -287,11 +295,38 @@ void hemem_init()
   struct hemem_page *dummy_page = calloc(1, sizeof(struct hemem_page));
   add_page(dummy_page);
 
+#ifdef USE_DMA
+  uffdio_dma_channs.num_channs = NUM_CHANNS;
+  uffdio_dma_channs.size_per_dma_request = SIZE_PER_DMA_REQUEST;
+  if (ioctl(uffd, UFFDIO_DMA_REQUEST_CHANNS, &uffdio_dma_channs) == -1) {
+      printf("ioctl UFFDIO_API fails\n");
+      exit(1);
+  }
+#endif
+
   LOG("hemem_init: finished\n");
 
   internal_call = false;
 }
 
+
+void hemem_stop()
+{
+#ifdef USE_DMA
+  struct uffdio_dma_channs uffdio_dma_channs;
+  uffdio_dma_channs.num_channs = NUM_CHANNS;
+  uffdio_dma_channs.size_per_dma_request = SIZE_PER_DMA_REQUEST;
+  if (ioctl(uffd, UFFDIO_DMA_RELEASE_CHANNS, &uffdio_dma_channs) == -1) {
+    perror("ioctl UFFDIO_RELEASE_CHANNS");
+    assert(0);
+  }
+#endif
+
+  policy_shutdown();
+
+}
+
+#ifndef USE_DMA
 static void hemem_parallel_memset(void* addr, int c, size_t n)
 {
   pthread_mutex_lock(&(pmemcpy.lock));
@@ -307,6 +342,7 @@ static void hemem_parallel_memset(void* addr, int c, size_t n)
   
   pthread_mutex_unlock(&(pmemcpy.lock));
 }
+#endif
 
 static void hemem_mmap_populate(void* addr, size_t length)
 {
@@ -333,7 +369,11 @@ static void hemem_mmap_populate(void* addr, size_t length)
     pagesize = pt_to_pagesize(page->pt);
 
     tmpaddr = (in_dram ? dram_devdax_mmap + offset : nvm_devdax_mmap + offset);
+#ifndef USE_DMA
     hemem_parallel_memset(tmpaddr, 0, pagesize);
+#else
+    memset(tmpaddr, 0, pagesize);
+#endif
     memsets++;
   
     // now that we have an offset determined via the policy algorithm, actually map
@@ -495,6 +535,7 @@ int hemem_munmap(void* addr, size_t length)
   return ret;
 }
 
+#ifndef USE_DMA
 static void hemem_parallel_memcpy(void *dst, void *src, size_t length)
 {
   /* uint64_t i; */
@@ -533,6 +574,7 @@ static void hemem_parallel_memcpy(void *dst, void *src, size_t length)
   /*   pmemcpy.done_bitmap[i] = false; */
   /* } */
 }
+#endif
 
 void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
 {
@@ -543,6 +585,9 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
   struct timeval start, end;
   uint64_t old_addr_offset, new_addr_offset;
   uint64_t pagesize;
+#ifdef USE_DMA
+  struct uffdio_dma_copy uffdio_dma_copy;
+#endif
 
   internal_call = true;
 
@@ -569,7 +614,20 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
 
   // copy page from faulting location to temp location
   gettimeofday(&start, NULL);
+#ifdef USE_DMA
+  uffdio_dma_copy.src[0] = (uint64_t)old_addr;
+  uffdio_dma_copy.dst[0] = (uint64_t)new_addr;
+  uffdio_dma_copy.len[0] = pagesize;
+  uffdio_dma_copy.count = 1;
+  uffdio_dma_copy.mode = 0;
+  uffdio_dma_copy.copy = 0;
+  if (ioctl(uffd, UFFDIO_DMA_COPY, &uffdio_dma_copy) == -1) {
+    LOG("hemem_migrate_up, ioctl dma_copy fails for src:%lly, dst:%llu\n", old_addr, new_addr); 
+    assert(false);
+  }
+#else
   hemem_parallel_memcpy(new_addr, old_addr, pagesize);
+#endif
   gettimeofday(&end, NULL);
   LOG_TIME("memcpy_to_dram: %f s\n", elapsed(&start, &end));
  
@@ -641,6 +699,9 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
   struct timeval start, end;
   uint64_t old_addr_offset, new_addr_offset;
   uint64_t pagesize;
+#ifdef USE_DMA
+  struct uffdio_dma_copy uffdio_dma_copy;
+#endif
 
   internal_call = true;
 
@@ -666,7 +727,20 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
 
   // copy page from faulting location to temp location
   gettimeofday(&start, NULL);
+#ifdef USE_DMA
+  uffdio_dma_copy.src[0] = (uint64_t)old_addr;
+  uffdio_dma_copy.dst[0] = (uint64_t)new_addr;
+  uffdio_dma_copy.len[0] = pagesize;
+  uffdio_dma_copy.count = 1;
+  uffdio_dma_copy.mode = 0;
+  uffdio_dma_copy.copy = 0;
+  if (ioctl(uffd, UFFDIO_DMA_COPY, &uffdio_dma_copy) == -1) {
+    LOG("hemem_migrate_down, ioctl dma_copy fails for src:%lly, dst:%llu\n", old_addr, new_addr); 
+    assert(false);
+  }
+#else
   hemem_parallel_memcpy(new_addr, old_addr, pagesize);
+#endif
   gettimeofday(&end, NULL);
   LOG_TIME("memcpy_to_nvm: %f s\n", elapsed(&start, &end));
 
@@ -827,7 +901,11 @@ void handle_missing_fault(uint64_t page_boundry)
 
   tmp_offset = (in_dram) ? dram_devdax_mmap + offset : nvm_devdax_mmap + offset;
 
+#ifdef USE_DMA
+  memset(tmp_offset, 0, pagesize);
+#else
   hemem_parallel_memset(tmp_offset, 0, pagesize);
+#endif
   memsets++;
 
 #ifdef HEMEM_DEBUG
