@@ -187,7 +187,6 @@ static void *do_gups(void *arguments)
 
   for (i = 0; i < args->iters; i++) {
     hot_num = lfsr_fast(lfsr) % 100;
-#if 0
     if (hot_num < 90) {
       lfsr = lfsr_fast(lfsr);
       index1 = args->hot_start + (lfsr % args->hotsize);
@@ -215,7 +214,6 @@ static void *do_gups(void *arguments)
       //fprintf(indexfile, "%p\n", field + (index1* elt_size));
     }
     else {
-#endif
       lfsr = lfsr_fast(lfsr);
       index2 = lfsr % (args->size);
       start = rdtscp();
@@ -234,7 +232,7 @@ static void *do_gups(void *arguments)
       end = rdtscp();
       //thread_gups[args->tid]++;
       //fprintf(indexfile, "%p\n", field +  (index2 * elt_size));
-    //}
+    }
 
     //fprintf(timefile, "%lu\n", end - start);
   }
