@@ -6,7 +6,7 @@
 #include "spsc-ring.h"
 
 struct ring_buf_t {
-	uint8_t * buffer;
+	uint64_t** buffer;
 	size_t head;
 	size_t tail;
 	size_t capacity;
@@ -40,7 +40,7 @@ static void retreat_pointer(ring_handle_t rbuf)
 	}
 }
 
-ring_handle_t ring_buf_init(uint8_t* buffer, size_t size)
+ring_handle_t ring_buf_init(uint64_t** buffer, size_t size)
 {
 	assert(buffer && size);
 
@@ -99,7 +99,7 @@ size_t ring_buf_capacity(ring_handle_t rbuf)
 	return rbuf->capacity;
 }
 
-void ring_buf_put(ring_handle_t rbuf, uint8_t data)
+void ring_buf_put(ring_handle_t rbuf, uint64_t* data)
 {
 	assert(rbuf && rbuf->buffer);
 
@@ -108,7 +108,7 @@ void ring_buf_put(ring_handle_t rbuf, uint8_t data)
     advance_pointer(rbuf);
 }
 
-int ring_buf_put2(ring_handle_t rbuf, uint8_t data)
+int ring_buf_put2(ring_handle_t rbuf, uint64_t* data)
 {
     int r = -1;
 
@@ -124,21 +124,20 @@ int ring_buf_put2(ring_handle_t rbuf, uint8_t data)
     return r;
 }
 
-int ring_buf_get(ring_handle_t rbuf, uint8_t * data)
+uint64_t* ring_buf_get(ring_handle_t rbuf)
 {
-    assert(rbuf && data && rbuf->buffer);
-
-    int r = -1;
+    assert(rbuf && rbuf->buffer);
+    uint64_t* cur_read;
 
     if(!ring_buf_empty(rbuf))
     {
-        *data = rbuf->buffer[rbuf->tail];
+        cur_read = rbuf->buffer[rbuf->tail];
         retreat_pointer(rbuf);
 
-        r = 0;
+        return cur_read;
     }
 
-    return r;
+    return NULL;
 }
 
 bool ring_buf_empty(ring_handle_t rbuf)

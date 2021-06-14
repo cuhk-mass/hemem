@@ -847,12 +847,12 @@ void handle_wp_fault(uint64_t page_boundry)
 
   LOG("hemem: handle_wp_fault: waiting for migration for page %lx\n", page_boundry);
 
+#if 0
   pthread_mutex_lock(&(page->page_lock));
-
   assert(!page->migrating);
-
   pthread_mutex_unlock(&(page->page_lock));
 
+#endif
   internal_call = false;
 }
 
