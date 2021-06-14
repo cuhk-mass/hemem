@@ -853,6 +853,7 @@ void handle_wp_fault(uint64_t page_boundry)
   pthread_mutex_unlock(&(page->page_lock));
 
 #endif
+  while (page->migrating);
   internal_call = false;
 }
 

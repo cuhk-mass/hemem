@@ -343,22 +343,37 @@ void *pebs_kswapd()
   struct timeval start, end;
   uint64_t migrated_bytes;
   uint64_t old_offset;
+  int num_ring_reqs;
+  struct hemem_page* page = NULL;
   
   for (;;) {
-    usleep(KSWAPD_INTERVAL);
+    //usleep(KSWAPD_INTERVAL);
 
     gettimeofday(&start, NULL);
 
-    while(!ring_buf_empty(hot_ring))
+    num_ring_reqs = 0;
+    while(!ring_buf_empty(hot_ring) && num_ring_reqs < RING_REQS_THRESHOLD)
 	{
-        struct hemem_page* page;
 		page = ring_buf_get(hot_ring);
         if (page == NULL) {
             continue;
         }
 
+        num_ring_reqs++;
         make_hot(page);
 	}
+
+    num_ring_reqs = 0;
+    while(!ring_buf_empty(cold_ring) && num_ring_reqs < RING_REQS_THRESHOLD)
+    {
+        page = ring_buf_get(cold_ring);
+        if (page == NULL) {
+            continue;
+        }
+
+        num_ring_reqs++;
+        make_cold(page);
+    }
 
     // move each hot NVM page to DRAM
     for (migrated_bytes = 0; migrated_bytes < KSWAPD_MIGRATE_RATE;) {
@@ -450,17 +465,6 @@ void *pebs_kswapd()
         }
         assert(np != NULL);
       }
-    }
-
-    while(!ring_buf_empty(cold_ring))
-    {
-        struct hemem_page* page;
-        page = ring_buf_get(cold_ring);
-        if (page == NULL) {
-            continue;
-        }
-
-        make_cold(page);
     }
 
     partial_cool(&dram_hot_list, &dram_cold_list, true);
