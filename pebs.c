@@ -27,6 +27,8 @@ static struct fifo_list dram_free_list;
 static struct fifo_list nvm_free_list;
 static ring_handle_t hot_ring;
 static ring_handle_t cold_ring;
+static ring_handle_t free_page_ring;
+static pthread_mutex_t free_page_ring_lock = PTHREAD_MUTEX_INITIALIZER;
 #define CAPACITY 8*1024*1024
 uint64_t global_clock = 0;
 uint64_t pebs_runs = 0;
@@ -351,10 +353,30 @@ void *pebs_kswapd()
 
     gettimeofday(&start, NULL);
 
+    while(!ring_buf_empty(free_page_ring))
+	{
+        struct fifo_list *list;
+        page = (struct hemem_page*)ring_buf_get(free_page_ring);
+        if (page == NULL) {
+            continue;
+        }
+
+        list = page->list;
+        assert(list != NULL);
+
+        page_list_remove_page(list, page);
+        if (page->in_dram) {
+            enqueue_fifo(&dram_free_list, page);
+        }
+        else {
+            enqueue_fifo(&nvm_free_list, page);
+        }
+    }
+
     num_ring_reqs = 0;
     while(!ring_buf_empty(hot_ring) && num_ring_reqs < RING_REQS_THRESHOLD)
 	{
-		page = ring_buf_get(hot_ring);
+		page = (struct hemem_page*)ring_buf_get(hot_ring);
         if (page == NULL) {
             continue;
         }
@@ -366,7 +388,7 @@ void *pebs_kswapd()
     num_ring_reqs = 0;
     while(!ring_buf_empty(cold_ring) && num_ring_reqs < RING_REQS_THRESHOLD)
     {
-        page = ring_buf_get(cold_ring);
+        page = (struct hemem_page*)ring_buf_get(cold_ring);
         if (page == NULL) {
             continue;
         }
@@ -541,42 +563,27 @@ struct hemem_page* pebs_pagefault_unlocked(void)
 
 void pebs_remove_page(struct hemem_page *page)
 {
-  struct fifo_list *list;
-
-
-  // wait for kscand thread to complete its scan
-  // this is needed to avoid race conditions with kscand thread
-  while (in_kscand);
- 
   assert(page != NULL);
 
-  LOG("pebs: remove page: va: 0x%lx\n", page->va);
-  
-  list = page->list;
-  assert(list != NULL);
+  LOG("pebs: remove page, put this page into free_page_ring: va: 0x%lx\n", page->va);
 
-  page_list_remove_page(list, page);
+  pthread_mutex_lock(&free_page_ring_lock);
+  while (ring_buf_full(free_page_ring));
+  ring_buf_put(free_page_ring, (uint64_t*)page); 
+  pthread_mutex_unlock(&free_page_ring_lock);
+
   page->present = false;
   page->stop_migrating = false;
   page->hot = false;
   for (int i = 0; i < NPBUFTYPES; i++) {
     page->accesses[i] = 0;
   }
-
-  if (page->in_dram) {
-    enqueue_fifo(&dram_free_list, page);
-  }
-  else {
-    enqueue_fifo(&nvm_free_list, page);
-  }
 }
-
 
 void pebs_init(void)
 {
   pthread_t kswapd_thread;
   pthread_t scan_thread;
-  pthread_t cooling_thread;
   uint64_t** buffer;
 
   LOG("pebs_init: started\n");
@@ -623,12 +630,15 @@ void pebs_init(void)
   pthread_mutex_init(&(nvm_cold_list.list_lock), NULL);
   pthread_mutex_init(&(nvm_locked_list.list_lock), NULL);
 
-  buffer = (uint64_t*)malloc(sizeof(uint64_t*) * CAPACITY);
+  buffer = (uint64_t**)malloc(sizeof(uint64_t*) * CAPACITY);
   assert(buffer); 
   hot_ring = ring_buf_init(buffer, CAPACITY);
-  buffer = (uint64_t*)malloc(sizeof(uint64_t*) * CAPACITY);
+  buffer = (uint64_t**)malloc(sizeof(uint64_t*) * CAPACITY);
   assert(buffer); 
   cold_ring = ring_buf_init(buffer, CAPACITY);
+  buffer = (uint64_t**)malloc(sizeof(uint64_t*) * CAPACITY);
+  assert(buffer); 
+  free_page_ring = ring_buf_init(buffer, CAPACITY);
 
   int r = pthread_create(&scan_thread, NULL, pebs_kscand, NULL);
   assert(r == 0);
