@@ -384,7 +384,7 @@ void *pebs_kswapd()
 
     gettimeofday(&begin, 0);
     num_ring_reqs = 0;
-    while(!ring_buf_empty(hot_ring) && num_ring_reqs < RING_REQS_THRESHOLD)
+    while(!ring_buf_empty(hot_ring) && num_ring_reqs < HOT_RING_REQS_THRESHOLD)
 	{
 		page = (struct hemem_page*)ring_buf_get(hot_ring);
         if (page == NULL) {
@@ -405,7 +405,7 @@ void *pebs_kswapd()
 
     gettimeofday(&begin, 0);
     num_ring_reqs = 0;
-    while(!ring_buf_empty(cold_ring) && num_ring_reqs < RING_REQS_THRESHOLD)
+    while(!ring_buf_empty(cold_ring) && num_ring_reqs < COLD_RING_REQS_THRESHOLD)
     {
         page = (struct hemem_page*)ring_buf_get(cold_ring);
         if (page == NULL) {
