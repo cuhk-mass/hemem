@@ -16,7 +16,9 @@
 #define MIGRATION_STOP_THRESHOLD (3)
 #define PEBS_COOLING_INTERVAL   (1000000) // 1s
 #define PEBS_COOLING_THRESHOLD  (18)
-#define COOLING_PAGES   (64)
+#define RING_REQS_THRESHOLD (1024*1024)
+#define COOLING_PAGES   (1)
+//#define TIME_DEBUG
 
 #define PEBS_NPROCS 24
 #define PERF_PAGES	(1 + (1 << 16))	// Has to be == 1+2^n, here 1MB

@@ -29,7 +29,7 @@ static ring_handle_t hot_ring;
 static ring_handle_t cold_ring;
 static ring_handle_t free_page_ring;
 static pthread_mutex_t free_page_ring_lock = PTHREAD_MUTEX_INITIALIZER;
-#define CAPACITY 8*1024*1024
+#define CAPACITY 32*1024*1024
 uint64_t global_clock = 0;
 uint64_t pebs_runs = 0;
 static volatile bool in_kscand = false;
@@ -335,7 +335,6 @@ static void pebs_migrate_up(struct hemem_page *page, uint64_t offset)
   LOG_TIME("migrate_up: %f s\n", elapsed(&start, &end));
 }
 
-
 void *pebs_kswapd()
 {
   int tries;
@@ -347,12 +346,15 @@ void *pebs_kswapd()
   uint64_t old_offset;
   int num_ring_reqs;
   struct hemem_page* page = NULL;
+  int counter = 0;
   
   for (;;) {
     //usleep(KSWAPD_INTERVAL);
 
     gettimeofday(&start, NULL);
 
+    struct timeval begin, end;
+    gettimeofday(&begin, 0);
     while(!ring_buf_empty(free_page_ring))
 	{
         struct fifo_list *list;
@@ -372,7 +374,15 @@ void *pebs_kswapd()
             enqueue_fifo(&nvm_free_list, page);
         }
     }
+    #ifdef TIME_DEBUG
+    gettimeofday(&end, 0);
+    long seconds = end.tv_sec - begin.tv_sec;
+    long microseconds = end.tv_usec - begin.tv_usec;
+    double elapsed = seconds * 1000000 + microseconds;
+    printf("Free Ring, Time measured: %.3f us.\n", elapsed);
+    #endif
 
+    gettimeofday(&begin, 0);
     num_ring_reqs = 0;
     while(!ring_buf_empty(hot_ring) && num_ring_reqs < RING_REQS_THRESHOLD)
 	{
@@ -383,8 +393,17 @@ void *pebs_kswapd()
 
         num_ring_reqs++;
         make_hot(page);
+        //printf("hot ring, hot pages:%llu\n", num_ring_reqs);
 	}
+    #ifdef TIME_DEBUG
+    gettimeofday(&end, 0);
+    seconds = end.tv_sec - begin.tv_sec;
+    microseconds = end.tv_usec - begin.tv_usec;
+    elapsed = seconds * 1000000 + microseconds;
+    printf("Hot Ring, Time measured: %.3f us.\n", elapsed);
+    #endif
 
+    gettimeofday(&begin, 0);
     num_ring_reqs = 0;
     while(!ring_buf_empty(cold_ring) && num_ring_reqs < RING_REQS_THRESHOLD)
     {
@@ -395,9 +414,18 @@ void *pebs_kswapd()
 
         num_ring_reqs++;
         make_cold(page);
+        //printf("cold ring, cold pages:%llu\n", num_ring_reqs);
     }
+    #ifdef TIME_DEBUG
+    gettimeofday(&end, 0);
+    seconds = end.tv_sec - begin.tv_sec;
+    microseconds = end.tv_usec - begin.tv_usec;
+    elapsed = seconds * 1000000 + microseconds;
+    printf("Cold Ring, Time measured: %.3f us.\n", elapsed);
+    #endif
 
     // move each hot NVM page to DRAM
+    gettimeofday(&begin, 0);
     for (migrated_bytes = 0; migrated_bytes < KSWAPD_MIGRATE_RATE;) {
       p = dequeue_fifo(&nvm_hot_list);
       if (p == NULL) {
@@ -438,6 +466,7 @@ void *pebs_kswapd()
 
           old_offset = p->devdax_offset;
           pebs_migrate_up(p, np->devdax_offset);
+          //printf("migration up, counter=%d\n", counter++);
           np->devdax_offset = old_offset;
           np->in_dram = false;
           np->present = false;
@@ -488,9 +517,24 @@ void *pebs_kswapd()
         assert(np != NULL);
       }
     }
+    gettimeofday(&end, 0);
+    #ifdef TIME_DEBUG
+    seconds = end.tv_sec - begin.tv_sec;
+    microseconds = end.tv_usec - begin.tv_usec;
+    elapsed = seconds * 1000000 + microseconds;
+    printf("Migration, Time measured: %.3f us.\n", elapsed);
+    #endif
 
-    partial_cool(&dram_hot_list, &dram_cold_list, true);
-    partial_cool(&nvm_hot_list, &nvm_cold_list, false);
+    gettimeofday(&start, 0);
+    //partial_cool(&dram_hot_list, &dram_cold_list, true);
+    //partial_cool(&nvm_hot_list, &nvm_cold_list, false);
+    #ifdef TIME_DEBUG
+    gettimeofday(&end, 0);
+    seconds = end.tv_sec - begin.tv_sec;
+    microseconds = end.tv_usec - begin.tv_usec;
+    elapsed = seconds * 1000000 + microseconds;
+    printf("Partial cool, Time measured: %.3f us.\n", elapsed);
+    #endif
  
 out:
     pebs_runs++;

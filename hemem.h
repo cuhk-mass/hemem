@@ -36,7 +36,6 @@ extern "C" {
 //#define USE_PEBS
 //#define STATS_THREAD
 
-#define RING_REQS_THRESHOLD 32
 #define USE_DMA
 #define NUM_CHANNS 2
 #define SIZE_PER_DMA_REQUEST (1024*1024)
