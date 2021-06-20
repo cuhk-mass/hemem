@@ -29,7 +29,7 @@ static ring_handle_t hot_ring;
 static ring_handle_t cold_ring;
 static ring_handle_t free_page_ring;
 static pthread_mutex_t free_page_ring_lock = PTHREAD_MUTEX_INITIALIZER;
-#define CAPACITY 32*1024*1024
+#define CAPACITY 128*1024*1024
 uint64_t global_clock = 0;
 uint64_t pebs_runs = 0;
 static volatile bool in_kscand = false;
@@ -98,6 +98,7 @@ static struct perf_event_mmap_page* perf_setup(__u64 config, __u64 config1, __u6
 static void partial_cool(struct fifo_list *hot, struct fifo_list *cold, bool dram)
 {
   struct hemem_page *p;
+  uint64_t tmp_accesses[NPBUFTYPES];
 
   for (int i = 0; i < COOLING_PAGES; i++) {
     p = dequeue_fifo(hot);
@@ -112,14 +113,10 @@ static void partial_cool(struct fifo_list *hot, struct fifo_list *cold, bool dra
     }
 
     for (int j = 0; j < NPBUFTYPES; j++) {
-        p->accesses[j] >>= (global_clock - p->local_clock);
-        p->local_clock = global_clock;
-        if (p->accesses[j] > PEBS_COOLING_THRESHOLD) {
-            global_clock++;
-        }
+        tmp_accesses[j] = p->accesses[j] >> (global_clock - p->local_clock);
     }
 
-    if ((p->accesses[WRITE] < HOT_WRITE_THRESHOLD) && (p->accesses[DRAMREAD] + p->accesses[NVMREAD] < HOT_READ_THRESHOLD)) {
+    if ((tmp_accesses[WRITE] < HOT_WRITE_THRESHOLD) && (tmp_accesses[DRAMREAD] + tmp_accesses[NVMREAD] < HOT_READ_THRESHOLD)) {
         p->hot = false;
     }
     if (p->hot) {
@@ -133,11 +130,13 @@ static void partial_cool(struct fifo_list *hot, struct fifo_list *cold, bool dra
 
 void make_hot_request(struct hemem_page* page)
 {
+   page->ring_present = true;
    ring_buf_put(hot_ring, (uint64_t*)page); 
 }
 
 void make_cold_request(struct hemem_page* page)
 {
+    page->ring_present = true;
     ring_buf_put(cold_ring, (uint64_t*)page);
 }
 
@@ -253,14 +252,20 @@ void *pebs_kscand()
                 if (page->va != 0) {
                   page->accesses[j]++;
                   if (page->accesses[WRITE] >= HOT_WRITE_THRESHOLD) {
-                    make_hot_request(page);
+                    if (!page->hot || !page->ring_present) {
+                        make_hot_request(page);
+                    }
                   }
                   else if (page->accesses[DRAMREAD] + page->accesses[NVMREAD] >= HOT_READ_THRESHOLD) {
-                    make_hot_request(page);
+                    if (!page->hot || !page->ring_present) {
+                        make_hot_request(page);
+                    }
                   }
                   else if ((page->accesses[WRITE] < HOT_WRITE_THRESHOLD) && (page->accesses[DRAMREAD] + page->accesses[NVMREAD] < HOT_READ_THRESHOLD)) {
-                    make_cold_request(page);
-                  }
+                    if (page->hot || !page->ring_present) {
+                        make_cold_request(page);
+                    }
+                 }
 
                   page->accesses[j] >>= (global_clock - page->local_clock);
                   page->local_clock = global_clock;
@@ -362,7 +367,7 @@ void *pebs_kswapd()
         if (page == NULL) {
             continue;
         }
-
+        
         list = page->list;
         assert(list != NULL);
 
@@ -390,7 +395,8 @@ void *pebs_kswapd()
         if (page == NULL) {
             continue;
         }
-
+        
+        page->ring_present = false;
         num_ring_reqs++;
         make_hot(page);
         //printf("hot ring, hot pages:%llu\n", num_ring_reqs);
@@ -412,6 +418,7 @@ void *pebs_kswapd()
             continue;
         }
 
+        page->ring_present = false;
         num_ring_reqs++;
         make_cold(page);
         //printf("cold ring, cold pages:%llu\n", num_ring_reqs);
@@ -526,8 +533,8 @@ void *pebs_kswapd()
     #endif
 
     gettimeofday(&start, 0);
-    //partial_cool(&dram_hot_list, &dram_cold_list, true);
-    //partial_cool(&nvm_hot_list, &nvm_cold_list, false);
+    partial_cool(&dram_hot_list, &dram_cold_list, true);
+    partial_cool(&nvm_hot_list, &nvm_cold_list, false);
     #ifdef TIME_DEBUG
     gettimeofday(&end, 0);
     seconds = end.tv_sec - begin.tv_sec;
