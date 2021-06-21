@@ -29,7 +29,6 @@ static ring_handle_t hot_ring;
 static ring_handle_t cold_ring;
 static ring_handle_t free_page_ring;
 static pthread_mutex_t free_page_ring_lock = PTHREAD_MUTEX_INITIALIZER;
-#define CAPACITY 128*1024*1024
 uint64_t global_clock = 0;
 uint64_t pebs_runs = 0;
 static volatile bool in_kscand = false;
@@ -40,6 +39,8 @@ uint64_t total_pages_cnt = 0;
 uint64_t throttle_cnt = 0;
 uint64_t unthrottle_cnt = 0;
 uint64_t locked_pages = 0;
+uint64_t mock_walk_counter = 0;
+uint64_t mock_move_counter = 0;
 
 static struct perf_event_mmap_page *perf_page[PEBS_NPROCS][NPBUFTYPES];
 int pfd[PEBS_NPROCS][NPBUFTYPES];
@@ -93,6 +94,87 @@ static struct perf_event_mmap_page* perf_setup(__u64 config, __u64 config1, __u6
   assert(p != MAP_FAILED);
 
   return p;
+}
+
+static void mock_walk_cool(struct fifo_list *hot, struct fifo_list *cold, bool dram)
+{
+  struct hemem_page *p;
+  struct hemem_page *bookmark;
+
+  // cool hot pages
+  bookmark = NULL;
+  p = cold->last;
+  while (p != NULL) {
+    //pthread_mutex_lock(&p->page_lock);
+    if (p == bookmark) {
+      // we've seen this page before, so put it back and bail out
+      //pthread_mutex_unlock(&p->page_lock);
+      break;
+    }
+
+    for (int i = 0; i < NPBUFTYPES; i++) {
+      //p->accesses[i]--;
+      p->accesses[i] >>= 1;
+    }
+
+    // is page still hot?
+    if ((p->accesses[WRITE] < HOT_WRITE_THRESHOLD) && (p->accesses[DRAMREAD] + p->accesses[NVMREAD] < HOT_READ_THRESHOLD)) {
+      p->hot = false;
+    }
+    //else if (p->accesses[DRAMREAD] + p->accesses[NVMREAD] < HOT_READ_THRESHOLD) {
+    //  p->hot = false;
+    //}
+
+    mock_walk_counter++;
+    p->hot = true;
+    p = p->prev;
+  }
+}
+
+static void mock_move_cool_to_hot(struct fifo_list *hot, struct fifo_list *cold, bool dram)
+{
+  struct hemem_page *p;
+  struct hemem_page *bookmark;
+
+  // cool hot pages
+  bookmark = NULL;
+  p = dequeue_fifo(cold);
+  while (p != NULL) {
+    //pthread_mutex_lock(&p->page_lock);
+    if (p == bookmark) {
+      // we've seen this page before, so put it back and bail out
+      enqueue_fifo(cold, p);
+      //pthread_mutex_unlock(&p->page_lock);
+      break;
+    }
+
+    for (int i = 0; i < NPBUFTYPES; i++) {
+      //p->accesses[i]--;
+      p->accesses[i] >>= 1;
+    }
+
+    // is page still hot?
+    if ((p->accesses[WRITE] < HOT_WRITE_THRESHOLD) && (p->accesses[DRAMREAD] + p->accesses[NVMREAD] < HOT_READ_THRESHOLD)) {
+      p->hot = false;
+    }
+    //else if (p->accesses[DRAMREAD] + p->accesses[NVMREAD] < HOT_READ_THRESHOLD) {
+    //  p->hot = false;
+    //}
+
+    p->hot = true;
+    if (p->hot) {
+      enqueue_fifo(hot, p);
+      if (bookmark == NULL) {
+        bookmark = p;
+      }
+    }
+    else {
+      enqueue_fifo(cold, p);
+    }
+    mock_move_counter++;
+    //pthread_mutex_unlock(&p->page_lock);
+    p = dequeue_fifo(cold);
+  }
 }
 
 static void partial_cool(struct fifo_list *hot, struct fifo_list *cold, bool dram)
@@ -224,7 +306,10 @@ void make_cold(struct hemem_page* page)
 
 void *pebs_kscand()
 {
+  struct timeval start, end;
+
   for(;;) {
+    gettimeofday(&start, NULL);
     for (int i = 0; i < PEBS_NPROCS; i++) {
       for(int j = 0; j < NPBUFTYPES; j++) {
         struct perf_event_mmap_page *p = perf_page[i][j];
@@ -252,19 +337,25 @@ void *pebs_kscand()
                 if (page->va != 0) {
                   page->accesses[j]++;
                   if (page->accesses[WRITE] >= HOT_WRITE_THRESHOLD) {
+                    #ifdef OPT
                     if (!page->hot || !page->ring_present) {
                         make_hot_request(page);
                     }
+                    #endif
                   }
                   else if (page->accesses[DRAMREAD] + page->accesses[NVMREAD] >= HOT_READ_THRESHOLD) {
+                    #ifdef OPT
                     if (!page->hot || !page->ring_present) {
                         make_hot_request(page);
                     }
+                    #endif
                   }
                   else if ((page->accesses[WRITE] < HOT_WRITE_THRESHOLD) && (page->accesses[DRAMREAD] + page->accesses[NVMREAD] < HOT_READ_THRESHOLD)) {
+                    #ifdef OPT
                     if (page->hot || !page->ring_present) {
                         make_cold_request(page);
                     }
+                    #endif
                  }
 
                   page->accesses[j] >>= (global_clock - page->local_clock);
@@ -304,6 +395,8 @@ void *pebs_kscand()
         p->data_tail += ph->size;
       }
     }
+    gettimeofday(&end, NULL);
+    //printf("pebs scan: %f s\n", elapsed(&start, &end));
   }
 
   return NULL;
@@ -355,9 +448,10 @@ void *pebs_kswapd()
   
   for (;;) {
     //usleep(KSWAPD_INTERVAL);
-
+    //sleep(32);
     gettimeofday(&start, NULL);
 
+#if 1
     struct timeval begin, end;
     gettimeofday(&begin, 0);
     while(!ring_buf_empty(free_page_ring))
@@ -533,8 +627,8 @@ void *pebs_kswapd()
     #endif
 
     gettimeofday(&start, 0);
-    partial_cool(&dram_hot_list, &dram_cold_list, true);
-    partial_cool(&nvm_hot_list, &nvm_cold_list, false);
+    //partial_cool(&dram_hot_list, &dram_cold_list, true);
+    //partial_cool(&nvm_hot_list, &nvm_cold_list, false);
     #ifdef TIME_DEBUG
     gettimeofday(&end, 0);
     seconds = end.tv_sec - begin.tv_sec;
@@ -546,7 +640,30 @@ void *pebs_kswapd()
 out:
     pebs_runs++;
     gettimeofday(&end, NULL);
+    //printf("migrate: %f s\n", elapsed(&start, &end));
     LOG_TIME("migrate: %f s\n", elapsed(&start, &end));
+  #endif
+
+#if 0
+    gettimeofday(&start, NULL);
+    mock_walk_cool(&dram_hot_list, &dram_cold_list, true);
+    mock_walk_cool(&nvm_hot_list, &nvm_cold_list, true);
+    gettimeofday(&end, NULL);
+    long seconds = end.tv_sec - start.tv_sec;
+    long microseconds = end.tv_usec - start.tv_usec;
+    long elapsed = seconds * 1000000 + microseconds;
+    printf("mock_walk_cool: %lu us, counter:%llu\n", elapsed, mock_walk_counter);
+
+    gettimeofday(&start, NULL);
+    mock_move_cool_to_hot(&dram_hot_list, &dram_cold_list, true);
+    mock_move_cool_to_hot(&nvm_hot_list, &nvm_cold_list, true);
+    gettimeofday(&end, NULL);
+    seconds = end.tv_sec - start.tv_sec;
+    microseconds = end.tv_usec - start.tv_usec;
+    elapsed = seconds * 1000000 + microseconds;
+    printf("mock_move: %lu us, counter:%llu\n", elapsed, mock_move_counter);
+    break;
+#endif
   }
 
   return NULL;
