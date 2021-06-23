@@ -307,9 +307,12 @@ void make_cold(struct hemem_page* page)
 void *pebs_kscand()
 {
   struct timeval start, end;
+  volatile uint64_t kscan_counter = 0;
+  struct timespec clock_gettime_start, clock_gettime_end;
 
   for(;;) {
     gettimeofday(&start, NULL);
+    clock_gettime(CLOCK_REALTIME, &clock_gettime_start);
     for (int i = 0; i < PEBS_NPROCS; i++) {
       for(int j = 0; j < NPBUFTYPES; j++) {
         struct perf_event_mmap_page *p = perf_page[i][j];
@@ -396,7 +399,13 @@ void *pebs_kscand()
       }
     }
     gettimeofday(&end, NULL);
-    //printf("pebs scan: %f s\n", elapsed(&start, &end));
+    clock_gettime(CLOCK_REALTIME, &clock_gettime_end);
+    long seconds = end.tv_sec - start.tv_sec;
+    long nanoseconds = clock_gettime_end.tv_nsec - clock_gettime_start.tv_nsec;
+    long elapsed = seconds * 1000000000 + nanoseconds;
+    if (++kscan_counter % 10000000 == 0) {
+        //printf("pebs scan: %ld ns, kscan_counter: %llu\n", elapsed, kscan_counter);
+    }
   }
 
   return NULL;
@@ -445,11 +454,15 @@ void *pebs_kswapd()
   int num_ring_reqs;
   struct hemem_page* page = NULL;
   int counter = 0;
+  volatile uint64_t kswap_counter = 0;
+  struct timespec clock_gettime_start, clock_gettime_end;
   
   for (;;) {
     //usleep(KSWAPD_INTERVAL);
-    //sleep(32);
+    //sleep(3);
     gettimeofday(&start, NULL);
+    clock_gettime(CLOCK_REALTIME, &clock_gettime_start);
+
 
 #if 1
     struct timeval begin, end;
@@ -626,7 +639,7 @@ void *pebs_kswapd()
     printf("Migration, Time measured: %.3f us.\n", elapsed);
     #endif
 
-    gettimeofday(&start, 0);
+    gettimeofday(&begin, 0);
     //partial_cool(&dram_hot_list, &dram_cold_list, true);
     //partial_cool(&nvm_hot_list, &nvm_cold_list, false);
     #ifdef TIME_DEBUG
@@ -640,7 +653,14 @@ void *pebs_kswapd()
 out:
     pebs_runs++;
     gettimeofday(&end, NULL);
-    //printf("migrate: %f s\n", elapsed(&start, &end));
+    clock_gettime(CLOCK_REALTIME, &clock_gettime_end);
+    long seconds = end.tv_sec - start.tv_sec;
+    long nanoseconds = clock_gettime_end.tv_nsec - clock_gettime_start.tv_nsec;
+    long elapsed = seconds * 1000000000 + nanoseconds;
+    kswap_counter++;
+    if (kswap_counter % 1000000 == 0) {
+       // printf("migrate:%ld ns, kswap_counter:%llu\n", elapsed, kswap_counter);
+    }
     LOG_TIME("migrate: %f s\n", elapsed(&start, &end));
   #endif
 
