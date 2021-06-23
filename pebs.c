@@ -45,7 +45,7 @@ uint64_t mock_move_counter = 0;
 static struct perf_event_mmap_page *perf_page[PEBS_NPROCS][NPBUFTYPES];
 int pfd[PEBS_NPROCS][NPBUFTYPES];
 
-#define KSWAP_PRINT_FREQUENT 50000000
+#define KSWAP_PRINT_FREQUENT 500000000
 #define KSCAN_PRINT_FREQUENT 10000000
 
 static long perf_event_open(struct perf_event_attr *hw_event, pid_t pid, 
@@ -641,7 +641,7 @@ out:
     #ifdef TIME_DEBUG
     clock_gettime(CLOCK_REALTIME, &end);
     kswap_counter++;
-    if (kswap_counter % 1000000 == 0) {
+    if (kswap_counter % KSWAP_PRINT_FREQUENT == 0) {
         printf("migrate:%ld ns, kswap_counter:%llu\n", clock_time_elapsed(start, end), kswap_counter);
     }
     #endif
