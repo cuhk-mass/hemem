@@ -45,7 +45,7 @@ uint64_t mock_move_counter = 0;
 static struct perf_event_mmap_page *perf_page[PEBS_NPROCS][NPBUFTYPES];
 int pfd[PEBS_NPROCS][NPBUFTYPES];
 
-#define KSWAP_PRINT_FREQUENT 500000000
+#define KSWAP_PRINT_FREQUENT 50000000
 #define KSCAN_PRINT_FREQUENT 10000000
 
 static long perf_event_open(struct perf_event_attr *hw_event, pid_t pid, 
