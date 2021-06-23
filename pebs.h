@@ -20,7 +20,7 @@
 #define COLD_RING_REQS_THRESHOLD (128)
 #define CAPACITY 128*1024*1024
 #define COOLING_PAGES   (1024)
-//#define TIME_DEBUG
+#define TIME_DEBUG
 #define OPT
 
 #define PEBS_NPROCS 24

@@ -45,7 +45,7 @@ uint64_t mock_move_counter = 0;
 static struct perf_event_mmap_page *perf_page[PEBS_NPROCS][NPBUFTYPES];
 int pfd[PEBS_NPROCS][NPBUFTYPES];
 
-#define KSWAP_PRINT_FREQUENT 1000000
+#define KSWAP_PRINT_FREQUENT 50000000
 #define KSCAN_PRINT_FREQUENT 10000000
 
 static long perf_event_open(struct perf_event_attr *hw_event, pid_t pid, 
@@ -479,7 +479,7 @@ void *pebs_kswapd()
     }
     #ifdef TIME_DEBUG
     clock_gettime(CLOCK_REALTIME, &end);
-    if (kswap_counter % KSCAN_PRINT_FREQUENT == 0) {
+    if (kswap_counter % KSWAP_PRINT_FREQUENT == 0) {
         printf("Free Ring, Time measured: %lu ns.\n", clock_time_elapsed(begin, end));
     }
     #endif
@@ -500,7 +500,7 @@ void *pebs_kswapd()
 	}
     #ifdef TIME_DEBUG
     clock_gettime(CLOCK_REALTIME, &end);
-    if (kswap_counter % KSCAN_PRINT_FREQUENT == 0) {
+    if (kswap_counter % KSWAP_PRINT_FREQUENT == 0) {
         printf("Hot Ring, Time measured: %lu ns.\n", clock_time_elapsed(begin, end));
     }
     #endif
@@ -521,7 +521,7 @@ void *pebs_kswapd()
     }
     #ifdef TIME_DEBUG
     clock_gettime(CLOCK_REALTIME, &end);
-    if (kswap_counter % KSCAN_PRINT_FREQUENT == 0) {
+    if (kswap_counter % KSWAP_PRINT_FREQUENT == 0) {
         printf("Cold Ring, Time measured: %lu ns.\n", clock_time_elapsed(begin, end));
     }
     #endif
@@ -621,7 +621,7 @@ void *pebs_kswapd()
     }
     #ifdef TIME_DEBUG
     clock_gettime(CLOCK_REALTIME, &end);
-    if (kswap_counter % KSCAN_PRINT_FREQUENT == 0) {
+    if (kswap_counter % KSWAP_PRINT_FREQUENT == 0) {
         printf("Migrate ops, Time measured: %lu ns.\n", clock_time_elapsed(begin, end));
     }
     #endif
@@ -631,7 +631,7 @@ void *pebs_kswapd()
     //partial_cool(&nvm_hot_list, &nvm_cold_list, false);
     #ifdef TIME_DEBUG
     clock_gettime(CLOCK_REALTIME, &end);
-    if (kswap_counter % KSCAN_PRINT_FREQUENT == 0) {
+    if (kswap_counter % KSWAP_PRINT_FREQUENT == 0) {
         printf("Partial cool, Time measured: %lu ns.\n", clock_time_elapsed(begin, end));
     }
     #endif
