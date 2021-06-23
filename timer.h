@@ -6,5 +6,6 @@
 
 void timeDiff(struct timeval *d, struct timeval *a, struct timeval *b);
 double elapsed(struct timeval *starttime, struct timeval *endtime);
+long clock_time_elapsed(struct timespec start, struct timespec end);
 
 #endif /* HEMEM_TIMER_H */

@@ -45,7 +45,8 @@ uint64_t mock_move_counter = 0;
 static struct perf_event_mmap_page *perf_page[PEBS_NPROCS][NPBUFTYPES];
 int pfd[PEBS_NPROCS][NPBUFTYPES];
 
-static volatile bool needs_cooling = false;
+#define KSWAP_PRINT_FREQUENT 1000000
+#define KSCAN_PRINT_FREQUENT 10000000
 
 static long perf_event_open(struct perf_event_attr *hw_event, pid_t pid, 
     int cpu, int group_fd, unsigned long flags)
@@ -306,13 +307,11 @@ void make_cold(struct hemem_page* page)
 
 void *pebs_kscand()
 {
-  struct timeval start, end;
   volatile uint64_t kscan_counter = 0;
-  struct timespec clock_gettime_start, clock_gettime_end;
+  struct timespec start, end;
 
   for(;;) {
-    gettimeofday(&start, NULL);
-    clock_gettime(CLOCK_REALTIME, &clock_gettime_start);
+    clock_gettime(CLOCK_REALTIME, &start);
     for (int i = 0; i < PEBS_NPROCS; i++) {
       for(int j = 0; j < NPBUFTYPES; j++) {
         struct perf_event_mmap_page *p = perf_page[i][j];
@@ -398,14 +397,12 @@ void *pebs_kscand()
         p->data_tail += ph->size;
       }
     }
-    gettimeofday(&end, NULL);
-    clock_gettime(CLOCK_REALTIME, &clock_gettime_end);
-    long seconds = end.tv_sec - start.tv_sec;
-    long nanoseconds = clock_gettime_end.tv_nsec - clock_gettime_start.tv_nsec;
-    long elapsed = seconds * 1000000000 + nanoseconds;
-    if (++kscan_counter % 10000000 == 0) {
-        //printf("pebs scan: %ld ns, kscan_counter: %llu\n", elapsed, kscan_counter);
+    clock_gettime(CLOCK_REALTIME, &end);
+    #ifdef TIME_DEBUG
+    if (++kscan_counter % KSCAN_PRINT_FREQUENT == 0) {
+        printf("pebs scan: %ld ns, kscan_counter: %llu\n", clock_time_elapsed(start, end), kscan_counter);
     }
+    #endif
   }
 
   return NULL;
@@ -448,25 +445,19 @@ void *pebs_kswapd()
   struct hemem_page *p;
   struct hemem_page *cp;
   struct hemem_page *np;
-  struct timeval start, end;
   uint64_t migrated_bytes;
   uint64_t old_offset;
   int num_ring_reqs;
   struct hemem_page* page = NULL;
   int counter = 0;
   volatile uint64_t kswap_counter = 0;
-  struct timespec clock_gettime_start, clock_gettime_end;
+  struct timespec start, begin, end;
   
   for (;;) {
     //usleep(KSWAPD_INTERVAL);
-    //sleep(3);
-    gettimeofday(&start, NULL);
-    clock_gettime(CLOCK_REALTIME, &clock_gettime_start);
+    clock_gettime(CLOCK_REALTIME, &start);
 
-
-#if 1
-    struct timeval begin, end;
-    gettimeofday(&begin, 0);
+    clock_gettime(CLOCK_REALTIME, &begin);
     while(!ring_buf_empty(free_page_ring))
 	{
         struct fifo_list *list;
@@ -487,14 +478,13 @@ void *pebs_kswapd()
         }
     }
     #ifdef TIME_DEBUG
-    gettimeofday(&end, 0);
-    long seconds = end.tv_sec - begin.tv_sec;
-    long microseconds = end.tv_usec - begin.tv_usec;
-    double elapsed = seconds * 1000000 + microseconds;
-    printf("Free Ring, Time measured: %.3f us.\n", elapsed);
+    clock_gettime(CLOCK_REALTIME, &end);
+    if (kswap_counter % KSCAN_PRINT_FREQUENT == 0) {
+        printf("Free Ring, Time measured: %lu ns.\n", clock_time_elapsed(begin, end));
+    }
     #endif
 
-    gettimeofday(&begin, 0);
+    clock_gettime(CLOCK_REALTIME, &begin);
     num_ring_reqs = 0;
     while(!ring_buf_empty(hot_ring) && num_ring_reqs < HOT_RING_REQS_THRESHOLD)
 	{
@@ -509,14 +499,13 @@ void *pebs_kswapd()
         //printf("hot ring, hot pages:%llu\n", num_ring_reqs);
 	}
     #ifdef TIME_DEBUG
-    gettimeofday(&end, 0);
-    seconds = end.tv_sec - begin.tv_sec;
-    microseconds = end.tv_usec - begin.tv_usec;
-    elapsed = seconds * 1000000 + microseconds;
-    printf("Hot Ring, Time measured: %.3f us.\n", elapsed);
+    clock_gettime(CLOCK_REALTIME, &end);
+    if (kswap_counter % KSCAN_PRINT_FREQUENT == 0) {
+        printf("Hot Ring, Time measured: %lu ns.\n", clock_time_elapsed(begin, end));
+    }
     #endif
 
-    gettimeofday(&begin, 0);
+    clock_gettime(CLOCK_REALTIME, &begin);
     num_ring_reqs = 0;
     while(!ring_buf_empty(cold_ring) && num_ring_reqs < COLD_RING_REQS_THRESHOLD)
     {
@@ -531,15 +520,14 @@ void *pebs_kswapd()
         //printf("cold ring, cold pages:%llu\n", num_ring_reqs);
     }
     #ifdef TIME_DEBUG
-    gettimeofday(&end, 0);
-    seconds = end.tv_sec - begin.tv_sec;
-    microseconds = end.tv_usec - begin.tv_usec;
-    elapsed = seconds * 1000000 + microseconds;
-    printf("Cold Ring, Time measured: %.3f us.\n", elapsed);
+    clock_gettime(CLOCK_REALTIME, &end);
+    if (kswap_counter % KSCAN_PRINT_FREQUENT == 0) {
+        printf("Cold Ring, Time measured: %lu ns.\n", clock_time_elapsed(begin, end));
+    }
     #endif
 
     // move each hot NVM page to DRAM
-    gettimeofday(&begin, 0);
+    clock_gettime(CLOCK_REALTIME, &begin);
     for (migrated_bytes = 0; migrated_bytes < KSWAPD_MIGRATE_RATE;) {
       p = dequeue_fifo(&nvm_hot_list);
       if (p == NULL) {
@@ -631,38 +619,33 @@ void *pebs_kswapd()
         assert(np != NULL);
       }
     }
-    gettimeofday(&end, 0);
     #ifdef TIME_DEBUG
-    seconds = end.tv_sec - begin.tv_sec;
-    microseconds = end.tv_usec - begin.tv_usec;
-    elapsed = seconds * 1000000 + microseconds;
-    printf("Migration, Time measured: %.3f us.\n", elapsed);
+    clock_gettime(CLOCK_REALTIME, &end);
+    if (kswap_counter % KSCAN_PRINT_FREQUENT == 0) {
+        printf("Migrate ops, Time measured: %lu ns.\n", clock_time_elapsed(begin, end));
+    }
     #endif
 
-    gettimeofday(&begin, 0);
+    clock_gettime(CLOCK_REALTIME, &begin);
     //partial_cool(&dram_hot_list, &dram_cold_list, true);
     //partial_cool(&nvm_hot_list, &nvm_cold_list, false);
     #ifdef TIME_DEBUG
-    gettimeofday(&end, 0);
-    seconds = end.tv_sec - begin.tv_sec;
-    microseconds = end.tv_usec - begin.tv_usec;
-    elapsed = seconds * 1000000 + microseconds;
-    printf("Partial cool, Time measured: %.3f us.\n", elapsed);
+    clock_gettime(CLOCK_REALTIME, &end);
+    if (kswap_counter % KSCAN_PRINT_FREQUENT == 0) {
+        printf("Partial cool, Time measured: %lu ns.\n", clock_time_elapsed(begin, end));
+    }
     #endif
  
 out:
     pebs_runs++;
-    gettimeofday(&end, NULL);
-    clock_gettime(CLOCK_REALTIME, &clock_gettime_end);
-    long seconds = end.tv_sec - start.tv_sec;
-    long nanoseconds = clock_gettime_end.tv_nsec - clock_gettime_start.tv_nsec;
-    long elapsed = seconds * 1000000000 + nanoseconds;
+    #ifdef TIME_DEBUG
+    clock_gettime(CLOCK_REALTIME, &end);
     kswap_counter++;
     if (kswap_counter % 1000000 == 0) {
-       // printf("migrate:%ld ns, kswap_counter:%llu\n", elapsed, kswap_counter);
+        printf("migrate:%ld ns, kswap_counter:%llu\n", clock_time_elapsed(start, end), kswap_counter);
     }
+    #endif
     LOG_TIME("migrate: %f s\n", elapsed(&start, &end));
-  #endif
 
 #if 0
     gettimeofday(&start, NULL);
