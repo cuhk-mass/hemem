@@ -47,6 +47,8 @@ int pfd[PEBS_NPROCS][NPBUFTYPES];
 
 #define KSWAP_PRINT_FREQUENT 50000000
 #define KSCAN_PRINT_FREQUENT 10000000
+volatile int need_cool_dram = 0;
+volatile int need_cool_nvm = 0;
 
 static long perf_event_open(struct perf_event_attr *hw_event, pid_t pid, 
     int cpu, int group_fd, unsigned long flags)
@@ -141,11 +143,9 @@ static void mock_move_cool_to_hot(struct fifo_list *hot, struct fifo_list *cold,
   bookmark = NULL;
   p = dequeue_fifo(cold);
   while (p != NULL) {
-    //pthread_mutex_lock(&p->page_lock);
     if (p == bookmark) {
       // we've seen this page before, so put it back and bail out
       enqueue_fifo(cold, p);
-      //pthread_mutex_unlock(&p->page_lock);
       break;
     }
 
@@ -173,7 +173,6 @@ static void mock_move_cool_to_hot(struct fifo_list *hot, struct fifo_list *cold,
       enqueue_fifo(cold, p);
     }
     mock_move_counter++;
-    //pthread_mutex_unlock(&p->page_lock);
     p = dequeue_fifo(cold);
   }
 }
@@ -182,6 +181,23 @@ static void partial_cool(struct fifo_list *hot, struct fifo_list *cold, bool dra
 {
   struct hemem_page *p;
   uint64_t tmp_accesses[NPBUFTYPES];
+  static struct hemem_page* start_dram_page = NULL;
+  static struct hemem_page* start_nvm_page = NULL;
+
+  if (hot == &dram_hot_list && !need_cool_dram) {
+      return;
+  }
+  if (hot == &nvm_hot_list && !need_cool_nvm) {
+      return;
+  }
+
+  if (start_dram_page == NULL && hot == &dram_hot_list) {
+      start_dram_page = hot->last;
+  }
+
+  if (start_nvm_page == NULL && hot == &nvm_hot_list) {
+      start_nvm_page = hot->last;
+  }
 
   for (int i = 0; i < COOLING_PAGES; i++) {
     p = dequeue_fifo(hot);
@@ -202,6 +218,17 @@ static void partial_cool(struct fifo_list *hot, struct fifo_list *cold, bool dra
     if ((tmp_accesses[WRITE] < HOT_WRITE_THRESHOLD) && (tmp_accesses[DRAMREAD] + tmp_accesses[NVMREAD] < HOT_READ_THRESHOLD)) {
         p->hot = false;
     }
+
+    if (hot == &dram_hot_list && p == start_dram_page) {
+        start_dram_page = NULL;
+        need_cool_dram = false;
+    }
+
+    if (hot == &nvm_hot_list && p == start_nvm_page) {
+        start_nvm_page = NULL;
+        need_cool_nvm = false;
+    } 
+
     if (p->hot) {
       enqueue_fifo(hot, p);
     }
@@ -215,6 +242,23 @@ struct hemem_page* partial_cool_peek_and_move(struct fifo_list *hot, struct fifo
 {
   struct hemem_page *p;
   uint64_t tmp_accesses[NPBUFTYPES];
+  static struct hemem_page* start_dram_page = NULL;
+  static struct hemem_page* start_nvm_page = NULL;
+
+  if (hot == &dram_hot_list && !need_cool_dram) {
+      return current;
+  }
+  if (hot == &nvm_hot_list && !need_cool_nvm) {
+      return current;
+  }
+
+  if (start_dram_page == NULL && hot == &dram_hot_list) {
+      start_dram_page = hot->last;
+  }
+
+  if (start_nvm_page == NULL && hot == &nvm_hot_list) {
+      start_nvm_page = hot->last;
+  }
 
   for (int i = 0; i < COOLING_PAGES; i++) {
     p = next_page(hot, current);
@@ -236,6 +280,16 @@ struct hemem_page* partial_cool_peek_and_move(struct fifo_list *hot, struct fifo
         p->hot = false;
     }
     
+    if (hot == &dram_hot_list && p == start_dram_page) {
+        start_dram_page = NULL;
+        need_cool_dram = false;
+    }
+
+    if (hot == &nvm_hot_list && p == start_nvm_page) {
+        start_nvm_page = NULL;
+        need_cool_nvm = false;
+    } 
+
     if (!p->hot) {
         current = p->next;
         page_list_remove_page(hot, p);
@@ -402,6 +456,8 @@ void *pebs_kscand()
                   page->local_clock = global_clock;
                   if (page->accesses[j] > PEBS_COOLING_THRESHOLD) {
                     global_clock++;
+                    need_cool_dram = 1;
+                    need_cool_nvm = 1;
                   }
                 }
                 in_kscand = false;
@@ -694,12 +750,14 @@ void *pebs_kswapd()
     #endif
 
     clock_gettime(CLOCK_REALTIME, &begin);
+    #if 1
     #ifdef PEEK_AND_MOVE
     cur_cool_in_dram = partial_cool_peek_and_move(&dram_hot_list, &dram_cold_list, true, cur_cool_in_dram);
     cur_cool_in_nvm = partial_cool_peek_and_move(&nvm_hot_list, &nvm_cold_list, false, cur_cool_in_nvm);
     #else
     partial_cool(&dram_hot_list, &dram_cold_list, true);
     partial_cool(&nvm_hot_list, &nvm_cold_list, false);
+    #endif
     #endif
     #ifdef TIME_DEBUG
     clock_gettime(CLOCK_REALTIME, &end);
