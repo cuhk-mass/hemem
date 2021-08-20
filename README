@@ -5,6 +5,7 @@ This document describes the artifact for our SOSP 2021 paper on HeMem. We descri
 ## Overview
 
 `microbenchmarks/`: This directory contains the GUPS microbenchmark and run scripts used in section 5.1 of our paper.
+
 `apps/`: This directory contains the applications and run scripts used in section 5.2 of our paper
 
 ## Artifact Available
