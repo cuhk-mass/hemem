@@ -48,7 +48,7 @@ To set up the `/dev/dax` file representing NVM, ensure that your machine has NVM
 
 3. Make note of the `chardev` name of the NVM `/dev/dax` file. This will be used to tell HeMem which `/dev/dax` file represents NVM. If this is different from `dax1.0`, then you will need to edit the `hemem.h` file `NVMPATH` macro to point it towards your actual NVM `/dev/dax` file.
 
-Once the proper kernel version is running and the `/dev/dax` files have been set up, HeMem can be build with the supplied Makefile by typing `make`.
+Once the proper kernel version is running and the `/dev/dax` files have been set up, HeMem can be built with the supplied Makefile by typing `make`.
 
 HeMem requires the user be root in order to run. Applications can either be linked with Hemem or run unmodified via the `LD_PRELOAD` environment variable.
 
