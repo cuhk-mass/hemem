@@ -126,7 +126,7 @@ char *filename = "indices1.txt";
 
 FILE *hotsetfile = NULL;
 
-bool hotset_only = false;
+bool hotset_only = true;
 
 static void *prefill_hotset(void* arguments)
 {
@@ -170,13 +170,6 @@ static void *do_gups(void *arguments)
   uint64_t offset;
   uint64_t start, end;
 
-  //FILE* timefile;
-  //char filename[17];
-  //snprintf(filename, 17, "latencies_%d.txt", args->tid);
-  //timefile = fopen(filename, "w");
-  //assert(timefile != NULL);
-
-
   srand(args->tid);
   lfsr = rand();
 
@@ -190,19 +183,11 @@ static void *do_gups(void *arguments)
     if (hot_num < 90) {
       lfsr = lfsr_fast(lfsr);
       index1 = args->hot_start + (lfsr % args->hotsize);
-      //if (move_hotset) {
-      //  offset = index1 * elt_size;
-      //  if (offset >= PAGE_NUM * GUPS_PAGE_SIZE && offset < PAGE_NUM * GUPS_PAGE_SIZE * PAGES) {
-      //    index1 += ((hot_offset_page * GUPS_PAGE_SIZE) / elt_size);
-      //  }
-      //}
       start = rdtscp();
       if (elt_size == 8) {
-        //index1 = i % (args->size);
         uint64_t  tmp = field[index1];
         tmp = tmp + i;
         field[index1] = tmp;
-        //field[index1] = index1 + i;
       }
       else {
         memcpy(data, &field[index1 * elt_size], elt_size);
@@ -210,19 +195,15 @@ static void *do_gups(void *arguments)
         memcpy(&field[index1 * elt_size], data, elt_size);
       }
       end = rdtscp();
-      //thread_gups[args->tid]++;
-      //fprintf(indexfile, "%p\n", field + (index1* elt_size));
     }
     else {
       lfsr = lfsr_fast(lfsr);
       index2 = lfsr % (args->size);
       start = rdtscp();
       if (elt_size == 8) {
-        //index2 = i % (args->size);
         uint64_t tmp = field[index2];
         tmp = tmp + i;
         field[index2] = tmp;
-        //field[index2] = index2 + i;
       }
       else {
         memcpy(data, &field[index2 * elt_size], elt_size);
@@ -230,24 +211,12 @@ static void *do_gups(void *arguments)
         memcpy(&field[index2 * elt_size], data, elt_size);
       }
       end = rdtscp();
-      //thread_gups[args->tid]++;
-      //fprintf(indexfile, "%p\n", field +  (index2 * elt_size));
     }
-
-    //fprintf(timefile, "%lu\n", end - start);
   }
 
-  //fclose(timefile);
   return 0;
 }
-/*
-static void *calc_indices_thread(void *arg)
-{
-  struct gups_args *gai = (struct gups_args*)arg;
-  calc_indices(gai->indices, updates, nelems);
-  return NULL;
-}
-*/
+
 int main(int argc, char **argv)
 {
   unsigned long expt;
@@ -293,7 +262,7 @@ int main(int argc, char **argv)
   fprintf(stderr, "field of 2^%lu (%lu) bytes\n", expt, size);
   fprintf(stderr, "%ld byte element size (%ld elements total)\n", elt_size, size / elt_size);
 
-  p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE, -1, 0);
+  p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
   if (p == MAP_FAILED) {
     perror("mmap");
     assert(0);
@@ -327,7 +296,7 @@ int main(int argc, char **argv)
 
   hot_start = 0;
   hotsize = (tot_hot_size / threads) / elt_size;
-  printf("hot_start: %p\thot_end: %p\thot_size: %lu\n", p + hot_start, p + hot_start + (hotsize * elt_size), hotsize);
+  //printf("hot_start: %p\thot_end: %p\thot_size: %lu\n", p + hot_start, p + hot_start + (hotsize * elt_size), hotsize);
 
   gettimeofday(&starttime, NULL);
   for (i = 0; i < threads; i++) {
@@ -343,7 +312,6 @@ int main(int argc, char **argv)
   }
 
   if (hotset_only) {
-    fprintf(stderr, "Prefilling hotset\n");
     for (i = 0; i < threads; i++) {
       int r = pthread_create(&t[i], NULL, prefill_hotset, (void*)ga[i]);
       assert(r == 0);
@@ -353,7 +321,6 @@ int main(int argc, char **argv)
       int r = pthread_join(t[i], NULL);
       assert(r == 0);
     }
-    fprintf(stderr, "Done prefilling hotset\n");
   }
 
   // run through gups once to touch all memory
@@ -373,9 +340,9 @@ int main(int argc, char **argv)
   gettimeofday(&stoptime, NULL);
 
   secs = elapsed(&starttime, &stoptime);
-  printf("Elapsed time: %.4f seconds.\n", secs);
+  //printf("Elapsed time: %.4f seconds.\n", secs);
   gups = threads * ((double)updates) / (secs * 1.0e9);
-  printf("GUPS = %.10f\n", gups);
+  //printf("GUPS = %.10f\n", gups);
   //memset(thread_gups, 0, sizeof(thread_gups));
 
   filename = "indices2.txt";

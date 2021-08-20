@@ -1,6 +1,70 @@
-A memory management system for heterogeneous memory systems
+# HeMem Artifact
 
-To run with an application:
-  export LD_LIBRARY_PATH=.:$LD_LIBRARY_PATH
-  LD_PRELOAD=libhemem-[simple|lru|modified-lru].so <applicaiton>
+This document describes the artifact for our SOSP 2021 paper on HeMem. We describe how to build and run HeMem and reproduce the results from our paper.
 
+## Overview
+
+`microbenchmarks/`: This directory contains the GUPS microbenchmark and run scripts used in section 5.1 of our paper.
+`apps/`: This directory contains the applications and run scripts used in section 5.2 of our paper
+
+## Artifact Available
+
+Our artifact is available here, at this repository. The main artifact branch is `sosp-artifact`
+
+## Artifact Functional
+
+The process for accessing, building, and running HeMem is described below.
+
+### Accessing HeMem
+
+We will provide remote access to our test machine. This machine is set up with the proper linux kernel version with our changes allowing allowing userfaultfd to work with `/dev/dax` files. Access to this machine is via keys -- contact us via HotCRP to set up your keys to access the machine.
+
+### Building HeMem
+
+Upon accessing the test machine, a script is provided in the home directory to set up environment variables related to building and running HeMem called `init_env.sh`. The `hemem/` directory contains the artifact for HeMem. HeMem can be build by running the makefile by running `make`.
+
+### Running HeMem
+
+HeMem can either be linked with applications or run with unmodified applications using the `LD_PRELOAD` environment variable.  HeMem requires the user to be root in order to run.
+
+## Results Reproduced
+
+Please note that reproducing the results in the paper can take quite a long time. These applications are large and use a lot of memory.
+
+### Microbenchmarks
+
+A Makefile is provided to build the GUPS microbenchmarks.
+
+To reproduce the Uniform GUPS results, run the `run-random.sh` script. Results will be printed to the `random.txt` file. The throughput results shown in the paper are the "GUPS" lines.
+
+To reproduce the Hotset GUPS results, run the `run.sh` script. Results will be printed to the `results.txt` file. The throughput results shown in the paper are the "GUPS" lines.
+
+To reproduce the Instantaneous GUPS results, run the `run-instantaneous.sh` script. Results will be printed to the `tot_gups.txt` file.
+
+To reproduce the Thread Scalability results, run the `run-threads.sh` script. Results will be printed to the `threads.txt` file. The throughput results shown in the paper are the "GUPS" lines.
+
+### Application Benchmarks
+
+Applications tested with HeMem are located in the `apps/` directory.
+
+#### Silo 
+
+The Silo application can be found in the `apps/silo_hemem/silo` directory. Run the provided `run_batch.sh` script. Results will be in the `batch/results.txt` file. The reported throughput numbers are numbers in the first column of the file.
+
+#### FlexKVS
+
+The FlexKVS application can be found in the `apps/flexkvs` directory. These results require a separate machine for the clients. Please talk with us if you wish to reproduce these results.
+
+#### GapBS
+
+The GapBS application can be found in the `apps/gapbs` directory.  To run the BC algorithm with a graph size of 2^28 vertices, run the following command:
+
+`LD_PRELOAD=/home/amanda/hemem/libhemem.so numactl -N0 --preferred=0 -- ./bc -g 28`
+
+The latencies reported are the "Trial Time" lines.
+
+To run the BC algorithm with a graph size of 2^29 vertices, run the following command:
+
+`LD_PRELOAD=/home/amanda/hemem/libhemem.so numactl -N0 --preferred=0 -- ./bc -g 29`
+
+The latencies reported are the "Trial Time" lines.

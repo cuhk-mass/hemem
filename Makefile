@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -g -Wall -O2 -fPIC
+CFLAGS = -g -Wall -O3 -fPIC
 #CFLAGS = -g3 -Wall -O0 -fPIC
 LDFLAGS = -shared
 INCLUDES = -I/home/amanda/linux/usr/include

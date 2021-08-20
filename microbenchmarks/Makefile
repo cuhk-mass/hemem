@@ -1,12 +1,15 @@
 CC = gcc
-CFLAGS = -g -Wall -O2 
+CFLAGS = -g -Wall -O3
 #CFLAGS = -g3 -Wall -O0
 INCLUDES = -I/home/amanda/linux/usr/include
 LIBS = -lm -lpthread
 
 default: all
 
-all: gups-pebs gups-simple gups-lru gups-lru-swap test-simple test-lru test gups-small gups-hotset-move gups
+all: gups-pebs gups-random gups-simple gups-lru gups-lru-swap test-simple test-lru test gups-small gups-hotset-move gups
+
+gups-random: gups-random.o
+	$(CC) $(CFLAGS) $(INCLUDES) -o gups-random gups-random.o zipf.o $(LIBS) -L../ -lhemem
 
 gups-small: gups-small.o
 	$(CC) $(CFLAGS) $(INCLUDES) -o gups-small gups-small.o ../timer.o $(LIBS)
@@ -37,6 +40,9 @@ test-simple: test.o
 
 test-lru: test.o
 	$(CC) $(CFLAGS) $(INCLUDES) -o test-lru test.o $(LIBS) -L../ -lhemem-lru
+
+gups-random.o: gups-random.c zipf.c gups.h
+	$(CC) $(CFLAGS) $(INCLUDES) -c gups-random.c zipf.c
 
 gups.o: gups.c zipf.c  gups.h
 	$(CC) $(CFLAGS) $(INCLUDES) -c gups.c zipf.c
