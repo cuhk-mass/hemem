@@ -2,11 +2,11 @@
 
 This document describes the artifact for our SOSP 2021 paper on HeMem. We describe how to build and run HeMem and reproduce the results from our paper.
 
+For simplicity, we will provide remote access to our machine, which includes Intel Optane NVM, the linux kernel version required for running HeMem, the `/dev/dax` files set up for DRAM and NVM, HeMem itself, and the microbenchmark and application benchmarks evaluated with HeMem. Please contact us via HotCRP in order to set up access. If you wish to run HeMem on your own hardware, please see the section on "Building and Running HeMem" below.
+
 ## Overview
 
-`microbenchmarks/`: This directory contains the GUPS microbenchmark and run scripts used in section 5.1 of our paper.
-
-`apps/`: This directory contains the applications and run scripts used in section 5.2 of our paper
+When you access our machine, you will find the `hemem/` directory and a script called `init_env.sh` in your home directory. The `init_env.sh` script sets up the environment variables necessary for building and running HeMem. The `hemem/` directory contains the source code of HeMem and the microbenchmarks (`hemem/microbenchmarks/`) and application benchmarks (`hemem/apps/`) evaluated with HeMem. 
 
 ## Artifact Available
 
@@ -16,17 +16,43 @@ Our artifact is available here, at this repository. The main artifact branch is 
 
 The process for accessing, building, and running HeMem is described below.
 
-### Accessing HeMem
+### Accessing HeMem via our machines
 
-We will provide remote access to our test machine. This machine is set up with the proper linux kernel version with our changes allowing allowing userfaultfd to work with `/dev/dax` files. Access to this machine is via keys -- contact us via HotCRP to set up your keys to access the machine.
+We will provide remote access to our test machine. This machine is set up with the proper linux kernel version with our changes allowing allowing userfaultfd to work with `/dev/dax` files. This machine also includes all the microbenchmark and application benchmarks evaluated with HeMem. Access to this machine is via keys -- contact us via HotCRP to set up your keys to access the machine. To ensure the easiest time in evaluating this artifact, we recommend this approach.
 
-### Building HeMem
+### Building and Running HeMem
 
-Upon accessing the test machine, a script is provided in the home directory to set up environment variables related to building and running HeMem called `init_env.sh`. The `hemem/` directory contains the artifact for HeMem. HeMem can be build by running the makefile by running `make`.
+Although more complicated, you can also set up HeMem to run on your own machine provided you have Intel Optane NVM. HeMem requires a special linux kernel in order to run. That kernel is located [here](https://github.com/aj-austin/linux/tree/uffd-wp-merged "here"). Some additional setup is required for setting up the DRAM and NVM `/dev/dax` files to run HeMem.
 
-### Running HeMem
+To set up the `/dev/dax` file representing DRAM, follow the instructions [here](https://pmem.io/2016/02/22/pm-emulation.html "here") in order to reserve a block of DRAM at machine startup to represent the DRAM `/dev/dax` file. HeMem reserves its 128GB of DRAM in this way. If your machine has multiple NUMA nodes, ensure that the block of DRAM you reserve is located on the same NUMA node that has NVM. Do not follow the last set of instructions from pmem.io on setting up a file system on the reserved DRAM. Instead, set up a `/dev/dax` file to represent it:
 
-HeMem can either be linked with applications or run with unmodified applications using the `LD_PRELOAD` environment variable.  HeMem requires the user to be root in order to run.
+1. First, determine the name of the namespace representing the reserved DRAM:
+
+`ndctl list --human`
+
+2. You should see your reserved DRAM. If multiple namespaces are listed, some represent NVM namespaces (described below). You should be able to differentiate the DRAM namespace based on size. Your DRAM namespace is likely in `fsdax` mode. Change the namespace over to `devdax` mode using the following command (in this example, the DRAM namespace is called `namespace0.0`):
+
+`sudo ndctl create-namespace -f -e namespace0.0 --mode=devdax --align 2M`
+
+3. Make note of the `chardev` name of the DRAM `/dev/dax` file. This willl be used to tell HeMem which `/dev/dax` file represents DRAM. If this is different from `dax0.0`, then you will need to edit the `hemem.h` file `DRAMPATH` macro to point it towards your actual DRAM `/dev/dax` file.
+
+To set up the `/dev/dax` file representing NVM, ensure that your machine has NVM in App Direct mode. If you do not already have namespaces representing NVM, then you will need to create them. Follow these steps:
+
+1. List the regions available on your machine:
+
+`ndctl list --regions --human`
+
+2. Note which regions represent NVM. You can differentiate them from the reserved DRAM region based on size or via the `persistence_doman` field, which, for NVM, will read `memory_controller`. Pick the region that is on the same NUMA node as your reserved DRAM. In this example, this is "region1". Create a namespace over this region:
+
+` ndctl create-namespace --region=1 --mode=devdax`
+
+3. Make note of the `chardev` name of the NVM `/dev/dax` file. This will be used to thell HeMem w hich `/dev/dax` file represents NVM. If this is different from `dax1.0`, then you will need to tedit the `hemem.h` file `NVMPATH` macro to point it towards your actural NVM `/dev/dax` file.
+
+Once the proper kernel version is running and the `/dev/dax` files have been set up, HeMem can be build with the supplied Makefile by typing `make`.
+
+HeMem requires the user be root in order to run. Applications can either be linked with Hemem or run unmodified via the `LD_PRELOAD` environment variable.
+
+The GUPS microbenchmark is provided in this repository. The Silo and GapBS benchmarks are both open source and can be found on GitHub. If you access HeMem via our machines, all microbenchmarks and application benchmarks are provided.
 
 ## Results Reproduced
 
@@ -65,3 +91,4 @@ The FlexKVS application can be found in the `apps/flexkvs` directory. These resu
 #### GapBS
 
 The GapBS application can be found in the `apps/gapbs` directory.  To run the BC algorithm, run the `run_bc.sh` script. Results for a graph with 2^28 vertices will be in a file called `28v.txt` and the results for a graph with 2^29 vertices will be in a file called `29v.txt`. The latencies reported are the "Trial Time" lines.
+
