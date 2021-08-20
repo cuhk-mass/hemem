@@ -31,6 +31,12 @@ HeMem can either be linked with applications or run with unmodified applications
 
 Please note that reproducing the results in the paper can take quite a long time. These applications are large and use a lot of memory.
 
+Upon logging onto the machine, run the following command in your home directory:
+
+`source init_env.sh`
+
+This sets up environment variables necessary for running HeMem.
+
 ### Microbenchmarks
 
 A Makefile is provided to build the GUPS microbenchmarks.
@@ -57,14 +63,4 @@ The FlexKVS application can be found in the `apps/flexkvs` directory. These resu
 
 #### GapBS
 
-The GapBS application can be found in the `apps/gapbs` directory.  To run the BC algorithm with a graph size of 2^28 vertices, run the following command:
-
-`LD_PRELOAD=/home/amanda/hemem/libhemem.so numactl -N0 --preferred=0 -- ./bc -g 28`
-
-The latencies reported are the "Trial Time" lines.
-
-To run the BC algorithm with a graph size of 2^29 vertices, run the following command:
-
-`LD_PRELOAD=/home/amanda/hemem/libhemem.so numactl -N0 --preferred=0 -- ./bc -g 29`
-
-The latencies reported are the "Trial Time" lines.
+The GapBS application can be found in the `apps/gapbs` directory.  To run the BC algorithm, run the `run_bc.sh` script. Results for a graph with 2^28 vertices will be in a file called `28v.txt` and the results for a graph with 2^29 vertices will be in a file called `29v.txt`. The latencies reported are the "Trial Time" lines.
