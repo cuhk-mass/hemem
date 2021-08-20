@@ -34,7 +34,7 @@ To set up the `/dev/dax` file representing DRAM, follow the instructions [here](
 
 `sudo ndctl create-namespace -f -e namespace0.0 --mode=devdax --align 2M`
 
-3. Make note of the `chardev` name of the DRAM `/dev/dax` file. This willl be used to tell HeMem which `/dev/dax` file represents DRAM. If this is different from `dax0.0`, then you will need to edit the `hemem.h` file `DRAMPATH` macro to point it towards your actual DRAM `/dev/dax` file.
+3. Make note of the `chardev` name of the DRAM `/dev/dax` file. This will be used to tell HeMem which `/dev/dax` file represents DRAM. If this is different from `dax0.0`, then you will need to edit the `hemem.h` file `DRAMPATH` macro to point it towards your actual DRAM `/dev/dax` file.
 
 To set up the `/dev/dax` file representing NVM, ensure that your machine has NVM in App Direct mode. If you do not already have namespaces representing NVM, then you will need to create them. Follow these steps:
 
@@ -46,13 +46,13 @@ To set up the `/dev/dax` file representing NVM, ensure that your machine has NVM
 
 ` ndctl create-namespace --region=1 --mode=devdax`
 
-3. Make note of the `chardev` name of the NVM `/dev/dax` file. This will be used to thell HeMem w hich `/dev/dax` file represents NVM. If this is different from `dax1.0`, then you will need to tedit the `hemem.h` file `NVMPATH` macro to point it towards your actural NVM `/dev/dax` file.
+3. Make note of the `chardev` name of the NVM `/dev/dax` file. This will be used to tell HeMem which `/dev/dax` file represents NVM. If this is different from `dax1.0`, then you will need to edit the `hemem.h` file `NVMPATH` macro to point it towards your actual NVM `/dev/dax` file.
 
 Once the proper kernel version is running and the `/dev/dax` files have been set up, HeMem can be build with the supplied Makefile by typing `make`.
 
 HeMem requires the user be root in order to run. Applications can either be linked with Hemem or run unmodified via the `LD_PRELOAD` environment variable.
 
-The GUPS microbenchmark is provided in this repository. The Silo and GapBS benchmarks are both open source and can be found on GitHub. If you access HeMem via our machines, all microbenchmarks and application benchmarks are provided.
+The GUPS microbenchmark is provided in this repository. The Silo and GapBS benchmarks are both open source and can be found on GitHub. If you access HeMem via our machines, all microbenchmarks and application benchmarks are provided as well as convenient scripts to reproduce the results shown in our paper.
 
 ## Results Reproduced
 
@@ -74,11 +74,9 @@ To reproduce the Hotset GUPS results, run the `run.sh` script. Results will be p
 
 To reproduce the Instantaneous GUPS results, run the `run-instantaneous.sh` script. Results will be printed to the `tot_gups.txt` file.
 
-To reproduce the Thread Scalability results, run the `run-threads.sh` script. Results will be printed to the `threads.txt` file. The throughput results shown in the paper are the "GUPS" lines.
-
 ### Application Benchmarks
 
-Applications tested with HeMem are located in the `apps/` directory.
+Applications tested with HeMem are located in the `apps/` directory on our test machine.
 
 #### Silo 
 
@@ -91,4 +89,3 @@ The FlexKVS application can be found in the `apps/flexkvs` directory. These resu
 #### GapBS
 
 The GapBS application can be found in the `apps/gapbs` directory.  To run the BC algorithm, run the `run_bc.sh` script. Results for a graph with 2^28 vertices will be in a file called `28v.txt` and the results for a graph with 2^29 vertices will be in a file called `29v.txt`. The latencies reported are the "Trial Time" lines.
-
