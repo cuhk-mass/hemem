@@ -18,13 +18,17 @@ The process for accessing, building, and running HeMem is described below.
 
 ### Accessing HeMem via our machines
 
-We will provide remote access to our test machine. This machine is set up with the proper linux kernel version with our changes allowing allowing userfaultfd to work with `/dev/dax` files. This machine also includes all the microbenchmark and application benchmarks evaluated with HeMem. Access to this machine is via keys -- contact us via HotCRP to set up your keys to access the machine. To ensure the easiest time in evaluating this artifact, we recommend this approach.
+We will provide remote access to our test machine. This machine is set up with the proper linux kernel version with our changes allowing userfaultfd to work with `/dev/dax` files. This machine also includes all the microbenchmark and application benchmarks evaluated with HeMem. Access to this machine is via keys -- contact us via HotCRP to set up your keys to access the machine. To ensure the easiest time in evaluating this artifact, we recommend this approach.
 
 ### Building and Running HeMem
 
-Although more complicated, you can also set up HeMem to run on your own machine provided you have Intel Optane NVM. HeMem requires a special linux kernel in order to run. That kernel is located [here](https://github.com/aj-austin/linux/tree/uffd-wp-merged "here") in the `uffd-wp-merged` branch. Some additional setup is required for setting up the DRAM and NVM `/dev/dax` files to run HeMem.
+Although more complicated, you can also set up HeMem to run on your own machine provided you have Intel Optane NVM. HeMem requires a special linux kernel in order to run. That kernel is located [here](https://github.com/aj-austin/linux/tree/uffd-wp-merged "here") in the `uffd-wp-merged` branch. Edit the `INCLUDES` line in the Makefiles in the main source directory and the microbenchmarks subdirectory to point to the linux headers from this repository that you downloaded.
 
-To set up the `/dev/dax` file representing DRAM, follow the instructions [here](https://pmem.io/2016/02/22/pm-emulation.html "here") in order to reserve a block of DRAM at machine startup to represent the DRAM `/dev/dax` file. HeMem reserves its 128GB of DRAM in this way. If your machine has multiple NUMA nodes, ensure that the block of DRAM you reserve is located on the same NUMA node that has NVM. Do not follow the last set of instructions from pmem.io on setting up a file system on the reserved DRAM. Instead, set up a `/dev/dax` file to represent it:
+HeMem has a dependency on [Hoard](https://github.com/emeryberger/Hoard "Hoard"). Download, build, and install Hoard before attempting to build HeMem.
+
+Some additional setup is required for setting up the DRAM and NVM `/dev/dax` files to run HeMem.
+
+To set up the `/dev/dax` file representing DRAM, follow the instructions [here](https://pmem.io/2016/02/22/pm-emulation.html "here") in order to reserve a block of DRAM at machine startup to represent the DRAM `/dev/dax` file. HeMem reserves its 140GB of DRAM in this way (enough for its 128GB of reserved DRAM plus some metadata needed for `ndctl`). If your machine has multiple NUMA nodes, ensure that the block of DRAM you reserve is located on the same NUMA node that has NVM. Do not follow the last set of instructions from pmem.io on setting up a file system on the reserved DRAM. Instead, set up a `/dev/dax` file to represent it:
 
 1. First, determine the name of the namespace representing the reserved DRAM:
 
@@ -42,7 +46,7 @@ To set up the `/dev/dax` file representing NVM, ensure that your machine has NVM
 
 `ndctl list --regions --human`
 
-2. Note which regions represent NVM. You can differentiate them from the reserved DRAM region based on size or via the `persistence_doman` field, which, for NVM, will read `memory_controller`. Pick the region that is on the same NUMA node as your reserved DRAM. In this example, this is "region1". Create a namespace over this region:
+2. Note which regions represent NVM. You can differentiate them from the reserved DRAM region based on size or via the `persistence_domain` field, which, for NVM, will read `memory_controller`. Pick the region that is on the same NUMA node as your reserved DRAM. In this example, this is "region1". Create a namespace over this region:
 
 ` ndctl create-namespace --region=1 --mode=devdax`
 
@@ -58,7 +62,7 @@ The GUPS microbenchmark is provided in this repository. The Silo and GapBS bench
 
 Please note that reproducing the results in the paper can take quite a long time. These applications are large and use a lot of memory.
 
-Upon logging onto the machine, run the following command in your home directory:
+Upon logging onto the machine, become root by executing `sudo su`. Run the following command in your home directory:
 
 `source init_env.sh`
 
