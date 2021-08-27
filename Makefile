@@ -2,11 +2,11 @@ CC = gcc
 CFLAGS = -g -Wall -O3 -fPIC
 #CFLAGS = -g3 -Wall -O0 -fPIC
 LDFLAGS = -shared
-INCLUDES = -I/home/amanda/linux/usr/include
+INCLUDES = -I/home/sosp21ae/linux/usr/include
 LIBS = -lm -lpthread
-HEMEM_LIBS = $(LIBS) -ldl -lsyscall_intercept -L/home/amanda/Hoard/src -lhoard
+HEMEM_LIBS = $(LIBS) -ldl -lsyscall_intercept -L/home/sosp21ae/Hoard/src -lhoard
 
-default: all
+default: libhemem.so
 
 all: hemem-libs
 
