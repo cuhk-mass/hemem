@@ -84,7 +84,7 @@ Applications tested with HeMem are located in the `apps/` directory on our test 
 
 #### Silo 
 
-The Silo application can be found in the `apps/silo_hemem/silo` directory. Run the provided `run_batch.sh` script. Results will be in the `batch/results.txt` file. The reported throughput numbers are numbers in the first column of the file.
+The Silo application can be found in the `apps/silo_hemem/silo` directory. It can also be downloaded from [this](https://github.com/stephentu/silo "this") repository. Run the provided `run_batch.sh` script. Results will be in the `batch/results.txt` file. The reported throughput numbers are numbers in the first column of the file.
 
 #### FlexKVS
 
@@ -92,4 +92,4 @@ The FlexKVS application can be found in the `apps/flexkvs` directory. These resu
 
 #### GapBS
 
-The GapBS application can be found in the `apps/gapbs` directory.  To run the BC algorithm, run the `run_bc.sh` script. Results for a graph with 2^28 vertices will be in a file called `28v.txt` and the results for a graph with 2^29 vertices will be in a file called `29v.txt`. The latencies reported are the "Trial Time" lines.
+The GapBS application can be found in the `apps/gapbs` directory. It can also be downloaded from [this](https://github.com/sbeamer/gapbs "this") repository. To run the BC algorithm, run the `run_bc.sh` script. Results for a graph with 2^28 vertices will be in a file called `28v.txt` and the results for a graph with 2^29 vertices will be in a file called `29v.txt`. The latencies reported are the "Trial Time" lines.

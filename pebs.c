@@ -11,7 +11,7 @@
 #include <linux/perf_event.h>
 #include <linux/hw_breakpoint.h>
 #include <sys/mman.h>
-
+#include <sys/ioctl.h>
 
 #include "hemem.h"
 #include "pebs.h"
