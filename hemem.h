@@ -36,7 +36,6 @@ extern "C" {
 //#define USE_PEBS
 #define STATS_THREAD
 
-
 #define USE_DMA
 #define NUM_CHANNS 2
 #define SIZE_PER_DMA_REQUEST (1024*1024)
@@ -153,13 +152,15 @@ struct hemem_page {
   uint64_t devdax_offset;
   bool in_dram;
   enum pagetypes pt;
-  bool migrating;
+  volatile bool migrating;
   bool present;
   bool written;
   bool hot;
   uint64_t naccesses;
   uint64_t migrations_up, migrations_down;
+  uint64_t local_clock;
   bool stop_migrating;
+  bool ring_present;
   uint64_t accesses[NPBUFTYPES];
   uint64_t tot_accesses[NPBUFTYPES];
   pthread_mutex_t page_lock;

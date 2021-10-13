@@ -27,3 +27,10 @@ double elapsed(struct timeval *starttime, struct timeval *endtime)
   return tv_to_double(diff);
 }
 
+long clock_time_elapsed(struct timespec start, struct timespec end)
+{
+    long seconds = end.tv_sec - start.tv_sec;
+    long nanoseconds = end.tv_nsec - start.tv_nsec;
+    return seconds * 1000000000 + nanoseconds;
+}
+

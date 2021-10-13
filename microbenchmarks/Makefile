@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -g -Wall -O3
 #CFLAGS = -g3 -Wall -O0
-INCLUDES = -I/home/sosp21ae/linux/usr/include
+INCLUDES = -I/home/amanda/linux/usr/include
 LIBS = -lm -lpthread
 
 default: gups-pebs gups-random gups-hotset-move
