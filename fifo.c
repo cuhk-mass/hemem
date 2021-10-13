@@ -85,3 +85,20 @@ void page_list_remove_page(struct fifo_list *list, struct hemem_page *page)
   page->list = NULL;
   pthread_mutex_unlock(&(list->list_lock));
 }
+
+struct hemem_page* next_page(struct fifo_list *list, struct hemem_page *page)
+{
+    struct hemem_page* next_page = NULL;
+
+    pthread_mutex_lock(&(list->list_lock));
+    if (page == NULL) {
+        next_page = list->last;
+    }
+    else {
+        next_page = page->prev;
+        assert(page->list == list);
+    }
+    pthread_mutex_unlock(&(list->list_lock));
+
+    return next_page;
+}

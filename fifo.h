@@ -19,6 +19,7 @@ struct fifo_list {
 void enqueue_fifo(struct fifo_list *list, struct hemem_page *page);
 struct hemem_page* dequeue_fifo(struct fifo_list *list);
 void page_list_remove_page(struct fifo_list *list, struct hemem_page *page);
+struct hemem_page* next_page(struct fifo_list *list, struct hemem_page *page);
 
 #endif
 
