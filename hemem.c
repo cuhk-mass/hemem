@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
@@ -18,6 +19,7 @@
 #include <stdint.h>
 #include <inttypes.h>
 #include <stdbool.h>
+#include <sched.h>
 
 #include "hemem.h"
 #include "timer.h"
@@ -135,6 +137,18 @@ void *hemem_parallel_memcpy_thread(void *arg)
 
 static void *hemem_stats_thread()
 {
+  cpu_set_t cpuset;
+  pthread_t thread;
+
+  thread = pthread_self();
+  CPU_ZERO(&cpuset);
+  CPU_SET(STATS_THREAD_CPU, &cpuset);
+  int s = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
+  if (s != 0) {
+    perror("pthread_setaffinity_np");
+    assert(0);
+  }
+
   for (;;) {
     sleep(1);
     
@@ -982,6 +996,18 @@ void *handle_fault()
   int ret;
   int nmsgs;
   int i;
+
+  cpu_set_t cpuset;
+  pthread_t thread;
+
+  thread = pthread_self();
+  CPU_ZERO(&cpuset);
+  CPU_SET(FAULT_THREAD_CPU, &cpuset);
+  int s = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
+  if (s != 0) {
+    perror("pthread_setaffinity_np");
+    assert(0);
+  }
 
   for (;;) {
     struct pollfd pollfd;

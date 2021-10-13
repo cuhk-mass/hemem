@@ -126,7 +126,7 @@ char *filename = "indices1.txt";
 
 FILE *hotsetfile = NULL;
 
-bool hotset_only = true;
+bool hotset_only = false;
 
 static void *prefill_hotset(void* arguments)
 {
@@ -262,7 +262,7 @@ int main(int argc, char **argv)
   fprintf(stderr, "field of 2^%lu (%lu) bytes\n", expt, size);
   fprintf(stderr, "%ld byte element size (%ld elements total)\n", elt_size, size / elt_size);
 
-  p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
+  p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE, -1, 0);
   if (p == MAP_FAILED) {
     perror("mmap");
     assert(0);
@@ -340,9 +340,9 @@ int main(int argc, char **argv)
   gettimeofday(&stoptime, NULL);
 
   secs = elapsed(&starttime, &stoptime);
-  //printf("Elapsed time: %.4f seconds.\n", secs);
+  printf("Elapsed time: %.4f seconds.\n", secs);
   gups = threads * ((double)updates) / (secs * 1.0e9);
-  //printf("GUPS = %.10f\n", gups);
+  printf("GUPS = %.10f\n", gups);
   //memset(thread_gups, 0, sizeof(thread_gups));
 
   filename = "indices2.txt";
@@ -411,6 +411,16 @@ int main(int argc, char **argv)
   //hemem_print_stats();
 #endif
 #endif
+
+  FILE* pebsfile = fopen("pebs.txt", "w+");
+  assert(pebsfile != NULL);
+  for (uint64_t addr = (uint64_t)p; addr < (uint64_t)p + size; addr += (2*1024*1024)) {
+    struct hemem_page *pg = get_hemem_page(addr);
+    assert(pg != NULL);
+    if (pg != NULL) {
+      fprintf(pebsfile, "0x%lx:\t%lu\t%lu\t%lu\n", pg->va, pg->tot_accesses[DRAMREAD], pg->tot_accesses[NVMREAD], pg->tot_accesses[WRITE]);
+    }
+  }
 
   //hemem_stop_timing();
 

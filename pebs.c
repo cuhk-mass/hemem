@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdlib.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -11,6 +12,8 @@
 #include <linux/perf_event.h>
 #include <linux/hw_breakpoint.h>
 #include <sys/mman.h>
+#include <sched.h>
+#include <sys/ioctl.h>
 
 
 #include "hemem.h"
@@ -33,9 +36,11 @@ static volatile bool in_kscand = false;
 uint64_t hemem_pages_cnt = 0;
 uint64_t other_pages_cnt = 0;
 uint64_t total_pages_cnt = 0;
+uint64_t zero_pages_cnt = 0;
 uint64_t throttle_cnt = 0;
 uint64_t unthrottle_cnt = 0;
 uint64_t locked_pages = 0;
+uint64_t cools = 0;
 
 static struct perf_event_mmap_page *perf_page[PEBS_NPROCS][NPBUFTYPES];
 int pfd[PEBS_NPROCS][NPBUFTYPES];
@@ -146,12 +151,26 @@ static void cool(struct fifo_list *hot, struct fifo_list *cold, bool dram)
 
 void *pebs_cooling()
 {
+  cpu_set_t cpuset;
+  pthread_t thread;
+
+  thread = pthread_self();
+  CPU_ZERO(&cpuset);
+  CPU_SET(COOLING_THREAD_CPU, &cpuset);
+  int s = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
+  if (s != 0) {
+    perror("pthread_setaffinity_np");
+    assert(0);
+  }
+
   for(;;) {
     //usleep(PEBS_COOLING_INTERVAL);
     while (!needs_cooling);
 
     cool(&dram_hot_list, &dram_cold_list, true);
     cool(&nvm_hot_list, &nvm_cold_list, false);
+
+    cools++;
 
     needs_cooling = false;
   }
@@ -207,6 +226,18 @@ void make_hot(struct hemem_page* page)
 
 void *pebs_kscand()
 {
+  cpu_set_t cpuset;
+  pthread_t thread;
+
+  thread = pthread_self();
+  CPU_ZERO(&cpuset);
+  CPU_SET(SCANNING_THREAD_CPU, &cpuset);
+  int s = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
+  if (s != 0) {
+    perror("pthread_setaffinity_np");
+    assert(0);
+  }
+
   for(;;) {
     for (int i = 0; i < PEBS_NPROCS; i++) {
       for(int j = 0; j < NPBUFTYPES; j++) {
@@ -220,21 +251,23 @@ void *pebs_kscand()
         }
 
         struct perf_event_header *ph = (void *)(pbuf + (p->data_tail % p->data_size));
+        struct perf_sample* ps;
+        struct hemem_page* page;
 
         switch(ph->type) {
         case PERF_RECORD_SAMPLE:
-          {
-            struct perf_sample *ps = (struct perf_sample*)ph;
+            ps = (struct perf_sample*)ph;
             assert(ps != NULL);
             if(ps->addr != 0) {
               __u64 pfn = ps->addr & HUGE_PFN_MASK;
             
-              struct hemem_page* page = get_hemem_page(pfn);
+              page = get_hemem_page(pfn);
               if (page != NULL) {
                 in_kscand = true;
                 if (page->va != 0) {
                   pthread_mutex_lock(&page->page_lock);
                   page->accesses[j]++;
+                  page->tot_accesses[j]++;
                   if (page->accesses[WRITE] >= HOT_WRITE_THRESHOLD) {
                     make_hot(page);
                   }
@@ -258,7 +291,9 @@ void *pebs_kscand()
             
               total_pages_cnt++;
             }
-	      }
+            else {
+              zero_pages_cnt++;
+            }
   	      break;
         case PERF_RECORD_THROTTLE:
         case PERF_RECORD_UNTHROTTLE:
@@ -319,6 +354,18 @@ static void pebs_migrate_up(struct hemem_page *page, uint64_t offset)
 
 void *pebs_kswapd()
 {
+  cpu_set_t cpuset;
+  pthread_t thread;
+
+  thread = pthread_self();
+  CPU_ZERO(&cpuset);
+  CPU_SET(MIGRATION_THREAD_CPU, &cpuset);
+  int s = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
+  if (s != 0) {
+    perror("pthread_setaffinity_np");
+    assert(0);
+  }
+
   int tries;
   struct hemem_page *p;
   struct hemem_page *cp;
@@ -346,7 +393,7 @@ void *pebs_kswapd()
       }
 
       //pthread_mutex_lock(&(p->page_lock));
-
+/*  
       if (p->stop_migrating) {
         // we have decided to stop migrating this page
         enqueue_fifo(&nvm_locked_list, p);
@@ -362,7 +409,7 @@ void *pebs_kswapd()
         //pthread_mutex_unlock(&(p->page_lock));
         continue;
       }
-      
+*/  
       for (tries = 0; tries < 2; tries++) {
         // find a free DRAM page
         np = dequeue_fifo(&dram_free_list);
@@ -384,6 +431,7 @@ void *pebs_kswapd()
           np->hot = false;
           for (int i = 0; i < NPBUFTYPES; i++) {
             np->accesses[i] = 0;
+            np->tot_accesses[i] = 0;
           }
 
           enqueue_fifo(&dram_hot_list, p);
@@ -426,6 +474,7 @@ void *pebs_kswapd()
           np->hot = false;
           for (int i = 0; i < NPBUFTYPES; i++) {
             np->accesses[i] = 0;
+            np->tot_accesses[i] = 0;
           }
 
           enqueue_fifo(&nvm_cold_list, cp);
@@ -546,6 +595,7 @@ void pebs_remove_page(struct hemem_page *page)
   page->hot = false;
   for (int i = 0; i < NPBUFTYPES; i++) {
     page->accesses[i] = 0;
+    page->tot_accesses[i] = 0;
   }
 
   if (page->in_dram) {
@@ -636,17 +686,18 @@ void pebs_shutdown()
 
 void pebs_stats()
 {
-  LOG_STATS("\tdram_hot_list.numentries: [%ld]\tdram_cold_list.numentries: [%ld]\tnvm_hot_list.numentries: [%ld]\tnvm_cold_list.numentries: [%ld]\themem_pages: [%lu]\ttotal_pages: [%lu]\tlocked_pages: [%ld]\tthrottle/unthrottle_cnt: [%ld/%ld]\n",
+  LOG_STATS("\tdram_hot_list.numentries: [%ld]\tdram_cold_list.numentries: [%ld]\tnvm_hot_list.numentries: [%ld]\tnvm_cold_list.numentries: [%ld]\themem_pages: [%lu]\ttotal_pages: [%lu]\tzero_pages: [%ld]\tthrottle/unthrottle_cnt: [%ld/%ld]\tcools: [%ld]\n",
           dram_hot_list.numentries,
           dram_cold_list.numentries,
           nvm_hot_list.numentries,
           nvm_cold_list.numentries,
           hemem_pages_cnt,
           total_pages_cnt,
-          locked_pages,
+          zero_pages_cnt,
           throttle_cnt,
-          unthrottle_cnt);
-  hemem_pages_cnt = total_pages_cnt = throttle_cnt = unthrottle_cnt = 0;
+          unthrottle_cnt,
+          cools);
+  hemem_pages_cnt = total_pages_cnt = 0; //throttle_cnt = unthrottle_cnt = 0;
 }
 
 

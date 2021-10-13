@@ -34,7 +34,7 @@ extern "C" {
 
 //#define HEMEM_DEBUG
 //#define USE_PEBS
-//#define STATS_THREAD
+#define STATS_THREAD
 
 
 #define USE_DMA
@@ -66,6 +66,9 @@ extern "C" {
 #define BASE_PFN_MASK	(BASEPAGE_MASK ^ UINT64_MAX)
 #define HUGE_PFN_MASK	(HUGEPAGE_MASK ^ UINT64_MAX)
 #define GIGA_PFN_MASK   (GIGAPAGE_MASK ^ UINT64_MAX)
+
+#define FAULT_THREAD_CPU  (0)
+#define STATS_THREAD_CPU  (23)
 
 FILE *hememlogf;
 //#define LOG(...) fprintf(stderr, __VA_ARGS__)
@@ -158,6 +161,7 @@ struct hemem_page {
   uint64_t migrations_up, migrations_down;
   bool stop_migrating;
   uint64_t accesses[NPBUFTYPES];
+  uint64_t tot_accesses[NPBUFTYPES];
   pthread_mutex_t page_lock;
 
   UT_hash_handle hh;
