@@ -15,7 +15,6 @@
 #include <sched.h>
 #include <sys/ioctl.h>
 
-
 #include "hemem.h"
 #include "pebs.h"
 #include "timer.h"

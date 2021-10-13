@@ -6,7 +6,7 @@ INCLUDES = -I/home/amanda/linux/usr/include
 LIBS = -lm -lpthread
 HEMEM_LIBS = $(LIBS) -ldl -lsyscall_intercept -L/home/amanda/Hoard/src -lhoard
 
-default: all
+default: libhemem.so
 
 all: hemem-libs
 
