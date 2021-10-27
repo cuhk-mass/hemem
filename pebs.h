@@ -9,21 +9,16 @@
 
 #include "hemem.h"
 
-#define PEBS_KSWAPD_INTERVAL   (10000) // in us (10ms)
+#define PEBS_KSWAPD_INTERVAL      (10000) // in us (10ms)
 #define PEBS_KSWAPD_MIGRATE_RATE  (10UL * 1024UL * 1024UL * 1024UL) // 10GB
-#define HOT_READ_THRESHOLD     (4)
-#define HOT_WRITE_THRESHOLD    (4)
-#define MIGRATION_STOP_THRESHOLD (3)
-#define PEBS_COOLING_INTERVAL   (1000000) // 1s
-#define PEBS_COOLING_THRESHOLD  (10)
+#define HOT_READ_THRESHOLD        (4)
+#define HOT_WRITE_THRESHOLD       (4)
+#define PEBS_COOLING_THRESHOLD    (10)
 
-#define HOT_RING_REQS_THRESHOLD (1024*1024)
-#define COLD_RING_REQS_THRESHOLD (128)
+#define HOT_RING_REQS_THRESHOLD   (1024*1024)
+#define COLD_RING_REQS_THRESHOLD  (128)
 #define CAPACITY                  (128*1024*1024)
-#define COOLING_PAGES           (32)
-//#define TIME_DEBUG
-#define OPT
-#define PEEK_AND_MOVE
+#define COOLING_PAGES             (8192)
 
 #define PEBS_NPROCS 24
 #define PERF_PAGES	(1 + (1 << 16))	// Has to be == 1+2^n, here 1MB
@@ -34,7 +29,6 @@
 
 #define SCANNING_THREAD_CPU (FAULT_THREAD_CPU + 1)
 #define MIGRATION_THREAD_CPU (SCANNING_THREAD_CPU + 1)
-#define COOLING_THREAD_CPU  (MIGRATION_THREAD_CPU + 1)
 
 struct perf_sample {
   struct perf_event_header header;

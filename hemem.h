@@ -159,7 +159,6 @@ struct hemem_page {
   uint64_t naccesses;
   uint64_t migrations_up, migrations_down;
   uint64_t local_clock;
-  bool stop_migrating;
   bool ring_present;
   uint64_t accesses[NPBUFTYPES];
   uint64_t tot_accesses[NPBUFTYPES];
