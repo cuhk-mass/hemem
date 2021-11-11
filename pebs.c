@@ -710,5 +710,3 @@ void pebs_stats()
           cools);
   hemem_pages_cnt = total_pages_cnt =  throttle_cnt = unthrottle_cnt = 0;
 }
-
-

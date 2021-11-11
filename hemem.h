@@ -34,7 +34,7 @@ extern "C" {
 
 //#define HEMEM_DEBUG
 //#define USE_PEBS
-#define STATS_THREAD
+//#define STATS_THREAD
 
 #define USE_DMA
 #define NUM_CHANNS 2
@@ -209,7 +209,6 @@ void hemem_clear_stats();
 
 void hemem_start_timing(void);
 void hemem_stop_timing(void);
-
 
 #ifdef __cplusplus
 }
