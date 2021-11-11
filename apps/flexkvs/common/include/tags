@@ -1,0 +1,210 @@
+!_TAG_FILE_SORTED	2	/0=unsorted, 1=sorted, 2=foldcase/
+body	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            } body;$/;"	m	language:C++	struct:__anon14::__anon15	typeref:struct:__anon14::__anon15::__anon16
+body	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            } body;$/;"	m	language:C++	struct:__anon17::__anon18	typeref:struct:__anon17::__anon18::__anon19
+body	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            } body;$/;"	m	language:C++	struct:__anon20::__anon21	typeref:struct:__anon20::__anon21::__anon22
+body	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            } body;$/;"	m	language:C++	struct:__anon23::__anon24	typeref:struct:__anon23::__anon24::__anon25
+body	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            } body;$/;"	m	language:C++	struct:__anon26::__anon27	typeref:struct:__anon26::__anon27::__anon28
+body	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            } body;$/;"	m	language:C++	struct:__anon29::__anon30	typeref:struct:__anon29::__anon30::__anon31
+body	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            } body;$/;"	m	language:C++	struct:__anon32::__anon33	typeref:struct:__anon32::__anon33::__anon34
+body	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            } body;$/;"	m	language:C++	struct:__anon35::__anon36	typeref:struct:__anon35::__anon36::__anon37
+bodylen	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            uint32_t bodylen;$/;"	m	language:C++	struct:__anon6::__anon7
+bodylen	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            uint32_t bodylen;$/;"	m	language:C++	struct:__anon8::__anon9
+bytes	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        uint8_t bytes[24];$/;"	m	language:C++	union:__anon6
+bytes	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        uint8_t bytes[24];$/;"	m	language:C++	union:__anon8
+bytes	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        uint8_t bytes[sizeof(protocol_binary_request_header) + 20];$/;"	m	language:C++	union:__anon23
+bytes	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        uint8_t bytes[sizeof(protocol_binary_request_header) + 4];$/;"	m	language:C++	union:__anon17
+bytes	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        uint8_t bytes[sizeof(protocol_binary_request_header) + 4];$/;"	m	language:C++	union:__anon29
+bytes	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        uint8_t bytes[sizeof(protocol_binary_request_header) + 4];$/;"	m	language:C++	union:__anon32
+bytes	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        uint8_t bytes[sizeof(protocol_binary_request_header) + 4];$/;"	m	language:C++	union:__anon35
+bytes	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        uint8_t bytes[sizeof(protocol_binary_request_header) + 8];$/;"	m	language:C++	union:__anon20
+bytes	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        uint8_t bytes[sizeof(protocol_binary_request_header)];$/;"	m	language:C++	union:__anon10
+bytes	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        uint8_t bytes[sizeof(protocol_binary_response_header) + 4];$/;"	m	language:C++	union:__anon14
+bytes	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        uint8_t bytes[sizeof(protocol_binary_response_header) + 8];$/;"	m	language:C++	union:__anon26
+bytes	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        uint8_t bytes[sizeof(protocol_binary_response_header)];$/;"	m	language:C++	union:__anon12
+cas	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            uint64_t cas;$/;"	m	language:C++	struct:__anon6::__anon7
+cas	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            uint64_t cas;$/;"	m	language:C++	struct:__anon8::__anon9
+datatype	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            uint8_t datatype;$/;"	m	language:C++	struct:__anon6::__anon7
+datatype	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            uint8_t datatype;$/;"	m	language:C++	struct:__anon8::__anon9
+delta	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^                uint64_t delta;$/;"	m	language:C++	struct:__anon23::__anon24::__anon25
+expiration	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^                uint32_t expiration;$/;"	m	language:C++	struct:__anon17::__anon18::__anon19
+expiration	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^                uint32_t expiration;$/;"	m	language:C++	struct:__anon20::__anon21::__anon22
+expiration	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^                uint32_t expiration;$/;"	m	language:C++	struct:__anon23::__anon24::__anon25
+expiration	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^                uint32_t expiration;$/;"	m	language:C++	struct:__anon29::__anon30::__anon31
+expiration	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^                uint32_t expiration;$/;"	m	language:C++	struct:__anon32::__anon33::__anon34
+extlen	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            uint8_t extlen;$/;"	m	language:C++	struct:__anon6::__anon7
+extlen	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            uint8_t extlen;$/;"	m	language:C++	struct:__anon8::__anon9
+extras	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^      uint16_t extras;$/;"	m	language:C++	struct:__anon1
+flags	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^                uint32_t flags;$/;"	m	language:C++	struct:__anon14::__anon15::__anon16
+flags	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^                uint32_t flags;$/;"	m	language:C++	struct:__anon20::__anon21::__anon22
+flags	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^                uint8_t  flags;$/;"	m	language:C++	struct:__anon35::__anon36::__anon37
+header	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            protocol_binary_request_header header;$/;"	m	language:C++	struct:__anon10::__anon11
+header	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            protocol_binary_request_header header;$/;"	m	language:C++	struct:__anon17::__anon18
+header	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            protocol_binary_request_header header;$/;"	m	language:C++	struct:__anon20::__anon21
+header	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            protocol_binary_request_header header;$/;"	m	language:C++	struct:__anon23::__anon24
+header	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            protocol_binary_request_header header;$/;"	m	language:C++	struct:__anon29::__anon30
+header	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            protocol_binary_request_header header;$/;"	m	language:C++	struct:__anon32::__anon33
+header	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            protocol_binary_response_header header;$/;"	m	language:C++	struct:__anon12::__anon13
+header	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            protocol_binary_response_header header;$/;"	m	language:C++	struct:__anon14::__anon15
+header	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            protocol_binary_response_header header;$/;"	m	language:C++	struct:__anon26::__anon27
+header	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            protocol_binary_response_header header;$/;"	m	language:C++	struct:__anon35::__anon36
+initial	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^                uint64_t initial;$/;"	m	language:C++	struct:__anon23::__anon24::__anon25
+keylen	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            uint16_t keylen;$/;"	m	language:C++	struct:__anon6::__anon7
+keylen	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            uint16_t keylen;$/;"	m	language:C++	struct:__anon8::__anon9
+magic	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            uint8_t magic;$/;"	m	language:C++	struct:__anon6::__anon7
+magic	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            uint8_t magic;$/;"	m	language:C++	struct:__anon8::__anon9
+max_results	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^                uint32_t max_results;$/;"	m	language:C++	struct:__anon35::__anon36::__anon37
+memcached_udp_header	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    } memcached_udp_header;$/;"	t	language:C++	typeref:struct:__anon1
+message	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        } message;$/;"	m	language:C++	union:__anon10	typeref:struct:__anon10::__anon11
+message	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        } message;$/;"	m	language:C++	union:__anon12	typeref:struct:__anon12::__anon13
+message	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        } message;$/;"	m	language:C++	union:__anon17	typeref:struct:__anon17::__anon18
+message	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        } message;$/;"	m	language:C++	union:__anon20	typeref:struct:__anon20::__anon21
+message	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        } message;$/;"	m	language:C++	union:__anon23	typeref:struct:__anon23::__anon24
+message	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        } message;$/;"	m	language:C++	union:__anon26	typeref:struct:__anon26::__anon27
+message	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        } message;$/;"	m	language:C++	union:__anon29	typeref:struct:__anon29::__anon30
+message	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        } message;$/;"	m	language:C++	union:__anon32	typeref:struct:__anon32::__anon33
+message	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        } message;$/;"	m	language:C++	union:__anon35	typeref:struct:__anon35::__anon36
+message	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        } __attribute__((packed)) message;$/;"	m	language:C++	union:__anon14	typeref:struct:__anon14::__anon15
+n_data	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^      uint16_t n_data;$/;"	m	language:C++	struct:__anon1
+opaque	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            uint32_t opaque;$/;"	m	language:C++	struct:__anon6::__anon7
+opaque	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            uint32_t opaque;$/;"	m	language:C++	struct:__anon8::__anon9
+opcode	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            uint8_t opcode;$/;"	m	language:C++	struct:__anon6::__anon7
+opcode	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            uint8_t opcode;$/;"	m	language:C++	struct:__anon8::__anon9
+PROTOCOL_BINARY_CMD_ADD	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_ADD = 0x02,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_ADDQ	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_ADDQ = 0x12,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_APPEND	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_APPEND = 0x0e,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_APPENDQ	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_APPENDQ = 0x19,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_DECREMENT	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_DECREMENT = 0x06,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_DECREMENTQ	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_DECREMENTQ = 0x16,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_DELETE	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_DELETE = 0x04,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_DELETEQ	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_DELETEQ = 0x14,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_FLUSH	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_FLUSH = 0x08,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_FLUSHQ	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_FLUSHQ = 0x18,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_GAT	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_GAT = 0x1d,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_GATK	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_GATK = 0x23,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_GATKQ	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_GATKQ = 0x24,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_GATQ	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_GATQ = 0x1e,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_GET	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_GET = 0x00,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_GETK	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_GETK = 0x0c,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_GETKQ	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_GETKQ = 0x0d,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_GETQ	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_GETQ = 0x09,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_INCREMENT	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_INCREMENT = 0x05,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_INCREMENTQ	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_INCREMENTQ = 0x15,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_NOOP	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_NOOP = 0x0a,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_PREPEND	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_PREPEND = 0x0f,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_PREPENDQ	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_PREPENDQ = 0x1a,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_QUIT	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_QUIT = 0x07,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_QUITQ	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_QUITQ = 0x17,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_RAPPEND	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_RAPPEND   = 0x33,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_RAPPENDQ	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_RAPPENDQ  = 0x34,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_RDECR	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_RDECR     = 0x3b,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_RDECRQ	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_RDECRQ    = 0x3c$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_RDELETE	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_RDELETE   = 0x37,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_RDELETEQ	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_RDELETEQ  = 0x38,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_REPLACE	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_REPLACE = 0x03,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_REPLACEQ	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_REPLACEQ = 0x13,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_RGET	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_RGET      = 0x30,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_RINCR	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_RINCR     = 0x39,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_RINCRQ	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_RINCRQ    = 0x3a,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_RPREPEND	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_RPREPEND  = 0x35,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_RPREPENDQ	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_RPREPENDQ = 0x36,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_RSET	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_RSET      = 0x31,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_RSETQ	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_RSETQ     = 0x32,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_SASL_AUTH	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_SASL_AUTH = 0x21,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_SASL_LIST_MECHS	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_SASL_LIST_MECHS = 0x20,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_SASL_STEP	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_SASL_STEP = 0x22,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_SET	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_SET = 0x01,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_SETQ	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_SETQ = 0x11,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_STAT	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_STAT = 0x10,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_TOUCH	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_TOUCH = 0x1c,$/;"	e	language:C++	enum:__anon4
+PROTOCOL_BINARY_CMD_VERSION	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_CMD_VERSION = 0x0b,$/;"	e	language:C++	enum:__anon4
+protocol_binary_command	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    } protocol_binary_command;$/;"	t	language:C++	typeref:enum:__anon4
+protocol_binary_datatypes	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    } protocol_binary_datatypes;$/;"	t	language:C++	typeref:enum:__anon5
+PROTOCOL_BINARY_H	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	36;"	d	language:C++
+protocol_binary_magic	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    } protocol_binary_magic;$/;"	t	language:C++	typeref:enum:__anon2
+PROTOCOL_BINARY_RAW_BYTES	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_RAW_BYTES = 0x00$/;"	e	language:C++	enum:__anon5
+PROTOCOL_BINARY_REQ	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_REQ = 0x80,$/;"	e	language:C++	enum:__anon2
+protocol_binary_request_add	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_set protocol_binary_request_add;$/;"	t	language:C++
+protocol_binary_request_append	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_no_extras protocol_binary_request_append;$/;"	t	language:C++
+protocol_binary_request_decr	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_incr protocol_binary_request_decr;$/;"	t	language:C++
+protocol_binary_request_delete	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_no_extras protocol_binary_request_delete;$/;"	t	language:C++
+protocol_binary_request_flush	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    } protocol_binary_request_flush;$/;"	t	language:C++	typeref:union:__anon17
+protocol_binary_request_gat	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    } protocol_binary_request_gat;$/;"	t	language:C++	typeref:union:__anon32
+protocol_binary_request_gatk	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_gat protocol_binary_request_gatk;$/;"	t	language:C++
+protocol_binary_request_gatkq	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_gat protocol_binary_request_gatkq;$/;"	t	language:C++
+protocol_binary_request_gatq	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_gat protocol_binary_request_gatq;$/;"	t	language:C++
+protocol_binary_request_get	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_no_extras protocol_binary_request_get;$/;"	t	language:C++
+protocol_binary_request_getk	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_no_extras protocol_binary_request_getk;$/;"	t	language:C++
+protocol_binary_request_getkq	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_no_extras protocol_binary_request_getkq;$/;"	t	language:C++
+protocol_binary_request_getq	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_no_extras protocol_binary_request_getq;$/;"	t	language:C++
+protocol_binary_request_header	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    } protocol_binary_request_header;$/;"	t	language:C++	typeref:union:__anon6
+protocol_binary_request_incr	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    } protocol_binary_request_incr;$/;"	t	language:C++	typeref:union:__anon23
+protocol_binary_request_noop	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_no_extras protocol_binary_request_noop;$/;"	t	language:C++
+protocol_binary_request_no_extras	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    } protocol_binary_request_no_extras;$/;"	t	language:C++	typeref:union:__anon10
+protocol_binary_request_prepend	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_no_extras protocol_binary_request_prepend;$/;"	t	language:C++
+protocol_binary_request_quit	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_no_extras protocol_binary_request_quit;$/;"	t	language:C++
+protocol_binary_request_rangeop	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    } protocol_binary_request_rangeop;$/;"	t	language:C++	typeref:union:__anon35
+protocol_binary_request_rappend	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_rangeop protocol_binary_request_rappend;$/;"	t	language:C++
+protocol_binary_request_rappendq	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_rangeop protocol_binary_request_rappendq;$/;"	t	language:C++
+protocol_binary_request_rdecr	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_rangeop protocol_binary_request_rdecr;$/;"	t	language:C++
+protocol_binary_request_rdecrq	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_rangeop protocol_binary_request_rdecrq;$/;"	t	language:C++
+protocol_binary_request_rdelete	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_rangeop protocol_binary_request_rdelete;$/;"	t	language:C++
+protocol_binary_request_rdeleteq	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_rangeop protocol_binary_request_rdeleteq;$/;"	t	language:C++
+protocol_binary_request_replace	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_set protocol_binary_request_replace;$/;"	t	language:C++
+protocol_binary_request_rget	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_rangeop protocol_binary_request_rget;$/;"	t	language:C++
+protocol_binary_request_rincr	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_rangeop protocol_binary_request_rincr;$/;"	t	language:C++
+protocol_binary_request_rincrq	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_rangeop protocol_binary_request_rincrq;$/;"	t	language:C++
+protocol_binary_request_rprepend	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_rangeop protocol_binary_request_rprepend;$/;"	t	language:C++
+protocol_binary_request_rprependq	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_rangeop protocol_binary_request_rprependq;$/;"	t	language:C++
+protocol_binary_request_rset	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_rangeop protocol_binary_request_rset;$/;"	t	language:C++
+protocol_binary_request_rsetq	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_rangeop protocol_binary_request_rsetq;$/;"	t	language:C++
+protocol_binary_request_set	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    } protocol_binary_request_set;$/;"	t	language:C++	typeref:union:__anon20
+protocol_binary_request_stats	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_no_extras protocol_binary_request_stats;$/;"	t	language:C++
+protocol_binary_request_touch	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    } protocol_binary_request_touch;$/;"	t	language:C++	typeref:union:__anon29
+protocol_binary_request_version	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_request_no_extras protocol_binary_request_version;$/;"	t	language:C++
+PROTOCOL_BINARY_RES	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_RES = 0x81$/;"	e	language:C++	enum:__anon2
+protocol_binary_response_add	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_response_no_extras protocol_binary_response_add;$/;"	t	language:C++
+protocol_binary_response_append	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_response_no_extras protocol_binary_response_append;$/;"	t	language:C++
+PROTOCOL_BINARY_RESPONSE_AUTH_CONTINUE	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_RESPONSE_AUTH_CONTINUE = 0x21,$/;"	e	language:C++	enum:__anon3
+PROTOCOL_BINARY_RESPONSE_AUTH_ERROR	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_RESPONSE_AUTH_ERROR = 0x20,$/;"	e	language:C++	enum:__anon3
+protocol_binary_response_decr	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_response_incr protocol_binary_response_decr;$/;"	t	language:C++
+protocol_binary_response_delete	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_response_no_extras protocol_binary_response_delete;$/;"	t	language:C++
+PROTOCOL_BINARY_RESPONSE_DELTA_BADVAL	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_RESPONSE_DELTA_BADVAL = 0x06,$/;"	e	language:C++	enum:__anon3
+PROTOCOL_BINARY_RESPONSE_E2BIG	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_RESPONSE_E2BIG = 0x03,$/;"	e	language:C++	enum:__anon3
+PROTOCOL_BINARY_RESPONSE_EINVAL	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_RESPONSE_EINVAL = 0x04,$/;"	e	language:C++	enum:__anon3
+PROTOCOL_BINARY_RESPONSE_ENOMEM	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_RESPONSE_ENOMEM = 0x82$/;"	e	language:C++	enum:__anon3
+protocol_binary_response_flush	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_response_no_extras protocol_binary_response_flush;$/;"	t	language:C++
+protocol_binary_response_gat	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_response_get protocol_binary_response_gat;$/;"	t	language:C++
+protocol_binary_response_gatk	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_response_get protocol_binary_response_gatk;$/;"	t	language:C++
+protocol_binary_response_gatkq	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_response_get protocol_binary_response_gatkq;$/;"	t	language:C++
+protocol_binary_response_gatq	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_response_get protocol_binary_response_gatq;$/;"	t	language:C++
+protocol_binary_response_get	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    } protocol_binary_response_get;$/;"	t	language:C++	typeref:union:__anon14
+protocol_binary_response_getk	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_response_get protocol_binary_response_getk;$/;"	t	language:C++
+protocol_binary_response_getkq	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_response_get protocol_binary_response_getkq;$/;"	t	language:C++
+protocol_binary_response_getq	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_response_get protocol_binary_response_getq;$/;"	t	language:C++
+protocol_binary_response_header	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    } protocol_binary_response_header;$/;"	t	language:C++	typeref:union:__anon8
+protocol_binary_response_incr	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    } protocol_binary_response_incr;$/;"	t	language:C++	typeref:union:__anon26
+PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS = 0x02,$/;"	e	language:C++	enum:__anon3
+PROTOCOL_BINARY_RESPONSE_KEY_ENOENT	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_RESPONSE_KEY_ENOENT = 0x01,$/;"	e	language:C++	enum:__anon3
+protocol_binary_response_noop	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_response_no_extras protocol_binary_response_noop;$/;"	t	language:C++
+PROTOCOL_BINARY_RESPONSE_NOT_STORED	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_RESPONSE_NOT_STORED = 0x05,$/;"	e	language:C++	enum:__anon3
+protocol_binary_response_no_extras	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    } protocol_binary_response_no_extras;$/;"	t	language:C++	typeref:union:__anon12
+protocol_binary_response_prepend	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_response_no_extras protocol_binary_response_prepend;$/;"	t	language:C++
+protocol_binary_response_quit	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_response_no_extras protocol_binary_response_quit;$/;"	t	language:C++
+protocol_binary_response_replace	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_response_no_extras protocol_binary_response_replace;$/;"	t	language:C++
+protocol_binary_response_set	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_response_no_extras protocol_binary_response_set;$/;"	t	language:C++
+protocol_binary_response_stats	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_response_no_extras protocol_binary_response_stats;$/;"	t	language:C++
+protocol_binary_response_status	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    } protocol_binary_response_status;$/;"	t	language:C++	typeref:enum:__anon3
+PROTOCOL_BINARY_RESPONSE_SUCCESS	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_RESPONSE_SUCCESS = 0x00,$/;"	e	language:C++	enum:__anon3
+protocol_binary_response_touch	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_response_no_extras protocol_binary_response_touch;$/;"	t	language:C++
+PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND = 0x81,$/;"	e	language:C++	enum:__anon3
+protocol_binary_response_version	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^    typedef protocol_binary_response_no_extras protocol_binary_response_version;$/;"	t	language:C++
+request	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        } __attribute__((packed)) request;$/;"	m	language:C++	union:__anon6	typeref:struct:__anon6::__anon7
+req_id	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^      uint16_t req_id;$/;"	m	language:C++	struct:__anon1
+reserved	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^                uint8_t  reserved;$/;"	m	language:C++	struct:__anon35::__anon36::__anon37
+reserved	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            uint16_t reserved;$/;"	m	language:C++	struct:__anon6::__anon7
+response	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^        } __attribute__((packed)) response;$/;"	m	language:C++	union:__anon8	typeref:struct:__anon8::__anon9
+seq_id	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^      uint16_t seq_id;$/;"	m	language:C++	struct:__anon1
+size	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^                uint16_t size;$/;"	m	language:C++	struct:__anon35::__anon36::__anon37
+status	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^            uint16_t status;$/;"	m	language:C++	struct:__anon8::__anon9
+UDP_HEADER_SIZE	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	49;"	d	language:C++
+value	/root/tim/benchmarks/flexkvs/common/include/protocol_binary.h	/^                uint64_t value;$/;"	m	language:C++	struct:__anon26::__anon27::__anon28

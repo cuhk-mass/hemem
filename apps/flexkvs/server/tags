@@ -1,0 +1,19 @@
+!_TAG_FILE_SORTED	2	/0=unsorted, 1=sorted, 2=foldcase/
+buckets	/home/amanda/benchmarks_del/flexkvs/server/hashtable.c	/^static struct hash_bucket *buckets;$/;"	v	language:C++	typeref:struct:hash_bucket	file:
+BUCKET_NITEMS	/home/amanda/benchmarks_del/flexkvs/server/hashtable.c	36;"	d	language:C++	file:
+hashes	/home/amanda/benchmarks_del/flexkvs/server/hashtable.c	/^    uint32_t hashes[BUCKET_NITEMS];$/;"	m	language:C++	struct:hash_bucket	file:
+HASHTABLE_POWER	/home/amanda/benchmarks_del/flexkvs/server/hashtable.c	31;"	d	language:C++	file:
+hasht_get	/home/amanda/benchmarks_del/flexkvs/server/hashtable.c	/^struct item *hasht_get(const void *key, size_t klen, uint32_t hv)$/;"	f	language:C++
+hasht_init	/home/amanda/benchmarks_del/flexkvs/server/hashtable.c	/^void hasht_init(void)$/;"	f	language:C++
+hasht_put	/home/amanda/benchmarks_del/flexkvs/server/hashtable.c	/^void hasht_put(struct item *nit, struct item *cas)$/;"	f	language:C++
+hash_bucket	/home/amanda/benchmarks_del/flexkvs/server/hashtable.c	/^struct hash_bucket {$/;"	s	language:C++	file:
+items	/home/amanda/benchmarks_del/flexkvs/server/hashtable.c	/^    struct item *items[BUCKET_NITEMS];$/;"	m	language:C++	struct:hash_bucket	typeref:struct:hash_bucket::item	file:
+item_hkey_matches	/home/amanda/benchmarks_del/flexkvs/server/hashtable.c	/^static inline bool item_hkey_matches(struct item *it, const void *key,$/;"	f	language:C++	file:
+item_key_matches	/home/amanda/benchmarks_del/flexkvs/server/hashtable.c	/^static inline bool item_key_matches(struct item *it, const void *key,$/;"	f	language:C++	file:
+lock	/home/amanda/benchmarks_del/flexkvs/server/hashtable.c	/^    pthread_spinlock_t lock;$/;"	m	language:C++	struct:hash_bucket	file:
+nbuckets	/home/amanda/benchmarks_del/flexkvs/server/hashtable.c	/^static size_t nbuckets;$/;"	v	language:C++	file:
+settings	/home/amanda/benchmarks_del/flexkvs/server/settings.c	/^struct settings settings;$/;"	v	language:C++	typeref:struct:settings
+settings_init	/home/amanda/benchmarks_del/flexkvs/server/settings.c	/^int settings_init(int argc, char *argv[])$/;"	f	language:C++
+sizeof	/home/amanda/benchmarks_del/flexkvs/server/hashtable.c	/^_Static_assert(sizeof(pthread_spinlock_t) == 4, "Bad spinlock size");$/;"	p	language:C++	file:
+sizeof	/home/amanda/benchmarks_del/flexkvs/server/hashtable.c	/^_Static_assert(sizeof(struct hash_bucket) == 64, "Bad hash bucket size");$/;"	p	language:C++	file:
+TABLESZ	/home/amanda/benchmarks_del/flexkvs/server/hashtable.c	32;"	d	language:C++	file:
