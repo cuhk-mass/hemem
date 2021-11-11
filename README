@@ -1,28 +1,14 @@
 # HeMem Artifact
 
-This document describes the artifact for our SOSP 2021 paper on HeMem. We describe how to build and run HeMem and reproduce the results from our paper.
-
-For simplicity, we will provide remote access to our machine, which includes Intel Optane NVM, the linux kernel version required for running HeMem, the `/dev/dax` files set up for DRAM and NVM, HeMem itself, and the microbenchmark and application benchmarks evaluated with HeMem. Please contact us via HotCRP in order to set up access. If you wish to run HeMem on your own hardware, please see the section on "Building and Running HeMem" below.
+This document describes the artifact for our [SOSP 2021 paper](https://dl.acm.org/doi/10.1145/3477132.3483550 "SOSP 2021 paper") on HeMem. We describe how to build and run HeMem and reproduce the results from our paper.
 
 ## Overview
 
-When you access our machine, you will find the `hemem/` directory and a script called `init_env.sh` in your home directory. The `init_env.sh` script sets up the environment variables necessary for building and running HeMem. The `hemem/` directory contains the source code of HeMem and the microbenchmarks (`hemem/microbenchmarks/`) and application benchmarks (`hemem/apps/`) evaluated with HeMem. 
-
-## Artifact Available
-
-Our artifact is available here, at this repository. The main artifact branch is `sosp-submisssion`
-
-## Artifact Functional
-
-The process for accessing, building, and running HeMem is described below.
-
-### Accessing HeMem via our machines
-
-We will provide remote access to our test machine. This machine is set up with the proper linux kernel version with our changes allowing userfaultfd to work with `/dev/dax` files. This machine also includes all the microbenchmark and application benchmarks evaluated with HeMem. Access to this machine is via keys -- contact us via HotCRP to set up your keys to access the machine. To ensure the easiest time in evaluating this artifact, we recommend this approach.
+This repository contains the source code of HeMem, the microbenchmarks (`hemem/microbenchmarks/`) and application benchmarks (`hemem/apps/`) evaluated with HeMem.
 
 ### Building and Running HeMem
 
-Although more complicated, you can also set up HeMem to run on your own machine provided you have Intel Optane NVM. HeMem requires a special linux kernel in order to run. That kernel is located [here](https://github.com/aj-austin/linux/tree/uffd-wp-merged "here") in the `uffd-wp-merged` branch. Edit the `INCLUDES` line in the Makefiles in the main source directory and the microbenchmarks subdirectory to point to the linux headers from this repository that you downloaded.
+You may set up HeMem to run on your own machine provided you have Intel Optane NVM. HeMem requires a special linux kernel in order to run. That kernel is located [here](https://github.com/aj-austin/linux/tree/uffd-wp-merged "here") in the `uffd-wp-merged` branch. Edit the `INCLUDES` line in the Makefiles in the main source directory and the microbenchmarks subdirectory to point to the linux headers from this repository that you downloaded.
 
 HeMem has a dependency on [Hoard](https://github.com/emeryberger/Hoard "Hoard"). Download, build, and install Hoard before attempting to build HeMem.
 
@@ -48,25 +34,21 @@ To set up the `/dev/dax` file representing NVM, ensure that your machine has NVM
 
 2. Note which regions represent NVM. You can differentiate them from the reserved DRAM region based on size or via the `persistence_domain` field, which, for NVM, will read `memory_controller`. Pick the region that is on the same NUMA node as your reserved DRAM. In this example, this is "region1". Create a namespace over this region:
 
-` ndctl create-namespace --region=1 --mode=devdax`
+`ndctl create-namespace --region=1 --mode=devdax`
 
 3. Make note of the `chardev` name of the NVM `/dev/dax` file. This will be used to tell HeMem which `/dev/dax` file represents NVM. If this is different from `dax1.0`, then you will need to edit the `hemem.h` file `NVMPATH` macro to point it towards your actual NVM `/dev/dax` file.
 
 Once the proper kernel version is running and the `/dev/dax` files have been set up, HeMem can be built with the supplied Makefile by typing `make`.
 
+You will likely need to add the paths to the build HeMem library and the Hoard library to your LD_LIBRARY_PATH variable:
+
+`export LD_LIBRARY_PATH=path/to/hemem/lib:/path/to/Hoard/lib:$LD_LIBRARY_PATH`
+
+You may also need to increase the number of allowed mmap ranges:
+
+`echo 1000000 > /proc/sys/vm/max_map_count`
+
 HeMem requires the user be root in order to run. Applications can either be linked with Hemem or run unmodified via the `LD_PRELOAD` environment variable.
-
-The GUPS microbenchmark is provided in this repository. The Silo and GapBS benchmarks are both open source and can be found on GitHub. If you access HeMem via our machines, all microbenchmarks and application benchmarks are provided as well as convenient scripts to reproduce the results shown in our paper.
-
-## Results Reproduced
-
-Please note that reproducing the results in the paper can take quite a long time. These applications are large and use a lot of memory.
-
-Upon logging onto the machine, become root by executing `sudo su`. Run the following command in your home directory:
-
-`source init_env.sh`
-
-This sets up environment variables necessary for running HeMem.
 
 ### Microbenchmarks
 
@@ -80,16 +62,20 @@ To reproduce the Instantaneous GUPS results, run the `run-instantaneous.sh` scri
 
 ### Application Benchmarks
 
-Applications tested with HeMem are located in the `apps/` directory on our test machine.
+Applications tested with HeMem are located in the `apps/` directory.
 
 #### Silo 
 
-The Silo application can be found in the `apps/silo_hemem/silo` directory. It can also be downloaded from [this](https://github.com/stephentu/silo "this") repository. Run the provided `run_batch.sh` script. Results will be in the `batch/results.txt` file. The reported throughput numbers are numbers in the first column of the file.
+The Silo application can be found in the `apps/silo_hemem/silo` directory.. Run the provided `run_batch.sh` script. Results will be in the `batch/results.txt` file. The reported throughput numbers are numbers in the first column of the file.
 
 #### FlexKVS
 
-The FlexKVS application can be found in the `apps/flexkvs` directory. These results require a separate machine for the clients. Please talk with us if you wish to reproduce these results.
+The FlexKVS application can be found in the `apps/flexkvs` directory. These results require a separate machine for the clients.
 
 #### GapBS
 
-The GapBS application can be found in the `apps/gapbs` directory. It can also be downloaded from [this](https://github.com/sbeamer/gapbs "this") repository. To run the BC algorithm, run the `run_bc.sh` script. Results for a graph with 2^28 vertices will be in a file called `28v.txt` and the results for a graph with 2^29 vertices will be in a file called `29v.txt`. The latencies reported are the "Trial Time" lines.
+The GapBS application can be found in the `apps/gapbs` directory. To run the BC algorithm reported in the paper, you may run the following command:
+
+`LD_PRELOAD=/path/to/hemem/lib ./bc -g <scale>`
+
+which will run the bc algorithm with HeMem on a graph with 2^scale vertices.
