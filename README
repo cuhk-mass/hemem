@@ -1,20 +1,23 @@
-# HeMem Artifact
+# HeMem
 
-This document describes the artifact for our [SOSP 2021 paper](https://dl.acm.org/doi/10.1145/3477132.3483550 "SOSP 2021 paper") on HeMem. We describe how to build and run HeMem and reproduce the results from our paper.
+This document describes the artifact for our [SOSP 2021 paper](https://dl.acm.org/doi/10.1145/3477132.3483550 "SOSP 2021 paper") on HeMem. HeMem is a tiered main memory management system designed from scratch for commercially available NVM and the big data applications that use it. HeMem manages tiered memory asynchronously, batching and amortizing memory access tracking, migration, and associated TLB synchronization overheads. HeMem monitors application memory use by sampling memory access via CPU events, rather than page tables. This allows HeMem to scale to terabytes of memory, keeping small and ephemeral data structures in fast memory, and allocating scarce, asymmetric NVM bandwidth according to access patterns. Finally, HeMem is flexible by placing per-application memory management policy at user-level.
 
 ## Overview
 
-This repository contains the source code of HeMem, the microbenchmarks (`hemem/microbenchmarks/`) and application benchmarks (`hemem/apps/`) evaluated with HeMem.
+* `apps/` contains the application benchmarks evaluated with HeMem
+* `microbenchmarks/` contains the GUPS microbenchmark used to evaluate HeMem
+* `src/` contains the source code of HeMem
+	* `src/policies` contains extra memory policies used for testing HeMem, such as a page-table based LRU policy
+* `Hoard/` contains the Hoard memory allocator that HeMem depends on
+* `linux/` contains the linux kernel version required to run HeMem
 
 ### Building and Running HeMem
 
-You may set up HeMem to run on your own machine provided you have Intel Optane NVM. HeMem requires a special linux kernel in order to run. That kernel is located [here](https://github.com/aj-austin/linux/tree/uffd-wp-merged "here") in the `uffd-wp-merged` branch. Edit the `INCLUDES` line in the Makefiles in the main source directory and the microbenchmarks subdirectory to point to the linux headers from this repository that you downloaded.
+#### Setup
 
-HeMem has a dependency on [Hoard](https://github.com/emeryberger/Hoard "Hoard"). Download, build, and install Hoard before attempting to build HeMem.
+You may set up HeMem to run on your own machine provided you have Intel Optane NVM. HeMem uses `/dev/dax` files to represent DRAM and NVM. Some additional setup is required for setting up the DRAM and NVM `/dev/dax` files to run HeMem.
 
-Some additional setup is required for setting up the DRAM and NVM `/dev/dax` files to run HeMem.
-
-To set up the `/dev/dax` file representing DRAM, follow the instructions [here](https://pmem.io/2016/02/22/pm-emulation.html "here") in order to reserve a block of DRAM at machine startup to represent the DRAM `/dev/dax` file. HeMem reserves its 140GB of DRAM in this way (enough for its 128GB of reserved DRAM plus some metadata needed for `ndctl`). If your machine has multiple NUMA nodes, ensure that the block of DRAM you reserve is located on the same NUMA node that has NVM. Do not follow the last set of instructions from pmem.io on setting up a file system on the reserved DRAM. Instead, set up a `/dev/dax` file to represent it:
+To set up the `/dev/dax` file representing DRAM, follow the instructions [here](https://pmem.io/2016/02/22/pm-emulation.html "here") in order to reserve a block of DRAM at machine startup to represent the DRAM `/dev/dax` file. HeMem reserves its 140GB of DRAM in this way (enough for its 128GB of reserved DRAM plus some metadata needed for `ndctl`). If your machine has multiple NUMA nodes, ensure that the block of DRAM you reserve is located on the same NUMA node that has NVM. **Do not follow the last set of instructions from pmem.io on setting up a file system on the reserved DRAM.** Instead, set up a `/dev/dax` file to represent it:
 
 1. First, determine the name of the namespace representing the reserved DRAM:
 
@@ -24,7 +27,7 @@ To set up the `/dev/dax` file representing DRAM, follow the instructions [here](
 
 `sudo ndctl create-namespace -f -e namespace0.0 --mode=devdax --align 2M`
 
-3. Make note of the `chardev` name of the DRAM `/dev/dax` file. This will be used to tell HeMem which `/dev/dax` file represents DRAM. If this is different from `dax0.0`, then you will need to edit the `hemem.h` file `DRAMPATH` macro to point it towards your actual DRAM `/dev/dax` file.
+3. Make note of the `chardev` name of the DRAM `/dev/dax` file. This will be used to tell HeMem which `/dev/dax` file represents DRAM. If this is different from `dax0.0`, then you will need to edit the `src/hemem.h` file `DRAMPATH` macro to point it towards your actual DRAM `/dev/dax` file.
 
 To set up the `/dev/dax` file representing NVM, ensure that your machine has NVM in App Direct mode. If you do not already have namespaces representing NVM, then you will need to create them. Follow these steps:
 
@@ -36,9 +39,20 @@ To set up the `/dev/dax` file representing NVM, ensure that your machine has NVM
 
 `ndctl create-namespace --region=1 --mode=devdax`
 
-3. Make note of the `chardev` name of the NVM `/dev/dax` file. This will be used to tell HeMem which `/dev/dax` file represents NVM. If this is different from `dax1.0`, then you will need to edit the `hemem.h` file `NVMPATH` macro to point it towards your actual NVM `/dev/dax` file.
+3. Make note of the `chardev` name of the NVM `/dev/dax` file. This will be used to tell HeMem which `/dev/dax` file represents NVM. If this is different from `dax1.0`, then you will need to edit the `src/hemem.h` file `NVMPATH` macro to point it towards your actual NVM `/dev/dax` file.
 
-Once the proper kernel version is running and the `/dev/dax` files have been set up, HeMem can be built with the supplied Makefile by typing `make` from the `src/` directory.
+
+#### Building
+
+To build HeMem, you must first build the linux kernel HeMem depends on. Build, install, and run the kernel located in the `linux/` directory.
+
+Next, HeMem depends on Hoard. Follow the instructions to build the Hoard library located in the `Hoard/` directory.
+
+HeMem also depends on libsyscall_intercept to intercept memory allocation system calls. Follow the instructions to build and install libsyscall_intercept [here](https://github.com/pmem/syscall_intercept).
+
+Once the proper kernel version is running, the `/dev/dax` files have been set up, and all dependencies have been installed, HeMem can be built with the supplied Makefile by typing `make` from the `src/` directory.
+
+#### Running
 
 You will likely need to add the paths to the build HeMem library and the Hoard library to your LD_LIBRARY_PATH variable:
 
@@ -48,7 +62,9 @@ You may also need to increase the number of allowed mmap ranges:
 
 `echo 1000000 > /proc/sys/vm/max_map_count`
 
-HeMem requires the user be root in order to run. Applications can either be linked with Hemem or run unmodified via the `LD_PRELOAD` environment variable.
+HeMem requires the user be root in order to run. Applications can either be linked with Hemem or run unmodified via the `LD_PRELOAD` environment variable:
+
+`LD_PRELOAD=/path/to/hemem/lib.so ./foo [args]`
 
 ### Microbenchmarks
 
@@ -79,3 +95,4 @@ The GapBS application can be found in the `apps/gapbs` directory. To run the BC 
 `LD_PRELOAD=/path/to/hemem/lib ./bc -g <scale>`
 
 which will run the bc algorithm with HeMem on a graph with 2^scale vertices.
+
