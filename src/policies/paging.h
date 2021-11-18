@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <inttypes.h>
 
-#include "hemem.h"
+#include "../hemem.h"
 
 
 #define ADDRESS_MASK  ((uint64_t)0x00000ffffffff000UL)

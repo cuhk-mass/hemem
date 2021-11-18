@@ -4,3 +4,9 @@
 [submodule "apps/gapbs"]
 	path = apps/gapbs
 	url = https://ajaustin@bitbucket.org/ajaustin/gapbs.git
+[submodule "Hoard"]
+	path = Hoard
+	url = https://github.com/emeryberger/Hoard.git
+[submodule "linux"]
+	path = linux
+	url = https://github.com/aj-austin/linux.git

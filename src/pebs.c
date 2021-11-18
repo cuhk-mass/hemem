@@ -345,12 +345,12 @@ struct hemem_page* partial_cool_peek_and_move(struct fifo_list *hot, struct fifo
         p->hot = false;
     }
     
-    if (dram && p == start_dram_page) {
+    if (dram && (p == start_dram_page)) {
         start_dram_page = NULL;
         need_cool_dram = false;
     }
 
-    if (!dram && p == start_nvm_page) {
+    if (!dram && (p == start_nvm_page)) {
         start_nvm_page = NULL;
         need_cool_nvm = false;
     } 
@@ -457,7 +457,7 @@ void *pebs_policy_thread()
     }
     
     // move each hot NVM page to DRAM
-    for (migrated_bytes = 0; migrated_bytes < KSWAPD_MIGRATE_RATE;) {
+    for (migrated_bytes = 0; migrated_bytes < PEBS_KSWAPD_MIGRATE_RATE;) {
       p = dequeue_fifo(&nvm_hot_list);
       if (p == NULL) {
         // nothing in NVM is currently hot -- bail out

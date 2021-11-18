@@ -21,7 +21,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "hemem.h"
+#include "../hemem.h"
 #include "paging.h"
 
 struct hemem_page* simple_pagefault(void);

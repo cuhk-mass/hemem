@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <inttypes.h>
 
-#include "hemem.h"
+#include "../hemem.h"
 #include "paging.h"
 
 

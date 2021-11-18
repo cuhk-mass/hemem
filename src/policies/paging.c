@@ -18,10 +18,10 @@
 #include <stdint.h>
 #include <inttypes.h>
 
-#include "hemem.h"
-#include "timer.h"
+#include "../hemem.h"
+#include "../timer.h"
 #include "paging.h"
-#include "interpose.h"
+#include "../interpose.h"
 
 #if 0
 

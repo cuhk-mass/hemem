@@ -23,9 +23,12 @@
 
 #include "hemem.h"
 #include "timer.h"
-#include "paging.h"
 #include "uthash.h"
 #include "pebs.h"
+
+#ifdef ALLOC_LRU
+#include "policies/paging.h"
+#endif
 
 pthread_t fault_thread;
 
@@ -691,7 +694,9 @@ void hemem_migrate_up(struct hemem_page *page, uint64_t dram_offset)
   page->in_dram = true;
   //page->pa = hemem_va_to_pa(page);
 
+#ifdef ALLOC_LRU
   hemem_tlb_shootdown(page->va);
+#endif
 
   bytes_migrated += pagesize;
   
@@ -803,7 +808,9 @@ void hemem_migrate_down(struct hemem_page *page, uint64_t nvm_offset)
   page->in_dram = false;
   //page->pa = hemem_va_to_pa(page);
 
+#ifdef ALLOC_LRU
   hemem_tlb_shootdown(page->va);
+#endif
 
   bytes_migrated += pagesize;
 
@@ -1100,76 +1107,7 @@ void *handle_fault()
   }
 }
 
-/*
-uint64_t* hemem_va_to_pa(struct hemem_page *page)
-{
-  uint64_t pt_base = ((uint64_t)(cr3 & ADDRESS_MASK));
-  uint64_t pgd_entry;
-  uint64_t pud_entry;
-  uint64_t pmd_entry;
-  uint64_t pte_entry;
-  uint64_t offset;
-
-  page->pgd = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pt_base);
-  if (page->pgd == MAP_FAILED) {
-    perror("hemem_va_to_pa pgd mmap:");
-    assert(0);
-  }
-  offset = (((page->va) >> HEMEM_PGDIR_SHIFT) & (HEMEM_PTRS_PER_PGD - 1));
-  assert(offset < BASEPAGE_SIZE);
-  pgd_entry = *(page->pgd + offset) ;
-  if (!((pgd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
-    LOG("hemem_va_to_pa: pgd not present: %016lx\n", pgd_entry);
-    assert(0);
-  }
-
-  page->pud = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pgd_entry & ADDRESS_MASK);
-  if (page->pud == MAP_FAILED) {
-    perror("hemem_va_to_pa pud mmap:");
-    assert(0);
-  }
-  offset =  (((page->va) >> HEMEM_PUD_SHIFT) & (HEMEM_PTRS_PER_PUD - 1));
-  assert(offset < BASEPAGE_SIZE);
-  pud_entry = *(page->pud + offset);
-  if (!((pud_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
-    LOG("hemem_va_to_pa: pud not present: %016lx\n", pud_entry);
-    assert(0);
-  }
-
-  page->pmd = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pud_entry & ADDRESS_MASK);
-  if (page->pmd == MAP_FAILED) {
-    perror("hemem_va_to_pa pmd mmap:");
-    assert(0);
-  }
-  offset = (((page->va) >> HEMEM_PMD_SHIFT) & (HEMEM_PTRS_PER_PMD - 1));
-  assert(offset < BASEPAGE_SIZE);
-  pmd_entry = *(page->pmd + offset);
-  if (!((pmd_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
-    LOG("hemem_va_to_pa: pmd not present: %016lx\n", pmd_entry);
-    assert(0);
-  }
-
-  if ((pmd_entry & HEMEM_HUGEPAGE_FLAG) == HEMEM_HUGEPAGE_FLAG) {
-    return (page->pmd + offset);
-  }
-
-  page->pte = (uint64_t*)libc_mmap(NULL, BASEPAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, devmemfd, pmd_entry & ADDRESS_MASK);
-  if (page->pte == MAP_FAILED) {
-    perror("hemem_va_to_pa pte mmap:");
-    assert(0);
-  }
-  offset = (((page->va) >> HEMEM_PAGE_SHIFT) & (HEMEM_PTRS_PER_PTE - 1));
-  assert(offset < BASEPAGE_SIZE);
-  pte_entry = *(page->pte + offset);
-  if (!((pte_entry & HEMEM_PRESENT_FLAG) == HEMEM_PRESENT_FLAG)) {
-    LOG("hemem_va_to_pa: pte not present: %016lx\n", pte_entry);
-    assert(0);
-  }
-  
-  return (page->pte + offset);
-}
-*/
-
+#ifdef ALLOC_LRU
 void hemem_tlb_shootdown(uint64_t va)
 {
   uint64_t page_boundry = va & ~(PAGE_SIZE - 1);
@@ -1185,21 +1123,9 @@ void hemem_tlb_shootdown(uint64_t va)
     assert(0);
   }
 }
-/*
-void hemem_clear_bits(struct hemem_page *page)
-{
-  uint64_t page_boundry = page->va & ~(PAGE_SIZE - 1);
-  clear_bits(page_boundry);
-}
+#endif
 
-
-uint64_t hemem_get_bits(struct hemem_page *page)
-{
-  uint64_t page_boundry = page->va & ~(PAGE_SIZE - 1);
-  return get_bits(page_boundry);
-}
-*/
-
+#ifdef ALLOC_LRU
 void hemem_clear_bits(struct hemem_page *page)
 {
   uint64_t ret;
@@ -1220,8 +1146,9 @@ void hemem_clear_bits(struct hemem_page *page)
     LOG("hemem_clear_accessed_bit: accessed bit not cleared\n");
   }
 }
+#endif
 
-
+#ifdef ALLOC_LRU
 uint64_t hemem_get_bits(struct hemem_page *page)
 {
   uint64_t ret;
@@ -1241,6 +1168,7 @@ uint64_t hemem_get_bits(struct hemem_page *page)
 
   return ret;;
 }
+#endif
 
 void hemem_print_stats()
 {

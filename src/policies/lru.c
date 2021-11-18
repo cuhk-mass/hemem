@@ -8,11 +8,11 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-#include "hemem.h"
+#include "../hemem.h"
 #include "paging.h"
 #include "lru.h"
-#include "timer.h"
-#include "fifo.h"
+#include "../timer.h"
+#include "../fifo.h"
 
 
 #define MAX_VAS                1000000

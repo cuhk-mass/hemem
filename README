@@ -38,7 +38,7 @@ To set up the `/dev/dax` file representing NVM, ensure that your machine has NVM
 
 3. Make note of the `chardev` name of the NVM `/dev/dax` file. This will be used to tell HeMem which `/dev/dax` file represents NVM. If this is different from `dax1.0`, then you will need to edit the `hemem.h` file `NVMPATH` macro to point it towards your actual NVM `/dev/dax` file.
 
-Once the proper kernel version is running and the `/dev/dax` files have been set up, HeMem can be built with the supplied Makefile by typing `make`.
+Once the proper kernel version is running and the `/dev/dax` files have been set up, HeMem can be built with the supplied Makefile by typing `make` from the `src/` directory.
 
 You will likely need to add the paths to the build HeMem library and the Hoard library to your LD_LIBRARY_PATH variable:
 

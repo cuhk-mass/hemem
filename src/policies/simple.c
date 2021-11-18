@@ -24,10 +24,10 @@
 #include <assert.h>
 #include <sys/time.h>
 
-#include "hemem.h"
+#include "../hemem.h"
 #include "paging.h"
-#include "timer.h"
-#include "fifo.h"
+#include "../timer.h"
+#include "../fifo.h"
 
 uint64_t fastmem = 0;
 uint64_t slowmem = 0;

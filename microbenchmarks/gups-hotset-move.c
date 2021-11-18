@@ -34,8 +34,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "../timer.h"
-#include "../hemem.h"
+#include "../src/timer.h"
+#include "../src/hemem.h"
 
 
 #include "gups.h"
