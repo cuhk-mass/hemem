@@ -11,7 +11,6 @@
 #include <string.h>
 #include <pthread.h>
 #include <sys/mman.h>
-#include <linux/userfaultfd.h>
 #include <poll.h>
 #include <sys/syscall.h>
 #include <sys/ioctl.h>
@@ -25,6 +24,7 @@
 #include "timer.h"
 #include "uthash.h"
 #include "pebs.h"
+#include "userfaultfd.h"
 
 #ifdef ALLOC_LRU
 #include "policies/paging.h"

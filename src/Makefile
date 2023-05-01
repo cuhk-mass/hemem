@@ -1,10 +1,10 @@
 CC = gcc
 CFLAGS = -g -Wall -O3 -fPIC
 #CFLAGS = -g3 -Wall -O0 -fPIC
-LDFLAGS = -shared
-INCLUDES = -I../linux/usr/include
+LDFLAGS = -shared -Wl,--allow-multiple-definition
+INCLUDES =
 LIBS = -lm -lpthread
-HEMEM_LIBS = $(LIBS) -ldl -lsyscall_intercept -L../Hoard/src -lhoard
+HEMEM_LIBS = $(LIBS) -ldl -lsyscall_intercept -lcapstone -lhoard
 
 default: libhemem.so
 
