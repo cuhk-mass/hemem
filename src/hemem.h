@@ -191,6 +191,7 @@ static inline enum pagetypes pagesize_to_pt(uint64_t pagesize)
   }
 }
 
+void log_init();
 void hemem_init();
 void hemem_stop();
 void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);

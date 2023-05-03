@@ -111,6 +111,8 @@ static int hook(long syscall_number, long arg0, long arg1, long arg2, long arg3,
 
 static __attribute__((constructor)) void init(void)
 {
+  log_init();
+
   libc_mmap = bind_symbol("mmap");
   libc_munmap = bind_symbol("munmap");
   libc_malloc = bind_symbol("malloc");

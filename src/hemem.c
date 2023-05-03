@@ -111,10 +111,6 @@ void *hemem_parallel_memcpy_thread(void *arg)
     if (!pmemcpy.write_zeros) {
       src = pmemcpy.src + (tid * chunk_size);
       memcpy(dst, src, chunk_size);
-    }
-    else {
-      memset(dst, 0, chunk_size);
-    }
 
 #ifdef HEMEM_DEBUG
     uint64_t *tmp1, *tmp2, i;
@@ -129,6 +125,11 @@ void *hemem_parallel_memcpy_thread(void *arg)
 #endif
 
     //LOG("thread %lu done copying\n", tid);
+    }
+    else {
+      LOG("hemem_parallel_memcpy_thread %lu got job zero fill %p len 0x%lx\n", tid, dst, length);
+      memset(dst, 0, chunk_size);
+    }
 
     r = pthread_barrier_wait(&pmemcpy.barrier);
     assert(r == 0 || r == PTHREAD_BARRIER_SERIAL_THREAD);
@@ -185,6 +186,27 @@ struct hemem_page* find_page(uint64_t va)
   return page;
 }
 
+void log_init()
+{
+  hememlogf = fopen("logs.txt", "w+");
+  if (hememlogf == NULL) {
+    perror("log file open\n");
+    assert(0);
+  }
+  setvbuf(hememlogf, NULL, _IONBF, 0);
+
+  timef = fopen("times.txt", "w+");
+  if (timef == NULL) {
+    perror("time file fopen\n");
+    assert(0);
+  }
+
+  statsf = fopen("stats.txt", "w+");
+  if (statsf == NULL) {
+    perror("stats file fopen\n");
+    assert(0);
+  }
+}
 
 void hemem_init()
 {
@@ -204,12 +226,6 @@ void hemem_init()
   }
 */
   
-  hememlogf = fopen("logs.txt", "w+");
-  if (hememlogf == NULL) {
-    perror("log file open\n");
-    assert(0);
-  }
-
   LOG("hemem_init: started\n");
 
   dramfd = open(DRAMPATH, O_RDWR);
@@ -247,18 +263,6 @@ void hemem_init()
   int s = pthread_create(&fault_thread, NULL, handle_fault, 0);
   if (s != 0) {
     perror("pthread_create");
-    assert(0);
-  }
-
-  timef = fopen("times.txt", "w+");
-  if (timef == NULL) {
-    perror("time file fopen\n");
-    assert(0);
-  }
-
-  statsf = fopen("stats.txt", "w+");
-  if (statsf == NULL) {
-    perror("stats file fopen\n");
     assert(0);
   }
 
