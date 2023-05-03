@@ -13,3 +13,6 @@
 [submodule "syscall_intercept"]
 	path = syscall_intercept
 	url = https://github.com/pmem/syscall_intercept
+[submodule "capstone"]
+	path = capstone
+	url = https://github.com/capstone-engine/capstone
