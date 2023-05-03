@@ -9,7 +9,7 @@
 	url = https://github.com/emeryberger/Hoard.git
 [submodule "linux"]
 	path = linux
-	url = https://github.com/aj-austin/linux.git
+	url = ../hemem-linux
 [submodule "syscall_intercept"]
 	path = syscall_intercept
 	url = https://github.com/pmem/syscall_intercept
