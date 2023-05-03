@@ -442,16 +442,52 @@ static void hemem_mmap_populate(void* addr, size_t length)
 
 #define PAGE_ROUND_UP(x) (((x) + (HUGEPAGE_SIZE)-1) & (~((HUGEPAGE_SIZE)-1)))
 
+
+void *hemem_mmap_actual(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
+{
+  void *p = libc_mmap(addr, length, prot, flags, dramfd, offset);
+  if (p == NULL || p == MAP_FAILED) {
+    perror("mmap");
+  }
+  assert(p != NULL && p != MAP_FAILED);
+
+  // register with uffd
+  struct uffdio_register uffdio_register;
+  uffdio_register.range.start = (uint64_t)p;
+  uffdio_register.range.len = length;
+  uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
+  uffdio_register.ioctls = 0;
+  if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
+    perror("ioctl uffdio_register");
+    assert(0);
+  }
+
+  if (!cr3_set) {
+    struct uffdio_cr3 uffdio_cr3;
+    if (ioctl(uffd, UFFDIO_CR3, &uffdio_cr3) < 0) {
+      perror("ioctl uffdio_cr3");
+      assert(0);
+    }
+    cr3 = uffdio_cr3.cr3;
+    cr3_set = true;
+  }
+
+  if ((flags & MAP_POPULATE) == MAP_POPULATE) {
+    hemem_mmap_populate(p, length);
+  }
+
+  return p;
+}
+
 void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 {
-  void *p;
-  struct uffdio_cr3 uffdio_cr3;
+  assert((length > DRAMSIZE && addr, "does not support fixed mmap with split for now"));
 
   internal_call = true;
 
   assert(is_init);
   assert(length != 0);
-  
+
   if ((flags & MAP_PRIVATE) == MAP_PRIVATE) {
     flags &= ~MAP_PRIVATE;
     flags |= MAP_SHARED;
@@ -470,42 +506,24 @@ void* hemem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t o
   
   // reserve block of memory
   length = PAGE_ROUND_UP(length);
-  p = libc_mmap(addr, length, prot, flags, dramfd, offset);
-  if (p == NULL || p == MAP_FAILED) {
-    perror("mmap");
-  }
-  assert(p != NULL && p != MAP_FAILED);
 
-  // register with uffd
-  struct uffdio_register uffdio_register;
-  uffdio_register.range.start = (uint64_t)p;
-  uffdio_register.range.len = length;
-  uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP;
-  uffdio_register.ioctls = 0;
-  if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
-    perror("ioctl uffdio_register");
-    assert(0);
-  }
+  void *ret;
+  size_t chunk = 0;
+  size_t allocated = 0;
+  do {
+    chunk = min(length - allocated, DRAMSIZE - SMALLALLOCSIZE );
+    fd = allocated ? nvmfd : dramfd;
+    addr = allocated ? ret - chunk : addr;
+    LOG_ALWAYS("hemem_mmap is reserving addr %p length %lx prot %d flags %d hememfd %d offset %lx = ", addr, chunk, prot, flags, fd, offset);
+    ret = hemem_mmap_actual(addr, chunk, prot, allocated ? flags | MAP_FIXED : flags, fd, offset);
+    allocated += chunk;
+    LOG_ALWAYS("%p\n", ret);
+  } while (allocated < length);
 
-  if (!cr3_set) {
-    if (ioctl(uffd, UFFDIO_CR3, &uffdio_cr3) < 0) {
-      perror("ioctl uffdio_cr3");
-      assert(0);
-    }
-    cr3 = uffdio_cr3.cr3;
-    cr3_set = true;
-  }
-
-   
-  if ((flags & MAP_POPULATE) == MAP_POPULATE) {
-    hemem_mmap_populate(p, length);
-  }
-
-  mem_mmaped = length;
-  
+  // mem_mmaped = length;
   internal_call = false;
   
-  return p;
+  return ret;
 }
 
 
