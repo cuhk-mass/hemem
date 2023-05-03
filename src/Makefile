@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -g -Wall -O3 -fPIC
 #CFLAGS = -g3 -Wall -O0 -fPIC
-LDFLAGS = -shared -Wl,--allow-multiple-definition
+LDFLAGS = -shared -Wl,--allow-multiple-definition -Wl,-rpath,'$$ORIGIN'
 INCLUDES =
 LIBS = -lm -lpthread
 HEMEM_LIBS = $(LIBS) -ldl -lsyscall_intercept -lcapstone -lhoard
