@@ -40,14 +40,15 @@ extern "C" {
 //#define USE_PEBS
 //#define STATS_THREAD
 
-#define USE_DMA
 #define NUM_CHANNS 2
+// #define USE_DMA
 #define SIZE_PER_DMA_REQUEST (1024*1024)
 
 #define MEM_BARRIER() __sync_synchronize()
 
-#define NVMSIZE   (480L * (1024L * 1024L * 1024L))
-#define DRAMSIZE  (128L * (1024L * 1024L * 1024L))
+#define NVMSIZE   (3L* (1024L * 1024L * 1024L))
+#define DRAMSIZE  (5L* (1024L * 1024L * 1024L))
+#define SMALLALLOCSIZE (1L << 30)
 
 #define DRAMPATH  "/dev/dax0.0"
 #define NVMPATH   "/dev/dax1.0"
@@ -71,7 +72,7 @@ extern "C" {
 #define GIGA_PFN_MASK   (GIGAPAGE_MASK ^ UINT64_MAX)
 
 #define FAULT_THREAD_CPU  (0)
-#define STATS_THREAD_CPU  (23)
+#define STATS_THREAD_CPU  (3)
 
 FILE *hememlogf;
 //#define LOG(...) fprintf(stderr, __VA_ARGS__)
