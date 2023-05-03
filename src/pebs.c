@@ -39,6 +39,7 @@ uint64_t zero_pages_cnt = 0;
 uint64_t throttle_cnt = 0;
 uint64_t unthrottle_cnt = 0;
 uint64_t cools = 0;
+uint64_t nsamples[NPBUFTYPES] = {};
 
 static struct perf_event_mmap_page *perf_page[PEBS_NPROCS][NPBUFTYPES];
 int pfd[PEBS_NPROCS][NPBUFTYPES];
@@ -121,7 +122,7 @@ void *pebs_scan_thread()
     assert(0);
   }
 
-  for(;;) {
+  for(uint64_t z = 0;;++z) {
     for (int i = 0; i < PEBS_NPROCS; i++) {
       for(int j = 0; j < NPBUFTYPES; j++) {
         struct perf_event_mmap_page *p = perf_page[i][j];
@@ -139,6 +140,7 @@ void *pebs_scan_thread()
 
         switch(ph->type) {
         case PERF_RECORD_SAMPLE:
+            nsamples[j]++;
             ps = (struct perf_sample*)ph;
             assert(ps != NULL);
             if(ps->addr != 0) {
@@ -205,6 +207,7 @@ void *pebs_scan_thread()
         p->data_tail += ph->size;
       }
     }
+    if (!(z % (16L << 20))) pebs_stats();
   }
 
   return NULL;
@@ -697,16 +700,40 @@ void pebs_shutdown()
 
 void pebs_stats()
 {
-  LOG_STATS("\tdram_hot_list.numentries: [%ld]\tdram_cold_list.numentries: [%ld]\tnvm_hot_list.numentries: [%ld]\tnvm_cold_list.numentries: [%ld]\themem_pages: [%lu]\ttotal_pages: [%lu]\tzero_pages: [%ld]\tthrottle/unthrottle_cnt: [%ld/%ld]\tcools: [%ld]\n",
+  uint64_t total_samples = nsamples[DRAMREAD] + nsamples[NVMREAD] + nsamples[WRITE];
+  LOG_STATS("\tdram_hot_list.numentries: [%ld]"
+	    "\tdram_cold_list.numentries: [%ld]"
+	    "\tdram_free_list.numentries: [%ld]"
+	    "\tnvm_hot_list.numentries: [%ld]"
+	    "\tnvm_cold_list.numentries: [%ld]"
+	    "\tnvm_free_list.numentries: [%ld]"
+	    "\themem_pages: [%lu]"
+	    "\ttotal_pages: [%lu]"
+	    "\tzero_pages: [%ld]"
+	    "\tthrottle/unthrottle_cnt: [%ld/%ld]"
+	    "\tcools: [%ld]"
+	    "\tdramread: [%ld/%ld]"
+	    "\tnvmread: [%ld/%ld]"
+	    "\twrite: [%ld/%ld]"
+	    "\n",
           dram_hot_list.numentries,
           dram_cold_list.numentries,
+          dram_free_list.numentries,
           nvm_hot_list.numentries,
           nvm_cold_list.numentries,
+          nvm_free_list.numentries,
           hemem_pages_cnt,
           total_pages_cnt,
           zero_pages_cnt,
           throttle_cnt,
           unthrottle_cnt,
-          cools);
+          cools,
+          nsamples[DRAMREAD],
+          total_samples,
+          nsamples[NVMREAD],
+          total_samples,
+          nsamples[WRITE],
+          total_samples);
+  nsamples[DRAMREAD] = nsamples[NVMREAD] = nsamples[WRITE] = 0;
   hemem_pages_cnt = total_pages_cnt =  throttle_cnt = unthrottle_cnt = 0;
 }
